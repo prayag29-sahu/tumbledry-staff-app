@@ -19,9 +19,7 @@ import {
   ShieldCheck,
   Building2,
   PlusCircle,
-  Tag,
   Sliders,
-  Layers,
   X,
   Pencil,
   Trash2,
@@ -34,11 +32,9 @@ import {
   ChevronRight,
   SlidersHorizontal,
   FileText,
-  AlertCircle,
   TrendingUp,
   RefreshCw,
   Phone,
-  Check,
   Package,
   Truck,
   Shirt,
@@ -250,7 +246,7 @@ export default function OwnerPage() {
     setIsLoadingStaffPerf(true);
     try {
       const [dayData, monthData] = await Promise.all([
-        apiRequest<{ assignments: any[]; summary: StaffTaskDaySummary }>(
+        apiRequest<{ assignments: StaffTaskDaySummary['assignments']; summary: StaffTaskDaySummary }>(
           `/api/shops/${shopId}/staff/${staffMemberId}/tasks?date=${date}`
         ).catch(() => null),
         apiRequest<StaffTaskMonthlySummary>(
@@ -602,7 +598,7 @@ export default function OwnerPage() {
             {/* Card 3: Today's Units Output */}
             <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 space-y-1 relative overflow-hidden">
               <div className="flex items-center justify-between text-content-muted">
-                <span className="text-[11px] font-bold uppercase tracking-wider">Today's Units</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider">Today&apos;s Units</span>
                 <div className="p-1.5 rounded-lg bg-amber-50 text-amber-700">
                   <TrendingUp className="w-4 h-4" />
                 </div>
@@ -641,7 +637,7 @@ export default function OwnerPage() {
               <div className="flex items-center justify-between text-xs font-bold text-brand-forest">
                 <span className="flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-brand-forest" />
-                  Today's Cross-Shop Operations Breakdown
+                  Today&apos;s Cross-Shop Operations Breakdown
                 </span>
                 <span className="text-[10px] text-content-muted font-normal">Real-time piece/unit count</span>
               </div>
@@ -682,7 +678,7 @@ export default function OwnerPage() {
                   Your Shops (Select to Inspect)
                 </h2>
                 <p className="text-xs text-content-muted">
-                  Click any shop to inspect its staff roster, today's output, and individual employee tasks
+                  Click any shop to inspect its staff roster, today&apos;s output, and individual employee tasks
                 </p>
               </div>
               <button
@@ -817,6 +813,15 @@ export default function OwnerPage() {
                   <p className="text-xs text-content-muted mt-0.5">
                     Click any staff member to view their daily pieces washed/ironed/delivered and monthly consistency
                   </p>
+                  {selectedShopMetrics && (
+                    <div className="flex items-center gap-2 text-[11px] font-semibold text-content-muted mt-1">
+                      <span>Staff: <strong className="text-brand-forest">{selectedShopMetrics.staffCount}</strong></span>
+                      <span>•</span>
+                      <span>Present: <strong className="text-purple-700">{selectedShopMetrics.todayAttendance}</strong></span>
+                      <span>•</span>
+                      <span>Today Output: <strong className="text-emerald-700">{selectedShopMetrics.todayCompletedUnits} / {selectedShopMetrics.todayTotalUnits} units</strong></span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -1255,7 +1260,7 @@ export default function OwnerPage() {
                   <label className="block text-xs font-bold text-brand-forest mb-1">Field Type</label>
                   <select
                     value={newFieldType}
-                    onChange={(e) => setNewFieldType(e.target.value as any)}
+                    onChange={(e) => setNewFieldType(e.target.value as CustomFieldDefinition['fieldType'])}
                     className="w-full px-3 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest"
                   >
                     <option value="TEXT">Short Text</option>
@@ -1470,7 +1475,7 @@ export default function OwnerPage() {
                   : 'text-content-muted hover:text-brand-forest'
               }`}
             >
-              Catalogues ({services.length} Services)
+              Catalogues ({services.length} Services • {activities.length} Activities)
             </button>
             <button
               onClick={() => setConfigSubTab('permissions')}
@@ -1735,7 +1740,7 @@ export default function OwnerPage() {
                 <label className="block text-xs font-bold text-brand-forest mb-1">Status</label>
                 <select
                   value={editShopStatus}
-                  onChange={(e) => setEditShopStatus(e.target.value as any)}
+                  onChange={(e) => setEditShopStatus(e.target.value as Shop['status'])}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest"
                 >
                   <option value="ACTIVE">ACTIVE</option>
