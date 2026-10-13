@@ -26,8 +26,9 @@ export function BottomNav() {
 
   if (user.isOwner) {
     navItems.push(
-      { label: 'Owner Panel', href: '/owner', icon: Shield },
-      { label: 'Attendance', href: '/attendance', icon: Camera },
+      { label: 'Admin', href: '/owner', icon: Shield },
+      { label: 'Workforce', href: '/supervisor', icon: Users },
+      { label: 'Tasks', href: '/manager', icon: ClipboardList },
       { label: 'Profile', href: '/profile', icon: User }
     );
   } else if (activeRole === 'Supervisor') {

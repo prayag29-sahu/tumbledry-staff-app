@@ -184,3 +184,61 @@ export interface PermissionProfile {
   description?: string | null;
   capabilities: { id: string; capability: string }[];
 }
+
+export interface CustomFieldDefinition {
+  id: string;
+  shopId?: string | null;
+  key: string;
+  label: string;
+  helpText?: string | null;
+  fieldType: 'TEXT' | 'NUMBER' | 'DATE' | 'FILE_IMAGE' | 'DROPDOWN' | 'YES_NO';
+  isRequired: boolean;
+  displayOrder: number;
+  dropdownOptions: string[];
+  isActive: boolean;
+}
+
+export interface AuditLogItem {
+  id: string;
+  shopId?: string | null;
+  actorAccountId: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  metadata?: Record<string, unknown> | null;
+  requestId?: string | null;
+  createdAt: string;
+  shop?: { id: string; name: string; code: string } | null;
+  actor?: { id: string; username: string } | null;
+}
+
+export interface GlobalShopMetrics {
+  totalShops: number;
+  totalActiveStaff: number;
+  todayAttendanceCount: number;
+  todayTotalUnits: number;
+  todayCompletedUnits: number;
+  todayPendingUnits: number;
+  activityBreakdown: {
+    wash: number;
+    dry: number;
+    iron: number;
+    fold: number;
+    pack: number;
+    delivery: number;
+    pickup: number;
+  };
+}
+
+export interface PerShopMetrics {
+  id: string;
+  name: string;
+  code: string;
+  status: 'ACTIVE' | 'PAUSED' | 'ARCHIVED';
+  address?: string | null;
+  staffCount: number;
+  todayAttendance: number;
+  todayTotalUnits: number;
+  todayCompletedUnits: number;
+  todayPendingUnits: number;
+}

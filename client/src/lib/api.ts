@@ -7,9 +7,19 @@ let accessToken: string | null = null;
 
 export function setAccessToken(token: string | null): void {
   accessToken = token;
+  if (typeof window !== 'undefined') {
+    if (token) {
+      localStorage.setItem('td_access_token', token);
+    } else {
+      localStorage.removeItem('td_access_token');
+    }
+  }
 }
 
 export function getAccessToken(): string | null {
+  if (!accessToken && typeof window !== 'undefined') {
+    accessToken = localStorage.getItem('td_access_token');
+  }
   return accessToken;
 }
 
@@ -35,8 +45,9 @@ export async function apiRequest<T = unknown>(
     headers.set('Content-Type', 'application/json');
   }
 
-  if (accessToken && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${accessToken}`);
+  const token = getAccessToken();
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
   }
 
   const response = await fetch(endpoint, {
