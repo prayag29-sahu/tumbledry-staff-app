@@ -7,6 +7,7 @@ import { apiRequest, setAccessToken } from '../lib/api';
 interface AuthContextType {
   user: AccountSession | null;
   activeShopId: string | null;
+  activeShopName: string | null;
   activeRole: string;
   isLoading: boolean;
   setActiveShopId: (shopId: string) => void;
@@ -116,6 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Determine effective role in active shop with safe optional chaining
   const memberships = user?.shopMemberships || [];
   const currentMembership = memberships.find((m) => m.shopId === activeShopId);
+  const activeShopName = currentMembership?.shopName || null;
   let activeRole = 'Staff';
   if (user?.isOwner) {
     activeRole = 'Owner';
@@ -140,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         activeShopId,
+        activeShopName,
         activeRole,
         isLoading,
         setActiveShopId: handleSetActiveShopId,

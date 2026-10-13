@@ -38,6 +38,9 @@ import {
   Package,
   Truck,
   Shirt,
+  UserPlus,
+  KeyRound,
+  Copy,
 } from 'lucide-react';
 
 interface StaffMembershipItem {
@@ -166,12 +169,110 @@ export default function OwnerPage() {
   const [isSubmittingEditShop, setIsSubmittingEditShop] = useState(false);
   const [deletingShopId, setDeletingShopId] = useState<string | null>(null);
 
+  // Supervisor Management State
+  const [isAddSupervisorOpen, setIsAddSupervisorOpen] = useState(false);
+  const [supFullName, setSupFullName] = useState('');
+  const [supMobile, setSupMobile] = useState('');
+  const [supUsername, setSupUsername] = useState('');
+  const [supPassword, setSupPassword] = useState('');
+  const [supSalary, setSupSalary] = useState('');
+  const [supDutyTiming, setSupDutyTiming] = useState('09:00 AM - 06:00 PM');
+  const [isSubmittingSupervisor, setIsSubmittingSupervisor] = useState(false);
+  const [createdSupCredentials, setCreatedSupCredentials] = useState<{
+    fullName: string;
+    username: string;
+    password: string;
+    shopName: string;
+  } | null>(null);
+
+  // Reset Password State
+  const [resetStaffTarget, setResetStaffTarget] = useState<StaffMembershipItem | null>(null);
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [isSubmittingReset, setIsSubmittingReset] = useState(false);
+
   // Position Modal
   const [isAddPosOpen, setIsAddPosOpen] = useState(false);
   const [posName, setPosName] = useState('');
   const [posDescription, setPosDescription] = useState('');
   const [posWfId, setPosWfId] = useState('');
   const [isSubmittingPos, setIsSubmittingPos] = useState(false);
+
+  // Fetch staff when selectedShopId changes
+  const fetchShopStaff = useCallback(async (shopId: string) => {
+    if (!shopId) return;
+    setIsLoadingStaff(true);
+    try {
+      const res = await apiRequest<{ staff: StaffMembershipItem[] }>(`/api/shops/${shopId}/staff`);
+      setShopStaff(res.staff || []);
+    } catch {
+      setShopStaff([]);
+    } finally {
+      setIsLoadingStaff(false);
+    }
+  }, []);
+
+  const handleCreateSupervisor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedShopId || !supFullName.trim() || !supUsername.trim() || !supPassword.trim()) return;
+
+    setIsSubmittingSupervisor(true);
+    try {
+      await apiRequest(`/api/shops/${selectedShopId}/staff`, {
+        method: 'POST',
+        body: JSON.stringify({
+          fullName: supFullName.trim(),
+          mobile: supMobile.trim() || undefined,
+          username: supUsername.trim().toLowerCase(),
+          password: supPassword.trim(),
+          role: 'Supervisor',
+          monthlySalary: supSalary ? parseFloat(supSalary) : undefined,
+          dutyTimingNotes: supDutyTiming.trim() || undefined,
+        }),
+      });
+
+      const currentShop = shops.find((s) => s.id === selectedShopId);
+      setCreatedSupCredentials({
+        fullName: supFullName.trim(),
+        username: supUsername.trim().toLowerCase(),
+        password: supPassword.trim(),
+        shopName: currentShop?.name || 'Shop',
+      });
+
+      setIsAddSupervisorOpen(false);
+      setSupFullName('');
+      setSupMobile('');
+      setSupUsername('');
+      setSupPassword('');
+      setSupSalary('');
+      fetchShopStaff(selectedShopId);
+      fetchAllData();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to create supervisor.');
+    } finally {
+      setIsSubmittingSupervisor(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedShopId || !resetStaffTarget || !resetNewPassword.trim()) return;
+
+    setIsSubmittingReset(true);
+    try {
+      await apiRequest(`/api/shops/${selectedShopId}/staff/${resetStaffTarget.staffMember.id}/reset-password`, {
+        method: 'POST',
+        body: JSON.stringify({ password: resetNewPassword.trim() }),
+      });
+      alert(`Password updated successfully for ${resetStaffTarget.staffMember.fullName}!`);
+      setResetStaffTarget(null);
+      setResetNewPassword('');
+      fetchShopStaff(selectedShopId);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to reset password.');
+    } finally {
+      setIsSubmittingReset(false);
+    }
+  };
 
   // Initial Data Fetch
   const fetchAllData = useCallback(async () => {
@@ -222,24 +323,8 @@ export default function OwnerPage() {
 
   // Fetch staff when selectedShopId changes
   useEffect(() => {
-    if (!selectedShopId) return;
-    let isCancelled = false;
-    setIsLoadingStaff(true);
-    apiRequest<{ staff: StaffMembershipItem[] }>(`/api/shops/${selectedShopId}/staff`)
-      .then((res) => {
-        if (!isCancelled) setShopStaff(res.staff || []);
-      })
-      .catch(() => {
-        if (!isCancelled) setShopStaff([]);
-      })
-      .finally(() => {
-        if (!isCancelled) setIsLoadingStaff(false);
-      });
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [selectedShopId]);
+    fetchShopStaff(selectedShopId);
+  }, [selectedShopId, fetchShopStaff]);
 
   // Fetch staff performance details (daily + monthly)
   const fetchStaffPerformance = useCallback(async (staffMemberId: string, shopId: string, date: string, year: number, month: number) => {
@@ -832,9 +917,23 @@ export default function OwnerPage() {
                       placeholder="Search staff or role..."
                       value={staffSearchQuery}
                       onChange={(e) => setStaffSearchQuery(e.target.value)}
-                      className="pl-8 pr-3 py-1.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:outline-none focus:ring-1 focus:ring-brand-forest w-48 sm:w-56"
+                      className="pl-8 pr-3 py-1.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:outline-none focus:ring-1 focus:ring-brand-forest w-36 sm:w-44"
                     />
                   </div>
+                  <button
+                    onClick={() => {
+                      setSupFullName('');
+                      setSupMobile('');
+                      setSupUsername(`sup_${selectedShopObj.code.toLowerCase()}_${Math.floor(10 + Math.random() * 90)}`);
+                      setSupPassword('');
+                      setSupSalary('');
+                      setIsAddSupervisorOpen(true);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black flex items-center gap-1.5 shadow-clay hover:opacity-95 transition-all whitespace-nowrap"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>+ Add Supervisor</span>
+                  </button>
                 </div>
               </div>
 
@@ -844,55 +943,91 @@ export default function OwnerPage() {
                 </div>
               ) : filteredStaff.length === 0 ? (
                 <div className="py-8 text-center text-xs text-content-muted">
-                  {staffSearchQuery ? 'No staff matching search query.' : 'No staff registered in this shop branch yet.'}
+                  {staffSearchQuery ? 'No staff matching search query.' : 'No staff registered in this shop branch yet. Click "+ Add Supervisor" to create one.'}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {filteredStaff.map((staff) => (
-                    <div
-                      key={staff.id}
-                      onClick={() => openStaffPerformance(staff)}
-                      className="cursor-pointer p-3.5 rounded-2xl bg-surface-cream/50 border border-border-subtle hover:border-brand-forest/60 hover:shadow-clay-sm transition-all space-y-2 group"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-9 h-9 rounded-xl bg-brand-forest text-brand-lime font-black text-sm flex items-center justify-center shadow-sm">
-                            {staff.staffMember.fullName.charAt(0).toUpperCase()}
+                  {filteredStaff.map((staff) => {
+                    const isSupervisor = (staff.role || '').toLowerCase().includes('supervisor') ||
+                      (staff.positionCategory?.name || '').toLowerCase().includes('supervisor');
+
+                    return (
+                      <div
+                        key={staff.id}
+                        onClick={() => openStaffPerformance(staff)}
+                        className={`cursor-pointer p-3.5 rounded-2xl border transition-all space-y-2 group ${
+                          isSupervisor
+                            ? 'bg-emerald-50/40 border-emerald-300 hover:border-emerald-600 shadow-sm'
+                            : 'bg-surface-cream/50 border-border-subtle hover:border-brand-forest/60 hover:shadow-clay-sm'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className={`w-9 h-9 rounded-xl font-black text-sm flex items-center justify-center shadow-sm ${
+                              isSupervisor ? 'bg-brand-forest text-brand-lime' : 'bg-surface-card text-brand-forest border border-border-subtle'
+                            }`}>
+                              {staff.staffMember.fullName.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-extrabold text-brand-forest">
+                                {staff.staffMember.fullName}
+                              </h4>
+                              <p className="text-[11px] font-medium text-content-muted">
+                                {staff.positionCategory?.name || 'Staff Employee'}
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <h4 className="text-sm font-extrabold text-brand-forest group-hover:text-brand-forest">
-                              {staff.staffMember.fullName}
-                            </h4>
-                            <p className="text-[11px] font-medium text-content-muted">
-                              {staff.positionCategory?.name || 'Staff Employee'}
-                            </p>
+
+                          <div className="flex items-center gap-1.5">
+                            {isSupervisor && (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-brand-forest text-brand-lime uppercase">
+                                Supervisor
+                              </span>
+                            )}
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                              staff.staffMember.employmentStatus === 'ACTIVE'
+                                ? 'clay-badge-lime'
+                                : 'bg-gray-100 text-gray-600'
+                            }`}>
+                              {staff.staffMember.employmentStatus}
+                            </span>
                           </div>
                         </div>
 
-                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                          staff.staffMember.employmentStatus === 'ACTIVE'
-                            ? 'clay-badge-lime'
-                            : 'bg-gray-100 text-gray-600'
-                        }`}>
-                          {staff.staffMember.employmentStatus}
-                        </span>
-                      </div>
+                        {staff.staffMember.mobile && (
+                          <div className="flex items-center gap-1.5 text-xs text-content-muted">
+                            <Phone className="w-3 h-3" />
+                            <span>{staff.staffMember.mobile}</span>
+                          </div>
+                        )}
 
-                      {staff.staffMember.mobile && (
-                        <div className="flex items-center gap-1.5 text-xs text-content-muted">
-                          <Phone className="w-3 h-3" />
-                          <span>{staff.staffMember.mobile}</span>
+                        {staff.account?.username && (
+                          <div className="flex items-center justify-between text-[11px] font-mono bg-white/80 px-2 py-1 rounded-lg border border-border-subtle/60">
+                            <span className="text-content-muted truncate">User: <strong className="text-brand-forest">{staff.account.username}</strong></span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setResetStaffTarget(staff);
+                                setResetNewPassword('');
+                              }}
+                              className="p-1 rounded hover:bg-surface-cream text-content-muted hover:text-brand-forest transition-colors flex items-center gap-1 font-sans text-[10px]"
+                              title="Reset Login Password"
+                            >
+                              <KeyRound className="w-3 h-3 text-amber-600" />
+                              <span>Reset Pass</span>
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="pt-1 flex items-center justify-between text-xs font-bold text-brand-forest">
+                          <span className="text-[11px] text-content-muted group-hover:text-brand-forest">
+                            Inspect Daily & Monthly Tasks
+                          </span>
+                          <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                         </div>
-                      )}
-
-                      <div className="pt-1 flex items-center justify-between text-xs font-bold text-brand-forest">
-                        <span className="text-[11px] text-content-muted group-hover:text-brand-forest">
-                          Inspect Daily & Monthly Tasks
-                        </span>
-                        <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1844,6 +1979,258 @@ export default function OwnerPage() {
                   className="px-4 py-2 rounded-xl clay-btn-forest text-xs font-bold shadow-clay-sm"
                 >
                   {isSubmittingPos ? 'Creating...' : 'Create Position'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          ADD SUPERVISOR MODAL (OWNER CREATES SHOP SUPERVISOR)
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {isAddSupervisorOpen && selectedShopObj && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay-lg w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-border-subtle pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-brand-forest text-brand-lime">
+                  <UserPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-brand-forest">Add Branch Supervisor</h3>
+                  <p className="text-xs text-content-muted">Assign and create credentials for {selectedShopObj.name}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsAddSupervisorOpen(false)}
+                className="p-1 rounded-lg text-content-muted hover:bg-surface-hover"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateSupervisor} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1">
+                  Supervisor Full Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Rajesh Kumar"
+                  value={supFullName}
+                  onChange={(e) => setSupFullName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1">
+                  Mobile Number <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="tel"
+                  required
+                  placeholder="e.g. 9876543210"
+                  value={supMobile}
+                  onChange={(e) => setSupMobile(e.target.value)}
+                  className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-semibold"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">
+                    Login Username <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. supervisor01"
+                    value={supUsername}
+                    onChange={(e) => setSupUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                    className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-mono font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">
+                    Login Password <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. superpass123"
+                    value={supPassword}
+                    onChange={(e) => setSupPassword(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-mono font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">
+                    Monthly Salary (₹)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="e.g. 25000"
+                    value={supSalary}
+                    onChange={(e) => setSupSalary(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">
+                    Duty Timing
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="09:00 AM - 06:00 PM"
+                    value={supDutyTiming}
+                    onChange={(e) => setSupDutyTiming(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-semibold"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-3 border-t border-border-subtle">
+                <button
+                  type="button"
+                  onClick={() => setIsAddSupervisorOpen(false)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-content-muted hover:bg-surface-hover"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingSupervisor}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay flex items-center gap-1.5"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>{isSubmittingSupervisor ? 'Creating Access...' : 'Create Supervisor'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          SUPERVISOR CREATED CREDENTIALS SUCCESS MODAL
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {createdSupCredentials && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-surface-card rounded-clay border border-emerald-300 shadow-clay-lg w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-brand-forest">Supervisor Access Created!</h3>
+                <p className="text-xs text-content-muted">Share these branch login credentials with your supervisor</p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-surface-cream border border-border-subtle space-y-2 text-xs">
+              <div className="flex justify-between py-1 border-b border-border-subtle/50">
+                <span className="text-content-muted font-medium">Branch Shop:</span>
+                <span className="font-black text-brand-forest">{createdSupCredentials.shopName}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-border-subtle/50">
+                <span className="text-content-muted font-medium">Supervisor:</span>
+                <span className="font-black text-brand-forest">{createdSupCredentials.fullName}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-border-subtle/50">
+                <span className="text-content-muted font-medium">Username:</span>
+                <span className="font-mono font-black text-brand-forest bg-white px-2 py-0.5 rounded border border-border-subtle">
+                  {createdSupCredentials.username}
+                </span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-content-muted font-medium">Password:</span>
+                <span className="font-mono font-black text-emerald-800 bg-white px-2 py-0.5 rounded border border-border-subtle">
+                  {createdSupCredentials.password}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex gap-2.5 pt-2">
+              <button
+                onClick={() => {
+                  const text = `Tumbledry Supervisor Login\nBranch: ${createdSupCredentials.shopName}\nSupervisor: ${createdSupCredentials.fullName}\nUsername: ${createdSupCredentials.username}\nPassword: ${createdSupCredentials.password}\nLogin at: ${window.location.origin}/login`;
+                  navigator.clipboard.writeText(text);
+                  alert('Credentials copied to clipboard!');
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-brand-forest text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm hover:bg-surface-hover"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy Credentials</span>
+              </button>
+              <button
+                onClick={() => setCreatedSupCredentials(null)}
+                className="flex-1 py-2.5 rounded-xl bg-brand-forest text-white text-xs font-black shadow-clay"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          RESET STAFF / SUPERVISOR PASSWORD MODAL
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {resetStaffTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay-lg w-full max-w-sm p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-border-subtle pb-3">
+              <div className="flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-amber-600" />
+                <h3 className="text-sm font-black text-brand-forest">Reset Password</h3>
+              </div>
+              <button onClick={() => setResetStaffTarget(null)} className="p-1 text-content-muted">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-content-muted">
+              Enter a new login password for <strong className="text-brand-forest">{resetStaffTarget.staffMember.fullName}</strong>
+              {resetStaffTarget.account?.username && (
+                <span> (Username: <strong className="font-mono text-brand-forest">{resetStaffTarget.account.username}</strong>)</span>
+              )}:
+            </p>
+
+            <form onSubmit={handleResetPassword} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1">New Password</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Min. 6 characters"
+                  value={resetNewPassword}
+                  onChange={(e) => setResetNewPassword(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle font-mono font-bold focus:ring-1 focus:ring-brand-forest"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setResetStaffTarget(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-content-muted hover:bg-surface-hover"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingReset}
+                  className="px-4 py-2 rounded-xl bg-brand-forest text-white text-xs font-bold shadow-clay"
+                >
+                  {isSubmittingReset ? 'Updating...' : 'Update Password'}
                 </button>
               </div>
             </form>

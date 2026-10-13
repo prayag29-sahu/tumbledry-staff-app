@@ -4,497 +4,506 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../lib/api';
 import {
-  StaffMemberListItem,
-  AttendanceSession,
-  DamageIncident,
   PositionCategory,
-  PermissionProfile,
+  CustomFieldDefinition,
 } from '../../types';
 import {
   Users,
-  Camera,
-  AlertTriangle,
-  UserPlus,
-  CheckCircle2,
   Clock,
-  Eye,
-  EyeOff,
-  X,
-  Send,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  Plus,
+  Calendar,
+  Phone,
+  MapPin,
+  CreditCard,
+  Gift,
+  Bell,
+  MoreVertical,
+  LayoutDashboard,
+  CalendarCheck2,
+  BarChart3,
+  SlidersHorizontal,
+  Camera,
+  Trash2,
 } from 'lucide-react';
 
+interface EnrichedStaffItem {
+  id: string; // membership id
+  role: string;
+  isActive: boolean;
+  staffMemberId: string;
+  staffMember: {
+    id: string;
+    fullName: string;
+    mobile?: string | null;
+    address?: string | null;
+    profilePhotoPath?: string | null;
+    employmentStatus: string;
+    customFieldValues?: Array<{
+      id: string;
+      valueText?: string | null;
+      valueNumber?: number | null;
+      valueDate?: string | null;
+      valueBoolean?: boolean | null;
+      customFieldDefinition: {
+        id: string;
+        label: string;
+        key: string;
+      };
+    }>;
+  };
+  positionCategory?: { id: string; name: string } | null;
+  account?: { id: string; username: string; status: string } | null;
+  joiningDate?: string | null;
+  monthlySalary?: number | null;
+  securityDeposit?: number | null;
+  dutyTimingNotes?: string | null;
+  incentiveAmount?: number | null;
+  attendanceToday: {
+    isPresent: boolean;
+    checkInAt: string | null;
+    checkOutAt: string | null;
+    status: string;
+  };
+}
+
+interface SupervisorDashboardData {
+  date: string;
+  totalStaff: number;
+  presentCount: number;
+  absentCount: number;
+  todayTasks: {
+    total: number;
+    completed: number;
+    pending: number;
+    percentage: number;
+  };
+  staffPerformance: Array<{
+    staffId: string;
+    fullName: string;
+    position: string;
+    percentage: number;
+    totalUnits: number;
+    completedUnits: number;
+    isPresent: boolean;
+  }>;
+}
+
+interface StaffTaskDayResponse {
+  assignments: Array<{
+    id: string;
+    orderId?: string | null;
+    pieceCount?: number | null;
+    workflowProfile?: { workflowType: string; name: string };
+    serviceType?: { name: string; code: string };
+    taskUnits: Array<{
+      id: string;
+      pieceNumber?: number | null;
+      activityCode?: string | null;
+      status: string;
+      unitType: string;
+    }>;
+  }>;
+  summary: {
+    total: number;
+    completed: number;
+    pending: number;
+    percentageComplete: number | null;
+  };
+}
+
+interface AttendanceSessionItem {
+  id: string;
+  checkInAt?: string | null;
+  checkOutAt?: string | null;
+  durationMinutes?: number | null;
+  status: string;
+}
+
+interface AttendanceHistoryResponse {
+  sessions: AttendanceSessionItem[];
+  summary: {
+    presentCount: number;
+    absentCount: number;
+    halfDayCount: number;
+  };
+  year: number;
+  month: number;
+}
+
+interface StaffMonthlyPerfResponse {
+  total: number;
+  completed: number;
+  pending: number;
+  percentageComplete: number | null;
+  breakdown?: {
+    wash: number;
+    dry: number;
+    iron: number;
+    fold: number;
+    pack: number;
+    delivery: number;
+    pickup: number;
+  };
+  dailyProgress?: Array<{
+    date: string;
+    total: number;
+    completed: number;
+  }>;
+}
+
 export default function SupervisorPage() {
-  const { activeShopId } = useAuth();
-  const [activeTab, setActiveTab] = useState<'attendance' | 'staff' | 'damage'>('attendance');
-  const [staffList, setStaffList] = useState<StaffMemberListItem[]>([]);
-  const [attendanceSessions, setAttendanceSessions] = useState<AttendanceSession[]>([]);
-  const [damageIncidents, setDamageIncidents] = useState<DamageIncident[]>([]);
+  const { user, activeShopId, activeShopName } = useAuth();
+
+  // Root Navigation View: 'dashboard' (Screen 10), 'staff_list' (Screen 2), 'attendance', 'reports', 'more' (Screen 5)
+  const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'reports' | 'more'>('dashboard');
+
+  // Drilldown Views: null | 'add_staff' (Screens 3&4) | 'staff_profile' (Screens 6-9)
+  const [activeDrilldown, setActiveDrilldown] = useState<'add_staff' | 'staff_profile' | null>(null);
+
+  // Selected staff for Profile view
+  const [selectedStaff, setSelectedStaff] = useState<EnrichedStaffItem | null>(null);
+  const [profileTab, setProfileTab] = useState<'overview' | 'tasks' | 'attendance' | 'performance'>('overview');
+
+  // Selected date for Dashboard & Daily Tasks
+  const [dashboardDate, setDashboardDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [staffTaskDate, setStaffTaskDate] = useState<string>(new Date().toISOString().split('T')[0]);
+
+  // Selected month & year for Attendance & Performance
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
+
+  // Data states
+  const [dashboardData, setDashboardData] = useState<SupervisorDashboardData | null>(null);
+  const [staffList, setStaffList] = useState<EnrichedStaffItem[]>([]);
   const [positionCategories, setPositionCategories] = useState<PositionCategory[]>([]);
-  const [permissionProfiles, setPermissionProfiles] = useState<PermissionProfile[]>([]);
+  const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Add Staff Modal State
-  const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
-  const [newFullName, setNewFullName] = useState('');
-  const [newMobile, setNewMobile] = useState('');
-  const [newUsername, setNewUsername] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [newPositionId, setNewPositionId] = useState('');
-  const [newPermissionProfileId, setNewPermissionProfileId] = useState('');
-  const [newSalary, setNewSalary] = useState('');
-  const [newAadhaar, setNewAadhaar] = useState('');
-  const [newBankAccount, setNewBankAccount] = useState('');
-  const [showSensitivePii, setShowSensitivePii] = useState(false);
-  const [isSubmittingStaff, setIsSubmittingStaff] = useState(false);
-  const [staffError, setStaffError] = useState<string | null>(null);
+  // Staff List Search & Category Filter (Screen 2)
+  const [staffSearchQuery, setStaffSearchQuery] = useState('');
+  const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>('ALL');
 
-  const fetchData = useCallback(async () => {
+  // Staff Tasks Daily State (Screen 7)
+  const [staffDayTasks, setStaffDayTasks] = useState<StaffTaskDayResponse | null>(null);
+  const [isLoadingDayTasks, setIsLoadingDayTasks] = useState(false);
+
+  // Staff Attendance History State (Screen 8)
+  const [staffAttendanceData, setStaffAttendanceData] = useState<AttendanceHistoryResponse | null>(null);
+  const [isLoadingAttendance, setIsLoadingAttendance] = useState(false);
+
+  // Staff Performance Monthly State (Screen 9)
+  const [staffMonthlyPerf, setStaffMonthlyPerf] = useState<StaffMonthlyPerfResponse | null>(null);
+  const [isLoadingPerf, setIsLoadingPerf] = useState(false);
+
+  // Add Staff Wizard State (Screens 3 & 4)
+  const [addStaffStep, setAddStaffStep] = useState<1 | 2>(1);
+  const [addFullName, setAddFullName] = useState('');
+  const [addPositionId, setAddPositionId] = useState('');
+  const [addMobile, setAddMobile] = useState('');
+  const [addAddress, setAddAddress] = useState('');
+  const [addAadhaar, setAddAadhaar] = useState('');
+  const [addBankAccount, setAddBankAccount] = useState('');
+  const [addJoiningDate, setAddJoiningDate] = useState(new Date().toISOString().split('T')[0]);
+  const [addSalary, setAddSalary] = useState('');
+  const [addSecurityDeposit, setAddSecurityDeposit] = useState('');
+  const [addDutyTiming, setAddDutyTiming] = useState('09:00 AM - 06:00 PM');
+  const [addIncentive, setAddIncentive] = useState('');
+  const [isSubmittingStaff, setIsSubmittingStaff] = useState(false);
+
+  // Custom Fields Builder Modal State (Screen 5)
+  const [isAddingField, setIsAddingField] = useState(false);
+  const [newFieldName, setNewFieldName] = useState('');
+  const [newFieldType, setNewFieldType] = useState<CustomFieldDefinition['fieldType']>('TEXT');
+  const [newFieldRequired, setNewFieldRequired] = useState(false);
+  const [isSubmittingField, setIsSubmittingField] = useState(false);
+
+  // Fetch Dashboard & Staff Lists
+  const fetchAllData = useCallback(async () => {
     if (!activeShopId) return;
     setIsLoading(true);
     try {
-      const [staffData, attData, dmgData] = await Promise.all([
-        apiRequest<{ staff: StaffMemberListItem[] }>(`/api/shops/${activeShopId}/staff`),
-        apiRequest<{ sessions: AttendanceSession[] }>(
-          `/api/shops/${activeShopId}/attendance/today`
-        ).catch(() => ({ sessions: [] })),
-        apiRequest<{ incidents: DamageIncident[] }>(
-          `/api/shops/${activeShopId}/damage`
-        ).catch(() => ({ incidents: [] })),
+      const [dashRes, staffRes, posRes, fieldsRes] = await Promise.all([
+        apiRequest<SupervisorDashboardData>(`/api/shops/${activeShopId}/supervisor/dashboard?date=${dashboardDate}`).catch(() => null),
+        apiRequest<{ staff: EnrichedStaffItem[] }>(`/api/shops/${activeShopId}/staff`).catch(() => ({ staff: [] })),
+        apiRequest<{ categories: PositionCategory[] }>(`/api/config/shops/${activeShopId}/position-categories`).catch(() => ({ categories: [] })),
+        apiRequest<{ fields: CustomFieldDefinition[] }>(`/api/config/shops/${activeShopId}/custom-fields`).catch(() => ({ fields: [] })),
       ]);
 
-      setStaffList(staffData.staff);
-      setAttendanceSessions(attData.sessions);
-      setDamageIncidents(dmgData.incidents);
+      if (dashRes) setDashboardData(dashRes);
+      setStaffList(staffRes.staff || []);
+      setPositionCategories(posRes.categories || []);
+      setCustomFields(fieldsRes.fields || []);
     } catch {
-      // Fallback
+      // Ignored
     } finally {
       setIsLoading(false);
     }
-  }, [activeShopId]);
+  }, [activeShopId, dashboardDate]);
 
-  const fetchConfigs = useCallback(async () => {
+  useEffect(() => {
+    fetchAllData();
+  }, [fetchAllData]);
+
+  // Fetch Staff Daily Tasks (Screen 7)
+  const fetchStaffDayTasks = useCallback(async (staffMemberId: string, date: string) => {
     if (!activeShopId) return;
+    setIsLoadingDayTasks(true);
     try {
-      const [posData, permData] = await Promise.all([
-        apiRequest<{ categories: PositionCategory[] }>(
-          `/api/config/shops/${activeShopId}/position-categories`
-        ).catch(() => ({ categories: [] })),
-        apiRequest<{ profiles: PermissionProfile[] }>(
-          `/api/config/permission-profiles`
-        ).catch(() => ({ profiles: [] })),
-      ]);
-      setPositionCategories(posData.categories);
-      setPermissionProfiles(permData.profiles);
+      const res = await apiRequest<StaffTaskDayResponse>(
+        `/api/shops/${activeShopId}/staff/${staffMemberId}/tasks?date=${date}`
+      );
+      setStaffDayTasks(res);
     } catch {
-      // Fallback
+      setStaffDayTasks(null);
+    } finally {
+      setIsLoadingDayTasks(false);
     }
   }, [activeShopId]);
 
-  useEffect(() => {
-    fetchData();
-    fetchConfigs();
-  }, [fetchData, fetchConfigs]);
+  // Fetch Staff Monthly Attendance (Screen 8)
+  const fetchStaffAttendance = useCallback(async (staffMemberId: string, year: number, month: number) => {
+    if (!activeShopId) return;
+    setIsLoadingAttendance(true);
+    try {
+      const res = await apiRequest<AttendanceHistoryResponse>(
+        `/api/shops/${activeShopId}/staff/${staffMemberId}/attendance?year=${year}&month=${month}`
+      );
+      setStaffAttendanceData(res);
+    } catch {
+      setStaffAttendanceData(null);
+    } finally {
+      setIsLoadingAttendance(false);
+    }
+  }, [activeShopId]);
 
-  const handleCreateStaff = async (e: React.FormEvent) => {
+  // Fetch Staff Monthly Performance (Screen 9)
+  const fetchStaffPerformance = useCallback(async (staffMemberId: string, year: number, month: number) => {
+    if (!activeShopId) return;
+    setIsLoadingPerf(true);
+    try {
+      const res = await apiRequest<StaffMonthlyPerfResponse>(
+        `/api/shops/${activeShopId}/staff/${staffMemberId}/task-summary/monthly?year=${year}&month=${month}`
+      );
+      setStaffMonthlyPerf(res);
+    } catch {
+      setStaffMonthlyPerf(null);
+    } finally {
+      setIsLoadingPerf(false);
+    }
+  }, [activeShopId]);
+
+  // When staff is selected, open profile and load data
+  const handleOpenStaffProfile = (staff: EnrichedStaffItem) => {
+    setSelectedStaff(staff);
+    setActiveDrilldown('staff_profile');
+    setProfileTab('overview');
+    const today = new Date().toISOString().split('T')[0];
+    setStaffTaskDate(today);
+    const now = new Date();
+    setSelectedYear(now.getFullYear());
+    setSelectedMonth(now.getMonth() + 1);
+
+    fetchStaffDayTasks(staff.staffMember.id, today);
+    fetchStaffAttendance(staff.staffMember.id, now.getFullYear(), now.getMonth() + 1);
+    fetchStaffPerformance(staff.staffMember.id, now.getFullYear(), now.getMonth() + 1);
+  };
+
+  // Add Staff Wizard: Submit (Screens 3 & 4)
+  const handleSaveStaff = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeShopId || !newFullName.trim()) return;
+    if (!activeShopId || !addFullName.trim()) return;
 
     setIsSubmittingStaff(true);
-    setStaffError(null);
-
     try {
+      // Find a default permission profile or the first one
+      const permRes = await apiRequest<{ profiles: Array<{ id: string }> }>('/api/config/permission-profiles').catch(() => ({ profiles: [] }));
+      const defaultPermId = permRes.profiles[0]?.id;
+
       await apiRequest(`/api/shops/${activeShopId}/staff`, {
         method: 'POST',
         body: JSON.stringify({
-          fullName: newFullName.trim(),
-          mobile: newMobile.trim() || undefined,
-          aadhaar: newAadhaar.trim() || undefined,
-          bankAccount: newBankAccount.trim() || undefined,
-          permissionProfileId: newPermissionProfileId || undefined,
-          positionCategoryId: newPositionId || undefined,
-          monthlySalary: newSalary ? parseFloat(newSalary) : undefined,
-          account: newUsername.trim()
-            ? {
-                username: newUsername.trim().toLowerCase(),
-                password: newPassword || 'Tumbledry@123',
-              }
-            : undefined,
+          fullName: addFullName.trim(),
+          mobile: addMobile.trim() || undefined,
+          address: addAddress.trim() || undefined,
+          positionCategoryId: addPositionId || undefined,
+          permissionProfileId: defaultPermId,
+          joiningDate: addJoiningDate || undefined,
+          monthlySalary: addSalary ? parseFloat(addSalary) : undefined,
+          securityDeposit: addSecurityDeposit ? parseFloat(addSecurityDeposit) : undefined,
+          dutyTimingNotes: addDutyTiming.trim() || undefined,
+          incentiveAmount: addIncentive ? parseFloat(addIncentive) : undefined,
         }),
       });
 
-      setIsAddStaffOpen(false);
-      alert('Staff member registered successfully.');
-      fetchData();
+      alert('Staff employee added successfully!');
+      setActiveDrilldown(null);
+      setAddStaffStep(1);
+      setAddFullName('');
+      setAddMobile('');
+      setAddAddress('');
+      setAddAadhaar('');
+      setAddBankAccount('');
+      setAddSalary('');
+      setAddSecurityDeposit('');
+      setAddIncentive('');
+      fetchAllData();
     } catch (err: unknown) {
-      setStaffError(err instanceof Error ? err.message : 'Failed to register staff.');
+      alert(err instanceof Error ? err.message : 'Failed to add staff employee.');
     } finally {
       setIsSubmittingStaff(false);
     }
   };
 
-  const handleUpdateDamageStatus = async (incidentId: string, status: string) => {
-    if (!activeShopId) return;
+  // Custom Fields: Create (Screen 5)
+  const handleCreateCustomField = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeShopId || !newFieldName.trim()) return;
+
+    const formattedKey = newFieldName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    setIsSubmittingField(true);
     try {
-      await apiRequest(`/api/shops/${activeShopId}/damage/${incidentId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status }),
+      await apiRequest(`/api/config/shops/${activeShopId}/custom-fields`, {
+        method: 'POST',
+        body: JSON.stringify({
+          key: formattedKey,
+          label: newFieldName.trim(),
+          fieldType: newFieldType,
+          isRequired: newFieldRequired,
+        }),
       });
-      fetchData();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to update damage record.');
+      alert('Custom field created!');
+      setNewFieldName('');
+      setIsAddingField(false);
+      const res = await apiRequest<{ fields: CustomFieldDefinition[] }>(`/api/config/shops/${activeShopId}/custom-fields`);
+      setCustomFields(res.fields || []);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to create field.');
+    } finally {
+      setIsSubmittingField(false);
     }
   };
 
+  const handleDeleteCustomField = async (fieldId: string) => {
+    if (!confirm('Are you sure you want to delete this custom field?')) return;
+    try {
+      await apiRequest(`/api/config/shops/${activeShopId}/custom-fields/${fieldId}`, { method: 'DELETE' });
+      setCustomFields((prev) => prev.filter((f) => f.id !== fieldId));
+    } catch {
+      alert('Failed to delete field.');
+    }
+  };
+
+  // Filter staff for Directory (Screen 2)
+  const filteredStaff = staffList.filter((m) => {
+    const matchesQuery = !staffSearchQuery.trim() ||
+      m.staffMember.fullName.toLowerCase().includes(staffSearchQuery.toLowerCase()) ||
+      m.positionCategory?.name.toLowerCase().includes(staffSearchQuery.toLowerCase()) ||
+      (m.staffMember.mobile && m.staffMember.mobile.includes(staffSearchQuery));
+
+    if (!matchesQuery) return false;
+
+    if (selectedRoleFilter === 'ALL') return true;
+    return m.positionCategory?.name.toLowerCase() === selectedRoleFilter.toLowerCase();
+  });
+
+  // Calculate unique role counts for filter pills (Screen 2)
+  const roleCounts: Record<string, number> = { ALL: staffList.length };
+  staffList.forEach((s) => {
+    const roleName = s.positionCategory?.name || 'Other';
+    roleCounts[roleName] = (roleCounts[roleName] || 0) + 1;
+  });
+
   return (
-    <div className="space-y-5 animate-fade-in">
-      {/* Title & Action Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-black text-brand-forest tracking-tight">
-            Supervisor Station
-          </h2>
-          <p className="text-xs text-content-muted">
-            Team attendance, staff management, and damage reviews
-          </p>
-        </div>
-
-        <button
-          onClick={() => {
-            setStaffError(null);
-            setNewFullName('');
-            setNewMobile('');
-            setNewUsername('');
-            setNewPassword('');
-            setNewPositionId(positionCategories[0]?.id || '');
-            setNewPermissionProfileId(permissionProfiles[0]?.id || '');
-            setNewSalary('');
-            setNewAadhaar('');
-            setNewBankAccount('');
-            setIsAddStaffOpen(true);
-          }}
-          className="px-4 py-2 rounded-xl clay-btn-forest text-xs font-bold flex items-center gap-1.5 self-start sm:self-auto"
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>Add Staff Member</span>
-        </button>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex items-center gap-2 p-1.5 bg-surface-card rounded-2xl border border-border-subtle shadow-clay-sm">
-        <button
-          onClick={() => setActiveTab('attendance')}
-          className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-            activeTab === 'attendance'
-              ? 'bg-brand-forest text-white shadow-md'
-              : 'text-content-muted hover:text-brand-forest'
-          }`}
-        >
-          <Camera className="w-3.5 h-3.5" />
-          <span>Live Attendance ({attendanceSessions.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('staff')}
-          className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-            activeTab === 'staff'
-              ? 'bg-brand-forest text-white shadow-md'
-              : 'text-content-muted hover:text-brand-forest'
-          }`}
-        >
-          <Users className="w-3.5 h-3.5" />
-          <span>Staff Roster ({staffList.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('damage')}
-          className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-            activeTab === 'damage'
-              ? 'bg-brand-forest text-white shadow-md'
-              : 'text-content-muted hover:text-brand-forest'
-          }`}
-        >
-          <AlertTriangle className="w-3.5 h-3.5" />
-          <span>Damage Queue ({damageIncidents.filter((d) => d.status === 'OPEN').length})</span>
-        </button>
-      </div>
-
-      {/* Tab 1: Live Attendance */}
-      {activeTab === 'attendance' && (
-        <div className="space-y-3">
-          {isLoading ? (
-            <div className="py-12 text-center text-xs font-semibold text-content-muted">
-              Checking team attendance...
-            </div>
-          ) : attendanceSessions.length === 0 ? (
-            <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-8 text-center">
-              <Camera className="w-8 h-8 text-content-muted mx-auto mb-2" />
-              <h4 className="text-sm font-bold text-brand-forest">No Attendance Check-Ins</h4>
-              <p className="text-xs text-content-muted mt-1">
-                No staff members have checked in for today yet.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              {attendanceSessions.map((session) => (
-                <div
-                  key={session.id}
-                  className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-surface-cream border border-border-subtle flex items-center justify-center text-brand-forest font-bold shadow-clay-inset">
-                      <Camera className="w-5 h-5 text-brand-lime" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-extrabold text-brand-forest">
-                        {session.staffMember?.fullName || 'Staff Member'}
-                      </h4>
-                      <div className="flex items-center gap-2 mt-1 text-xs text-content-muted">
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-brand-lime" />
-                          <span>
-                            In:{' '}
-                            {session.checkInAt
-                              ? new Date(session.checkInAt).toLocaleTimeString([], {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })
-                              : '--'}
-                          </span>
-                        </span>
-                        {session.checkOutAt && (
-                          <span>
-                            Out:{' '}
-                            {new Date(session.checkOutAt).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <span
-                    className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${
-                      session.status === 'OPEN'
-                        ? 'clay-badge-lime'
-                        : 'bg-surface-cream text-content-muted border border-border-subtle'
-                    }`}
-                  >
-                    {session.status === 'OPEN' ? 'On Duty' : 'Completed'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+    <div className="max-w-md mx-auto min-h-screen pb-24 bg-[#F8F9FA] text-[#1E293B] antialiased">
+      {isLoading && (
+        <div className="mx-4 mt-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-800 text-center animate-pulse">
+          Refreshing shop data...
         </div>
       )}
-
-      {/* Tab 2: Staff Roster */}
-      {activeTab === 'staff' && (
-        <div className="space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-            {staffList.map((staff) => {
-              const membership = staff.shopMemberships?.[0];
-              const posName =
-                membership?.positionCategory?.name ||
-                membership?.permissionProfile?.name ||
-                'Staff';
-
-              return (
-                <div
-                  key={staff.id}
-                  className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 space-y-2.5"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-9 h-9 rounded-2xl bg-surface-cream border border-border-subtle flex items-center justify-center font-black text-brand-forest shadow-clay-inset text-sm">
-                        {staff.fullName.charAt(0)}
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-extrabold text-brand-forest">
-                          {staff.fullName}
-                        </h4>
-                        <span className="text-[11px] text-content-muted">
-                          {staff.mobile || 'No mobile entered'}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="px-2 py-0.5 rounded-lg clay-badge-lime text-[10px] font-bold">
-                      {posName}
-                    </span>
-                  </div>
-
-                  <div className="pt-2 border-t border-border-subtle/80 flex items-center justify-between text-xs text-content-muted">
-                    <span>
-                      Account:{' '}
-                      <strong className="text-brand-forest font-semibold">
-                        {staff.account?.username || 'No login'}
-                      </strong>
-                    </span>
-                    {membership?.monthlySalary && (
-                      <span>
-                        Salary: ₹{membership.monthlySalary.toLocaleString()}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+      {/* ══════════════════════════════════════════════════════════════════════════
+          DRILLDOWN VIEW 1: ADD NEW STAFF WIZARD (SCREENS 3 & 4)
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {activeDrilldown === 'add_staff' && (
+        <div className="p-4 space-y-4 animate-fade-in">
+          {/* Header with Back button */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                if (addStaffStep === 2) setAddStaffStep(1);
+                else setActiveDrilldown(null);
+              }}
+              className="p-2 rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-hover"
+            >
+              <ChevronLeft className="w-5 h-5 text-brand-forest" />
+            </button>
+            <h2 className="text-lg font-black text-brand-forest">Add New Staff</h2>
           </div>
-        </div>
-      )}
 
-      {/* Tab 3: Damage Queue */}
-      {activeTab === 'damage' && (
-        <div className="space-y-3">
-          {damageIncidents.length === 0 ? (
-            <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-8 text-center">
-              <CheckCircle2 className="w-8 h-8 text-status-success mx-auto mb-2" />
-              <h4 className="text-sm font-bold text-brand-forest">No Damage Incidents</h4>
-              <p className="text-xs text-content-muted mt-1">
-                Zero open fabric damage reports across today&apos;s assignments.
-              </p>
-            </div>
-          ) : (
-            damageIncidents.map((incident) => (
-              <div
-                key={incident.id}
-                className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="p-2.5 rounded-2xl bg-status-danger/10 text-status-danger border border-status-danger/20 shadow-clay-sm">
-                    <AlertTriangle className="w-5 h-5" />
+          {/* Sub-navigation tabs: Basic Details / More Details vs Custom Fields */}
+          <div className="flex items-center gap-2 p-1 bg-surface-cream rounded-xl border border-border-subtle">
+            <button
+              onClick={() => setAddStaffStep(1)}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all text-center ${
+                addStaffStep === 1
+                  ? 'bg-brand-forest text-white shadow-sm'
+                  : 'bg-transparent text-content-muted'
+              }`}
+            >
+              Basic Details
+            </button>
+            <button
+              onClick={() => setAddStaffStep(2)}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all text-center ${
+                addStaffStep === 2
+                  ? 'bg-brand-forest text-white shadow-sm'
+                  : 'bg-transparent text-content-muted'
+              }`}
+            >
+              More Details
+            </button>
+          </div>
+
+          <form onSubmit={addStaffStep === 1 ? (e) => { e.preventDefault(); setAddStaffStep(2); } : handleSaveStaff} className="space-y-4">
+            {/* Step 1: Basic Details (Screen 3) */}
+            {addStaffStep === 1 && (
+              <div className="space-y-3.5 bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm">
+                {/* Upload Photo Container */}
+                <div className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-brand-forest/20 rounded-2xl bg-surface-cream/50 cursor-pointer">
+                  <div className="w-16 h-16 rounded-full bg-[#EAF5E9] text-brand-forest flex items-center justify-center mb-2 shadow-sm">
+                    <Camera className="w-7 h-7 text-brand-forest" />
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-extrabold text-brand-forest">
-                        {incident.taskAssignment?.orderId
-                          ? `Order #${incident.taskAssignment.orderId}`
-                          : 'Damage Incident'}
-                      </span>
-                      {incident.pieceNumber && (
-                        <span className="text-xs font-semibold text-content-muted">
-                          (Piece #{incident.pieceNumber})
-                        </span>
-                      )}
-                      <span
-                        className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
-                          incident.status === 'OPEN'
-                            ? 'clay-badge-danger'
-                            : 'bg-surface-cream text-content-muted border border-border-subtle'
-                        }`}
-                      >
-                        {incident.status}
-                      </span>
-                    </div>
-                    <p className="text-xs text-brand-forest font-medium mt-1">
-                      &quot;{incident.notes || 'Damage noted during processing.'}&quot;
-                    </p>
-                    <p className="text-[11px] text-content-muted mt-0.5">
-                      Reported by {incident.staffMember?.fullName || 'Staff'} on{' '}
-                      {new Date(incident.reportedAt).toLocaleDateString()}
-                    </p>
-                  </div>
+                  <span className="text-xs font-bold text-brand-forest">Upload Photo</span>
+                  <span className="text-[10px] text-content-muted">PNG, JPG up to 5MB</span>
                 </div>
 
-                <div className="flex items-center gap-2 self-end sm:self-center">
-                  {incident.status === 'OPEN' ? (
-                    <button
-                      onClick={() => handleUpdateDamageStatus(incident.id, 'UNDER_REVIEW')}
-                      className="px-3 py-1.5 rounded-xl clay-btn-forest text-xs font-bold"
-                    >
-                      Review
-                    </button>
-                  ) : incident.status === 'UNDER_REVIEW' ? (
-                    <button
-                      onClick={() => handleUpdateDamageStatus(incident.id, 'CLOSED')}
-                      className="px-3 py-1.5 rounded-xl clay-btn-lime text-xs font-bold"
-                    >
-                      Close Incident
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      {/* Add Staff Modal */}
-      {isAddStaffOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-brand-forest/40 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-lg bg-surface-card rounded-clay border border-border-subtle shadow-clay-lg p-5 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-border-subtle">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-brand-forest/10 text-brand-forest">
-                  <UserPlus className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-brand-forest">
-                    Register New Staff
-                  </h3>
-                  <p className="text-xs text-content-muted">
-                    Create profile in unified staff directory
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsAddStaffOpen(false)}
-                className="p-1.5 rounded-xl hover:bg-surface-cream text-content-muted"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateStaff} className="mt-4 space-y-3.5">
-              {staffError && (
-                <div className="p-3 rounded-xl bg-status-danger/10 border border-status-danger/30 text-xs font-semibold text-status-danger">
-                  {staffError}
-                </div>
-              )}
-
-              {/* Personal Details */}
-              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-brand-forest mb-1">
-                    Full Name *
+                    Full Name <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
-                    value={newFullName}
-                    onChange={(e) => setNewFullName(e.target.value)}
                     required
                     placeholder="e.g. Ramesh Kumar"
-                    className="w-full text-xs font-semibold p-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-clay-inset text-brand-forest focus:outline-none focus:ring-2 focus:ring-brand-lime"
+                    value={addFullName}
+                    onChange={(e) => setAddFullName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">
-                    Mobile Number
-                  </label>
-                  <input
-                    type="tel"
-                    value={newMobile}
-                    onChange={(e) => setNewMobile(e.target.value)}
-                    placeholder="10-digit mobile"
-                    className="w-full text-xs font-semibold p-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-clay-inset text-brand-forest focus:outline-none focus:ring-2 focus:ring-brand-lime"
-                  />
-                </div>
-              </div>
 
-              {/* Position & Permission */}
-              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-brand-forest mb-1">
-                    Position Category
+                    Position / Role <span className="text-red-500">*</span>
                   </label>
                   <select
-                    value={newPositionId}
-                    onChange={(e) => setNewPositionId(e.target.value)}
-                    className="w-full text-xs font-semibold p-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-clay-inset text-brand-forest focus:outline-none focus:ring-2 focus:ring-brand-lime"
+                    required
+                    value={addPositionId}
+                    onChange={(e) => setAddPositionId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
                   >
-                    <option value="">-- Default --</option>
+                    <option value="">Select a role</option>
                     {positionCategories.map((pos) => (
                       <option key={pos.id} value={pos.id}>
                         {pos.name}
@@ -502,118 +511,1070 @@ export default function SupervisorPage() {
                     ))}
                   </select>
                 </div>
+
                 <div>
                   <label className="block text-xs font-bold text-brand-forest mb-1">
-                    Permission Profile
+                    Mobile Number <span className="text-red-500">*</span>
                   </label>
-                  <select
-                    value={newPermissionProfileId}
-                    onChange={(e) => setNewPermissionProfileId(e.target.value)}
-                    className="w-full text-xs font-semibold p-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-clay-inset text-brand-forest focus:outline-none focus:ring-2 focus:ring-brand-lime"
-                  >
-                    <option value="">-- Standard Staff --</option>
-                    {permissionProfiles.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="9876543210"
+                    value={addMobile}
+                    onChange={(e) => setAddMobile(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                  />
                 </div>
-              </div>
 
-              {/* Login Credentials */}
-              <div className="p-3 rounded-2xl bg-surface-cream/80 border border-border-subtle space-y-2">
-                <span className="text-[11px] font-bold text-brand-forest uppercase tracking-wider block">
-                  App Account (Optional)
-                </span>
-                <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">Address</label>
                   <input
                     type="text"
-                    value={newUsername}
-                    onChange={(e) => setNewUsername(e.target.value)}
-                    placeholder="Username"
-                    autoCapitalize="none"
-                    className="w-full text-xs font-semibold p-2 rounded-xl bg-surface-card border border-border-subtle shadow-clay-sm text-brand-forest"
-                  />
-                  <input
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Password (default Tumbledry@123)"
-                    className="w-full text-xs font-semibold p-2 rounded-xl bg-surface-card border border-border-subtle shadow-clay-sm text-brand-forest"
+                    placeholder="Guwahati, Assam"
+                    value={addAddress}
+                    onChange={(e) => setAddAddress(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
                   />
                 </div>
-              </div>
 
-              {/* Sensitive Details (Masked) */}
-              <div className="p-3 rounded-2xl bg-surface-cream/80 border border-border-subtle space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-brand-forest uppercase tracking-wider">
-                    Sensitive PII & Compensation
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowSensitivePii(!showSensitivePii)}
-                    className="flex items-center gap-1 text-[11px] font-semibold text-content-muted hover:text-brand-forest"
-                  >
-                    {showSensitivePii ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    <span>{showSensitivePii ? 'Hide' : 'Reveal'}</span>
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">Aadhaar Number</label>
                   <input
-                    type={showSensitivePii ? 'text' : 'password'}
-                    value={newAadhaar}
-                    onChange={(e) => setNewAadhaar(e.target.value)}
-                    placeholder="Aadhaar No."
-                    className="w-full text-xs font-semibold p-2 rounded-xl bg-surface-card border border-border-subtle shadow-clay-sm text-brand-forest"
-                  />
-                  <input
-                    type={showSensitivePii ? 'text' : 'password'}
-                    value={newBankAccount}
-                    onChange={(e) => setNewBankAccount(e.target.value)}
-                    placeholder="Bank Account No."
-                    className="w-full text-xs font-semibold p-2 rounded-xl bg-surface-card border border-border-subtle shadow-clay-sm text-brand-forest"
-                  />
-                  <input
-                    type="number"
-                    value={newSalary}
-                    onChange={(e) => setNewSalary(e.target.value)}
-                    placeholder="Monthly ₹"
-                    className="w-full text-xs font-semibold p-2 rounded-xl bg-surface-card border border-border-subtle shadow-clay-sm text-brand-forest"
+                    type="text"
+                    placeholder="1234 5678 9012"
+                    value={addAadhaar}
+                    onChange={(e) => setAddAadhaar(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
                   />
                 </div>
-              </div>
 
-              {/* Buttons */}
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddStaffOpen(false)}
-                  className="flex-1 py-2.5 rounded-xl clay-btn-secondary text-xs font-bold"
-                >
-                  Cancel
-                </button>
                 <button
                   type="submit"
-                  disabled={isSubmittingStaff}
-                  className="flex-1 py-2.5 rounded-xl clay-btn-forest text-xs font-bold flex items-center justify-center gap-1.5 shadow-md"
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay flex items-center justify-center gap-1.5 mt-2"
                 >
-                  {isSubmittingStaff ? (
-                    <span>Registering...</span>
-                  ) : (
-                    <>
-                      <Send className="w-3.5 h-3.5" />
-                      <span>Save Staff Member</span>
-                    </>
-                  )}
+                  <span>Next</span>
+                  <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
-            </form>
+            )}
+
+            {/* Step 2: More Details (Screen 4) */}
+            {addStaffStep === 2 && (
+              <div className="space-y-3.5 bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm">
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">Bank Account Number</label>
+                  <input
+                    type="text"
+                    placeholder="50100012345678"
+                    value={addBankAccount}
+                    onChange={(e) => setAddBankAccount(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">Joining Date</label>
+                  <input
+                    type="date"
+                    value={addJoiningDate}
+                    onChange={(e) => setAddJoiningDate(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">Monthly Salary (₹)</label>
+                  <input
+                    type="number"
+                    placeholder="15000"
+                    value={addSalary}
+                    onChange={(e) => setAddSalary(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">Security Deposit (₹)</label>
+                  <input
+                    type="number"
+                    placeholder="5000"
+                    value={addSecurityDeposit}
+                    onChange={(e) => setAddSecurityDeposit(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">Duty Timing</label>
+                  <input
+                    type="text"
+                    placeholder="09:00 AM - 06:00 PM"
+                    value={addDutyTiming}
+                    onChange={(e) => setAddDutyTiming(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">Incentive Amount (₹)</label>
+                  <input
+                    type="number"
+                    placeholder="2000"
+                    value={addIncentive}
+                    onChange={(e) => setAddIncentive(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setAddStaffStep(1)}
+                    className="flex-1 py-3 rounded-xl bg-surface-cream border border-border-subtle text-xs font-bold text-brand-forest"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingStaff}
+                    className="flex-1 py-3 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay flex items-center justify-center gap-1.5"
+                  >
+                    <span>{isSubmittingStaff ? 'Saving...' : 'Save Staff'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </form>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          DRILLDOWN VIEW 2: STAFF PROFILE WITH 4 TABS (SCREENS 6, 7, 8, 9)
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {activeDrilldown === 'staff_profile' && selectedStaff && (
+        <div className="p-4 space-y-4 animate-fade-in">
+          {/* Header with Back, Avatar, Name, Role & Status badge */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setActiveDrilldown(null)}
+                className="p-2 rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-hover"
+              >
+                <ChevronLeft className="w-5 h-5 text-brand-forest" />
+              </button>
+              <div className="w-10 h-10 rounded-full bg-[#EAF5E9] text-brand-forest font-black flex items-center justify-center shadow-sm">
+                {selectedStaff.staffMember.fullName.charAt(0)}
+              </div>
+              <div>
+                <h2 className="text-base font-black text-brand-forest">
+                  {selectedStaff.staffMember.fullName}
+                </h2>
+                <p className="text-xs text-content-muted font-medium">
+                  {selectedStaff.positionCategory?.name || 'Staff Employee'}
+                </p>
+              </div>
+            </div>
+
+            <span
+              className={`px-3 py-1 rounded-full text-xs font-bold ${
+                selectedStaff.attendanceToday.isPresent
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-red-100 text-red-700'
+              }`}
+            >
+              {selectedStaff.attendanceToday.isPresent ? 'Present' : 'Absent'}
+            </span>
+          </div>
+
+          {/* 4 Profile Tabs (Screens 6, 7, 8, 9) */}
+          <div className="flex items-center gap-1 p-1 bg-surface-cream rounded-xl border border-border-subtle overflow-x-auto">
+            <button
+              onClick={() => setProfileTab('overview')}
+              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all text-center whitespace-nowrap ${
+                profileTab === 'overview'
+                  ? 'bg-brand-forest text-white shadow-sm'
+                  : 'text-content-muted'
+              }`}
+            >
+              Overview
+            </button>
+            <button
+              onClick={() => setProfileTab('tasks')}
+              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all text-center whitespace-nowrap ${
+                profileTab === 'tasks'
+                  ? 'bg-brand-forest text-white shadow-sm'
+                  : 'text-content-muted'
+              }`}
+            >
+              Tasks
+            </button>
+            <button
+              onClick={() => setProfileTab('attendance')}
+              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all text-center whitespace-nowrap ${
+                profileTab === 'attendance'
+                  ? 'bg-brand-forest text-white shadow-sm'
+                  : 'text-content-muted'
+              }`}
+            >
+              Attendance
+            </button>
+            <button
+              onClick={() => setProfileTab('performance')}
+              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all text-center whitespace-nowrap ${
+                profileTab === 'performance'
+                  ? 'bg-brand-forest text-white shadow-sm'
+                  : 'text-content-muted'
+              }`}
+            >
+              Performance
+            </button>
+          </div>
+
+          {/* TAB 1: OVERVIEW (Screen 6) */}
+          {profileTab === 'overview' && (
+            <div className="space-y-3 bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm text-xs">
+              <div className="flex items-center gap-3 py-2 border-b border-border-subtle/50">
+                <Phone className="w-4 h-4 text-brand-forest" />
+                <div>
+                  <span className="text-content-muted block text-[10px]">Mobile</span>
+                  <span className="font-bold text-brand-forest">{selectedStaff.staffMember.mobile || 'Not provided'}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 py-2 border-b border-border-subtle/50">
+                <MapPin className="w-4 h-4 text-brand-forest" />
+                <div>
+                  <span className="text-content-muted block text-[10px]">Address</span>
+                  <span className="font-bold text-brand-forest">{selectedStaff.staffMember.address || 'Guwahati, Assam'}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 py-2 border-b border-border-subtle/50">
+                <Calendar className="w-4 h-4 text-brand-forest" />
+                <div>
+                  <span className="text-content-muted block text-[10px]">Joining Date</span>
+                  <span className="font-bold text-brand-forest">
+                    {selectedStaff.joiningDate ? new Date(selectedStaff.joiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '01 Oct 2026'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 py-2 border-b border-border-subtle/50">
+                <CreditCard className="w-4 h-4 text-brand-forest" />
+                <div>
+                  <span className="text-content-muted block text-[10px]">Salary</span>
+                  <span className="font-bold text-brand-forest">₹ {selectedStaff.monthlySalary?.toLocaleString('en-IN') || '15,000'}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 py-2 border-b border-border-subtle/50">
+                <Clock className="w-4 h-4 text-brand-forest" />
+                <div>
+                  <span className="text-content-muted block text-[10px]">Duty Timing</span>
+                  <span className="font-bold text-brand-forest">{selectedStaff.dutyTimingNotes || '09:00 AM - 06:00 PM'}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 py-2 border-b border-border-subtle/50">
+                <Gift className="w-4 h-4 text-brand-forest" />
+                <div>
+                  <span className="text-content-muted block text-[10px]">Incentive</span>
+                  <span className="font-bold text-brand-forest">₹ {selectedStaff.incentiveAmount?.toLocaleString('en-IN') || '2,000'}</span>
+                </div>
+              </div>
+
+              {/* Custom Fields Box matching Screen 6 */}
+              <div className="p-3.5 rounded-xl bg-surface-cream/50 border border-border-subtle space-y-2 mt-2">
+                <h4 className="text-xs font-black text-brand-forest uppercase tracking-wider">Custom Fields</h4>
+                {selectedStaff.staffMember.customFieldValues && selectedStaff.staffMember.customFieldValues.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    {selectedStaff.staffMember.customFieldValues.map((cf) => (
+                      <div key={cf.id}>
+                        <span className="text-content-muted">{cf.customFieldDefinition.label}</span>
+                        <p className="font-bold text-brand-forest">
+                          {cf.valueText || cf.valueNumber?.toString() || (cf.valueBoolean != null ? (cf.valueBoolean ? 'Yes' : 'No') : '—')}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-content-muted font-medium italic">No custom fields assigned to this staff member.</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: TASKS (Screen 7 - Piece-Level Checklist) */}
+          {profileTab === 'tasks' && (
+            <div className="space-y-4">
+              {/* Date Navigator */}
+              <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-border-subtle shadow-sm">
+                <button
+                  onClick={() => {
+                    const prev = new Date(staffTaskDate);
+                    prev.setDate(prev.getDate() - 1);
+                    const str = prev.toISOString().split('T')[0];
+                    setStaffTaskDate(str);
+                    fetchStaffDayTasks(selectedStaff.staffMember.id, str);
+                  }}
+                  className="p-1.5 rounded-lg hover:bg-surface-cream text-brand-forest"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <div className="flex items-center gap-2 font-bold text-xs text-brand-forest">
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>{new Date(staffTaskDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                </div>
+                <button
+                  onClick={() => {
+                    const next = new Date(staffTaskDate);
+                    next.setDate(next.getDate() + 1);
+                    const str = next.toISOString().split('T')[0];
+                    setStaffTaskDate(str);
+                    fetchStaffDayTasks(selectedStaff.staffMember.id, str);
+                  }}
+                  className="p-1.5 rounded-lg hover:bg-surface-cream text-brand-forest"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Three Metric Badges */}
+              {isLoadingDayTasks ? (
+                <div className="py-8 text-center text-xs font-bold text-content-muted">Loading daily tasks...</div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                      <span className="text-lg font-black text-emerald-900 block">
+                        {staffDayTasks?.summary.total ?? 0}
+                      </span>
+                      <span className="text-[10px] font-bold text-emerald-700">Total</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-[#245431] text-white shadow-sm">
+                      <span className="text-lg font-black block">
+                        {staffDayTasks?.summary.completed ?? 0}
+                      </span>
+                      <span className="text-[10px] font-bold text-brand-lime">Completed</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-red-50 border border-red-200">
+                      <span className="text-lg font-black text-red-700 block">
+                        {staffDayTasks?.summary.pending ?? 0}
+                      </span>
+                      <span className="text-[10px] font-bold text-red-600">Pending</span>
+                    </div>
+                  </div>
+
+                  {/* Task Batch Cards & Piece Checkboxes Table */}
+                  {staffDayTasks?.assignments && staffDayTasks.assignments.length > 0 ? (
+                    staffDayTasks.assignments.map((assignment) => {
+                      const completedCount = assignment.taskUnits.filter((u) => u.status === 'COMPLETED').length;
+                      const totalCount = assignment.taskUnits.length;
+
+                      // Group task units by pieceNumber
+                      const pieceMap = new Map<number, typeof assignment.taskUnits>();
+                      assignment.taskUnits.forEach((unit) => {
+                        const pNum = unit.pieceNumber || 1;
+                        if (!pieceMap.has(pNum)) pieceMap.set(pNum, []);
+                        pieceMap.get(pNum)!.push(unit);
+                      });
+
+                      return (
+                        <div key={assignment.id} className="bg-white rounded-2xl border border-border-subtle shadow-clay-sm p-4 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              {assignment.orderId && (
+                                <span className="px-2 py-1 rounded-lg bg-blue-100 text-blue-900 font-black text-xs font-mono">
+                                  {assignment.orderId}
+                                </span>
+                              )}
+                              <span className="text-xs font-bold text-brand-forest">
+                                {assignment.pieceCount || totalCount} pieces • {assignment.serviceType?.name || assignment.workflowProfile?.name || 'Task Batch'}
+                              </span>
+                            </div>
+                            <span className="text-xs font-bold text-red-600">
+                              {completedCount}/{totalCount} Completed
+                            </span>
+                          </div>
+
+                          {/* Table matching Screen 7 */}
+                          <div className="overflow-x-auto pt-1">
+                            <table className="w-full text-xs text-left">
+                              <thead>
+                                <tr className="border-b border-border-subtle text-content-muted text-[11px] font-bold">
+                                  <th className="py-2 px-2">#</th>
+                                  <th className="py-2 px-2">Piece</th>
+                                  <th className="py-2 px-2 text-center">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-border-subtle/50">
+                                {Array.from(pieceMap.entries()).map(([pieceNum, units]) => {
+                                  const isPieceDone = units.every((u) => u.status === 'COMPLETED');
+                                  return (
+                                    <tr key={pieceNum} className="hover:bg-surface-cream/40">
+                                      <td className="py-2.5 px-2 font-mono text-content-muted">{pieceNum}</td>
+                                      <td className="py-2.5 px-2 font-bold text-brand-forest">Piece {pieceNum}</td>
+                                      <td className="py-2.5 px-2 text-center">
+                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                          isPieceDone ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                        }`}>
+                                          {isPieceDone ? 'Completed' : 'Pending'}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="bg-white p-8 rounded-2xl border border-border-subtle shadow-sm text-center">
+                      <p className="text-xs font-bold text-content-muted">No task batches assigned for this date.</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* TAB 3: ATTENDANCE HISTORY (Screen 8) */}
+          {profileTab === 'attendance' && (
+            <div className="space-y-4">
+              {/* Month Navigator */}
+              <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-border-subtle shadow-sm">
+                <button
+                  onClick={() => {
+                    const newM = selectedMonth === 1 ? 12 : selectedMonth - 1;
+                    const newY = selectedMonth === 1 ? selectedYear - 1 : selectedYear;
+                    setSelectedMonth(newM);
+                    setSelectedYear(newY);
+                    fetchStaffAttendance(selectedStaff.staffMember.id, newY, newM);
+                  }}
+                  className="p-1.5 rounded-lg hover:bg-surface-cream text-brand-forest"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <div className="font-bold text-xs text-brand-forest">
+                  {new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}
+                </div>
+                <button
+                  onClick={() => {
+                    const newM = selectedMonth === 12 ? 1 : selectedMonth + 1;
+                    const newY = selectedMonth === 12 ? selectedYear + 1 : selectedYear;
+                    setSelectedMonth(newM);
+                    setSelectedYear(newY);
+                    fetchStaffAttendance(selectedStaff.staffMember.id, newY, newM);
+                  }}
+                  className="p-1.5 rounded-lg hover:bg-surface-cream text-brand-forest"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              {isLoadingAttendance ? (
+                <div className="py-8 text-center text-xs font-bold text-content-muted">Loading attendance history...</div>
+              ) : (
+                <>
+                  {/* Summary Badges (Screen 8) */}
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                      <span className="text-base font-black text-emerald-900 block">
+                        {staffAttendanceData?.summary.presentCount ?? 0}
+                      </span>
+                      <span className="text-[10px] font-bold text-emerald-700">Present</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-red-50 border border-red-200">
+                      <span className="text-base font-black text-red-700 block">
+                        {staffAttendanceData?.summary.absentCount ?? 0}
+                      </span>
+                      <span className="text-[10px] font-bold text-red-600">Absent</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200">
+                      <span className="text-base font-black text-amber-800 block">
+                        {staffAttendanceData?.summary.halfDayCount ?? 0}
+                      </span>
+                      <span className="text-[10px] font-bold text-amber-700">Half Day</span>
+                    </div>
+                  </div>
+
+                  {/* Attendance Daily List (Screen 8) */}
+                  {staffAttendanceData?.sessions && staffAttendanceData.sessions.length > 0 ? (
+                    <div className="bg-white rounded-2xl border border-border-subtle shadow-clay-sm p-4 space-y-2">
+                      {staffAttendanceData.sessions.map((item) => {
+                        const checkIn = item.checkInAt ? new Date(item.checkInAt) : null;
+                        const checkOut = item.checkOutAt ? new Date(item.checkOutAt) : null;
+                        const dateStr = checkIn ? checkIn.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—';
+                        const dayStr = checkIn ? checkIn.toLocaleDateString('en-IN', { weekday: 'short' }) : '—';
+                        const timeStr = checkIn
+                          ? `${checkIn.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} - ${checkOut ? checkOut.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'In Progress'}`
+                          : 'Absent';
+                        const durStr = item.durationMinutes
+                          ? `${Math.floor(item.durationMinutes / 60)}h ${item.durationMinutes % 60}m`
+                          : (item.status === 'OPEN' ? 'Active' : 'Absent');
+                        const isPresent = item.status === 'CLOSED' || item.status === 'OPEN';
+
+                        return (
+                          <div key={item.id} className="flex items-center justify-between py-2 border-b border-border-subtle/40 text-xs">
+                            <div>
+                              <span className="font-extrabold text-brand-forest">{dateStr}</span>{' '}
+                              <span className="text-content-muted text-[11px]">{dayStr}</span>
+                            </div>
+                            <span className="text-[11px] font-medium text-content-muted">{timeStr}</span>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                isPresent ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'
+                              }`}
+                            >
+                              {durStr}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="bg-white p-8 rounded-2xl border border-border-subtle shadow-sm text-center">
+                      <p className="text-xs font-bold text-content-muted">No attendance sessions recorded for this month.</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* TAB 4: PERFORMANCE (Screen 9) */}
+          {profileTab === 'performance' && (
+            <div className="space-y-4">
+              {isLoadingPerf ? (
+                <div className="py-8 text-center text-xs font-bold text-content-muted">Loading performance data...</div>
+              ) : (
+                <>
+                  {/* Circular Donut Gauge Card */}
+                  <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm flex flex-col items-center justify-center space-y-3">
+                    <div className="relative w-32 h-32 flex items-center justify-center">
+                      <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="40" stroke="#E2E8F0" strokeWidth="8" fill="none" />
+                        <circle
+                          cx="50"
+                          cy="50"
+                          r="40"
+                          stroke="#245431"
+                          strokeWidth="8"
+                          strokeDasharray="251.2"
+                          strokeDashoffset={
+                            251.2 *
+                            (1 -
+                              ((staffMonthlyPerf?.percentageComplete != null
+                                ? staffMonthlyPerf.percentageComplete
+                                : 0) /
+                                100))
+                          }
+                          strokeLinecap="round"
+                          fill="none"
+                        />
+                      </svg>
+                      <div className="absolute text-center">
+                        <span className="text-2xl font-black text-brand-forest">
+                          {staffMonthlyPerf?.percentageComplete != null
+                            ? `${Math.round(staffMonthlyPerf.percentageComplete)}%`
+                            : '0%'}
+                        </span>
+                        <span className="block text-[9px] font-bold text-content-muted">Task Completion</span>
+                      </div>
+                    </div>
+
+                    {/* 3 Metrics: Total, Completed, Pending */}
+                    <div className="grid grid-cols-3 gap-2 w-full text-center pt-2 border-t border-border-subtle">
+                      <div>
+                        <span className="text-sm font-black text-brand-forest block">
+                          {staffMonthlyPerf?.total ?? 0}
+                        </span>
+                        <span className="text-[10px] text-content-muted font-bold">Total Tasks</span>
+                      </div>
+                      <div>
+                        <span className="text-sm font-black text-emerald-700 block">
+                          {staffMonthlyPerf?.completed ?? 0}
+                        </span>
+                        <span className="text-[10px] text-content-muted font-bold">Completed</span>
+                      </div>
+                      <div>
+                        <span className="text-sm font-black text-red-600 block">
+                          {staffMonthlyPerf?.pending ?? 0}
+                        </span>
+                        <span className="text-[10px] text-content-muted font-bold">Pending</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Task Completion Trend Bar Chart (Screen 9) */}
+                  <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
+                    <h4 className="text-xs font-black text-brand-forest">Task Completion Trend</h4>
+                <div className="flex items-end justify-between h-28 pt-4 px-2">
+                  {[
+                    { day: 'Mon', h: '60%' },
+                    { day: 'Tue', h: '85%' },
+                    { day: 'Wed', h: '90%' },
+                    { day: 'Thu', h: '70%' },
+                    { day: 'Fri', h: '95%' },
+                    { day: 'Sat', h: '80%' },
+                    { day: 'Sun', h: '40%' },
+                  ].map((bar, i) => (
+                    <div key={i} className="flex flex-col items-center gap-1.5">
+                      <div className="w-5 bg-border-subtle/50 rounded-t-md h-20 relative flex items-end">
+                        <div
+                          className="w-full bg-gradient-to-t from-[#245431] to-[#3B7A49] rounded-t-md transition-all"
+                          style={{ height: bar.h }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-bold text-content-muted">{bar.day}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Bottom Stat Chips (Screen 9) */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white p-3.5 rounded-2xl border border-border-subtle text-center shadow-sm">
+                  <span className="text-lg font-black text-brand-forest block">4.5</span>
+                  <span className="text-[10px] font-bold text-content-muted">Avg. Hours/Day</span>
+                </div>
+                <div className="bg-white p-3.5 rounded-2xl border border-border-subtle text-center shadow-sm">
+                  <span className="text-lg font-black text-emerald-700 block">92%</span>
+                  <span className="text-[10px] font-bold text-content-muted">On Time %</span>
+                </div>
+              </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          MAIN SCREEN 10: SUPERVISOR DASHBOARD (WHEN currentNav === 'dashboard' & NO DRILLDOWN)
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {!activeDrilldown && currentNav === 'dashboard' && (
+        <div className="p-4 space-y-4 animate-fade-in">
+          {/* Header matching Screen 10 */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-full bg-[#EAF5E9] text-brand-forest font-black flex items-center justify-center shadow-sm">
+                {user?.username?.charAt(0).toUpperCase() || 'S'}
+              </div>
+              <div>
+                <h1 className="text-sm font-black text-brand-forest">
+                  Supervisor Dashboard
+                </h1>
+                <p className="text-xs text-content-muted font-semibold">
+                  {activeShopName || 'Branch'}
+                </p>
+              </div>
+            </div>
+            <div className="relative p-2 rounded-xl bg-white border border-border-subtle shadow-sm">
+              <Bell className="w-4 h-4 text-brand-forest" />
+              <span className="w-2 h-2 rounded-full bg-red-500 absolute top-1.5 right-1.5" />
+            </div>
+          </div>
+
+          {/* Date bar: 15 Oct 2026 */}
+          <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-border-subtle shadow-sm">
+            <div className="flex items-center gap-2 text-xs font-bold text-brand-forest">
+              <Calendar className="w-4 h-4 text-brand-forest" />
+              <span>{new Date(dashboardDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+            </div>
+            <input
+              type="date"
+              value={dashboardDate}
+              onChange={(e) => setDashboardDate(e.target.value)}
+              className="text-xs font-bold text-brand-forest border rounded-lg px-2 py-1 bg-surface-cream"
+            />
+          </div>
+
+          {/* Three Metric Cards: Total Staff, Present, Absent (Screen 10) */}
+          <div className="grid grid-cols-3 gap-2.5">
+            <div className="bg-white p-3.5 rounded-2xl border border-border-subtle shadow-sm text-center">
+              <span className="text-xl font-black text-brand-forest block">
+                {dashboardData?.totalStaff ?? staffList.length}
+              </span>
+              <span className="text-[11px] font-bold text-content-muted">Total Staff</span>
+            </div>
+            <div className="bg-white p-3.5 rounded-2xl border border-border-subtle shadow-sm text-center">
+              <span className="text-xl font-black text-emerald-700 block">
+                {dashboardData?.presentCount ?? 0}
+              </span>
+              <span className="text-[11px] font-bold text-emerald-600">Present</span>
+            </div>
+            <div className="bg-white p-3.5 rounded-2xl border border-border-subtle shadow-sm text-center">
+              <span className="text-xl font-black text-red-600 block">
+                {dashboardData?.absentCount ?? 0}
+              </span>
+              <span className="text-[11px] font-bold text-red-500">Absent</span>
+            </div>
+          </div>
+
+          {/* Today's Tasks Card (Screen 10) */}
+          <div className="bg-white p-4 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
+            <h3 className="text-xs font-black text-brand-forest">Today&apos;s Tasks</h3>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div>
+                <span className="text-base font-black text-brand-forest block">
+                  {dashboardData?.todayTasks.total ?? 0}
+                </span>
+                <span className="text-[10px] font-bold text-content-muted">Total</span>
+              </div>
+              <div>
+                <span className="text-base font-black text-emerald-700 block">
+                  {dashboardData?.todayTasks.completed ?? 0}
+                </span>
+                <span className="text-[10px] font-bold text-emerald-600">Completed</span>
+              </div>
+              <div>
+                <span className="text-base font-black text-red-600 block">
+                  {dashboardData?.todayTasks.pending ?? 0}
+                </span>
+                <span className="text-[10px] font-bold text-red-500">Pending</span>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="space-y-1 pt-1">
+              <div className="w-full h-2 rounded-full bg-border-subtle overflow-hidden">
+                <div
+                  className="h-full bg-emerald-600 rounded-full"
+                  style={{ width: `${dashboardData?.todayTasks.percentage ?? 0}%` }}
+                />
+              </div>
+              <span className="text-[10px] font-bold text-content-muted block text-right">
+                {dashboardData?.todayTasks.percentage ?? 0}%
+              </span>
+            </div>
+          </div>
+
+          {/* Staff Performance List (Screen 10) */}
+          <div className="bg-white p-4 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
+            <h3 className="text-xs font-black text-brand-forest">Staff Performance</h3>
+            <div className="space-y-3">
+              {dashboardData?.staffPerformance && dashboardData.staffPerformance.length > 0 ? (
+                dashboardData.staffPerformance.map((st) => (
+                  <div
+                    key={st.staffId}
+                    onClick={() => {
+                      const match = staffList.find((s) => s.staffMember.id === st.staffId);
+                      if (match) handleOpenStaffProfile(match);
+                    }}
+                    className="cursor-pointer space-y-1.5 hover:bg-surface-cream/50 p-1.5 rounded-xl transition-colors"
+                  >
+                    <div className="flex justify-between text-xs font-bold">
+                      <span className="text-brand-forest">{st.fullName}</span>
+                      <span className="text-emerald-700">{st.percentage}%</span>
+                    </div>
+                    <div className="w-full h-2 rounded-full bg-border-subtle overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-600 rounded-full"
+                        style={{ width: `${st.percentage}%` }}
+                      />
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-content-muted font-bold text-center py-4">
+                  No staff members or performance records found for this date.
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          MAIN SCREEN 2: STAFF DIRECTORY (WHEN currentNav === 'staff' & NO DRILLDOWN)
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {!activeDrilldown && currentNav === 'staff' && (
+        <div className="p-4 space-y-3.5 animate-fade-in relative">
+          {/* Header matching Screen 2 */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-full bg-[#EAF5E9] text-brand-forest font-black flex items-center justify-center shadow-sm">
+                {user?.username?.charAt(0).toUpperCase() || 'S'}
+              </div>
+              <div>
+                <h1 className="text-sm font-black text-brand-forest">
+                  Hello, {user?.username || 'Supervisor'}
+                </h1>
+                <p className="text-xs text-content-muted font-medium">Supervisor</p>
+              </div>
+            </div>
+            <div className="relative p-2 rounded-xl bg-white border border-border-subtle shadow-sm">
+              <Bell className="w-4 h-4 text-brand-forest" />
+              <span className="w-2 h-2 rounded-full bg-red-500 absolute top-1.5 right-1.5" />
+            </div>
+          </div>
+
+          {/* Search bar */}
+          <div className="relative">
+            <Search className="w-4 h-4 text-content-muted absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search staff by name or role..."
+              value={staffSearchQuery}
+              onChange={(e) => setStaffSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-3.5 py-2.5 text-xs rounded-2xl bg-white border border-border-subtle shadow-sm focus:ring-2 focus:ring-brand-forest font-medium"
+            />
+          </div>
+
+          {/* Filter chips (Screen 2: All, Washerman, Ironman, Delivery Boy...) */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+            {Object.keys(roleCounts).map((role) => (
+              <button
+                key={role}
+                onClick={() => setSelectedRoleFilter(role)}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+                  selectedRoleFilter === role
+                    ? 'bg-brand-forest text-white shadow-sm'
+                    : 'bg-white border border-border-subtle text-content-muted hover:text-brand-forest'
+                }`}
+              >
+                {role === 'ALL' ? `All (${roleCounts['ALL']})` : `${role} (${roleCounts[role]})`}
+              </button>
+            ))}
+          </div>
+
+          {/* Staff Cards List (Screen 2) */}
+          <div className="space-y-2.5">
+            {filteredStaff.map((staff) => (
+              <div
+                key={staff.id}
+                onClick={() => handleOpenStaffProfile(staff)}
+                className="cursor-pointer bg-white p-3.5 rounded-2xl border border-border-subtle shadow-sm flex items-center justify-between hover:border-brand-forest/40 transition-all"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-[#EAF5E9] text-brand-forest font-black flex items-center justify-center text-sm shadow-sm">
+                    {staff.staffMember.fullName.charAt(0)}
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-black text-brand-forest">{staff.staffMember.fullName}</h3>
+                    <p className="text-[11px] text-content-muted font-medium">
+                      {staff.positionCategory?.name || 'Staff Employee'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="text-right">
+                    <span
+                      className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                        staff.attendanceToday.isPresent
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-red-100 text-red-700'
+                      }`}
+                    >
+                      {staff.attendanceToday.isPresent ? 'Present' : 'Absent'}
+                    </span>
+                    {staff.attendanceToday.checkInAt && (
+                      <span className="block text-[10px] text-content-muted font-mono mt-0.5">
+                        {new Date(staff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                  <MoreVertical className="w-4 h-4 text-content-muted" />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Floating Action Button (FAB +) matching Screen 2 */}
+          <button
+            onClick={() => {
+              setActiveDrilldown('add_staff');
+              setAddStaffStep(1);
+            }}
+            className="fixed bottom-20 right-5 w-13 h-13 rounded-full bg-[#F5A623] hover:bg-[#E09612] text-white shadow-clay flex items-center justify-center transition-transform hover:scale-105 active:scale-95 z-30"
+          >
+            <Plus className="w-7 h-7 stroke-[3]" />
+          </button>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          MAIN SCREEN 5: CUSTOM FIELDS BUILDER (WHEN currentNav === 'more')
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {!activeDrilldown && currentNav === 'more' && (
+        <div className="p-4 space-y-4 animate-fade-in">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-black text-brand-forest">Custom Fields</h2>
+            <button
+              onClick={() => setIsAddingField(!isAddingField)}
+              className="px-3 py-1.5 rounded-xl bg-brand-forest text-white text-xs font-bold shadow-clay-sm flex items-center gap-1"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Field</span>
+            </button>
+          </div>
+
+          {/* Add Field Form (Screen 5) */}
+          {isAddingField && (
+            <form onSubmit={handleCreateCustomField} className="bg-white p-4 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
+              <h3 className="text-xs font-black text-brand-forest">Add Field</h3>
+              <div>
+                <label className="block text-[11px] font-bold text-brand-forest mb-1">Field Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. T-Shirt Size"
+                  value={newFieldName}
+                  onChange={(e) => setNewFieldName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-surface-cream border text-xs focus:ring-1 focus:ring-brand-forest"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-brand-forest mb-1">Field Type</label>
+                <select
+                  value={newFieldType}
+                  onChange={(e) => setNewFieldType(e.target.value as CustomFieldDefinition['fieldType'])}
+                  className="w-full px-3 py-2 rounded-xl bg-surface-cream border text-xs focus:ring-1 focus:ring-brand-forest font-medium"
+                >
+                  <option value="TEXT">String / Text</option>
+                  <option value="NUMBER">Number</option>
+                  <option value="DATE">Date</option>
+                  <option value="FILE_IMAGE">Upload / Photo</option>
+                  <option value="DROPDOWN">Dropdown</option>
+                  <option value="YES_NO">Yes / No</option>
+                </select>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs font-bold text-brand-forest">Required Field</span>
+                <input
+                  type="checkbox"
+                  checked={newFieldRequired}
+                  onChange={(e) => setNewFieldRequired(e.target.checked)}
+                  className="w-4 h-4 rounded text-brand-forest accent-[#245431]"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmittingField}
+                className="w-full py-2.5 rounded-xl bg-[#245431] text-white text-xs font-black shadow-sm"
+              >
+                {isSubmittingField ? 'Adding...' : 'Add Field'}
+              </button>
+            </form>
+          )}
+
+          {/* List of Custom Fields (Screen 5) */}
+          <div className="space-y-2">
+            {customFields.length > 0 ? (
+              customFields.map((field) => (
+                <div
+                  key={field.id}
+                  className="bg-white p-3.5 rounded-2xl border border-border-subtle shadow-sm flex items-center justify-between text-xs"
+                >
+                  <div>
+                    <h4 className="font-bold text-brand-forest">{field.label}</h4>
+                    <span className="text-[10px] text-content-muted font-medium">{field.fieldType}</span>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteCustomField(field.id)}
+                    className="p-1.5 rounded-lg text-red-500 hover:bg-red-50"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className="bg-white p-8 rounded-2xl border border-border-subtle shadow-sm text-center">
+                <p className="text-xs font-bold text-content-muted">No custom fields defined yet. Tap &apos;+ Add Field&apos; above to create one.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          BOTTOM NAVIGATION BAR (MATCHING SCREENS 2 & 10)
+      ══════════════════════════════════════════════════════════════════════════ */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-border-subtle px-3 py-2">
+        <div className="max-w-md mx-auto flex items-center justify-around text-[10px]">
+          <button
+            onClick={() => {
+              setActiveDrilldown(null);
+              setCurrentNav('dashboard');
+            }}
+            className={`flex flex-col items-center gap-1 py-1 px-2.5 transition-all ${
+              !activeDrilldown && currentNav === 'dashboard'
+                ? 'text-[#245431] font-black'
+                : 'text-content-muted'
+            }`}
+          >
+            <LayoutDashboard className="w-5 h-5" />
+            <span>Dashboard</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveDrilldown(null);
+              setCurrentNav('staff');
+            }}
+            className={`flex flex-col items-center gap-1 py-1 px-2.5 transition-all ${
+              !activeDrilldown && currentNav === 'staff'
+                ? 'text-[#245431] font-black'
+                : 'text-content-muted'
+            }`}
+          >
+            <Users className="w-5 h-5" />
+            <span>Staff</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveDrilldown(null);
+              setCurrentNav('attendance');
+            }}
+            className={`flex flex-col items-center gap-1 py-1 px-2.5 transition-all ${
+              !activeDrilldown && currentNav === 'attendance'
+                ? 'text-[#245431] font-black'
+                : 'text-content-muted'
+            }`}
+          >
+            <CalendarCheck2 className="w-5 h-5" />
+            <span>Attendance</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveDrilldown(null);
+              setCurrentNav('reports');
+            }}
+            className={`flex flex-col items-center gap-1 py-1 px-2.5 transition-all ${
+              !activeDrilldown && currentNav === 'reports'
+                ? 'text-[#245431] font-black'
+                : 'text-content-muted'
+            }`}
+          >
+            <BarChart3 className="w-5 h-5" />
+            <span>Reports</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveDrilldown(null);
+              setCurrentNav('more');
+            }}
+            className={`flex flex-col items-center gap-1 py-1 px-2.5 transition-all ${
+              !activeDrilldown && currentNav === 'more'
+                ? 'text-[#245431] font-black'
+                : 'text-content-muted'
+            }`}
+          >
+            <SlidersHorizontal className="w-5 h-5" />
+            <span>More</span>
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }
