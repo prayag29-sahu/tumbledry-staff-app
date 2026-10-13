@@ -19,6 +19,8 @@ import {
   Layers,
   Sparkles,
   X,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 
 export default function OwnerPage() {
@@ -38,6 +40,17 @@ export default function OwnerPage() {
   const [shopAddress, setShopAddress] = useState('');
   const [shopTimezone, setShopTimezone] = useState('Asia/Kolkata');
   const [isSubmittingShop, setIsSubmittingShop] = useState(false);
+
+  // Edit Shop Modal
+  const [isEditShopOpen, setIsEditShopOpen] = useState(false);
+  const [editingShopId, setEditingShopId] = useState('');
+  const [editShopName, setEditShopName] = useState('');
+  const [editShopCode, setEditShopCode] = useState('');
+  const [editShopAddress, setEditShopAddress] = useState('');
+  const [editShopTimezone, setEditShopTimezone] = useState('Asia/Kolkata');
+  const [editShopStatus, setEditShopStatus] = useState<'ACTIVE' | 'PAUSED' | 'ARCHIVED'>('ACTIVE');
+  const [isSubmittingEditShop, setIsSubmittingEditShop] = useState(false);
+  const [deletingShopId, setDeletingShopId] = useState<string | null>(null);
 
   // New Position Modal
   const [isAddPosOpen, setIsAddPosOpen] = useState(false);
@@ -103,6 +116,62 @@ export default function OwnerPage() {
       alert(err instanceof Error ? err.message : 'Failed to create shop.');
     } finally {
       setIsSubmittingShop(false);
+    }
+  };
+
+  const openEditShop = (shop: Shop) => {
+    setEditingShopId(shop.id);
+    setEditShopName(shop.name);
+    setEditShopCode(shop.code);
+    setEditShopAddress(shop.address || '');
+    setEditShopTimezone(shop.timezone || 'Asia/Kolkata');
+    setEditShopStatus(shop.status || 'ACTIVE');
+    setIsEditShopOpen(true);
+  };
+
+  const handleUpdateShop = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingShopId || !editShopName.trim() || !editShopCode.trim()) return;
+
+    setIsSubmittingEditShop(true);
+    try {
+      await apiRequest(`/api/shops/${editingShopId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: editShopName.trim(),
+          code: editShopCode.trim(),
+          address: editShopAddress.trim() || null,
+          timezone: editShopTimezone,
+          status: editShopStatus,
+        }),
+      });
+      setIsEditShopOpen(false);
+      alert('Shop branch updated.');
+      fetchAllConfig();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to update shop.');
+    } finally {
+      setIsSubmittingEditShop(false);
+    }
+  };
+
+  const handleDeleteShop = async (shop: Shop) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete branch "${shop.name}" (${shop.code})?\n\nThis will remove the duplicate branch permanently.`
+    );
+    if (!confirmed) return;
+
+    setDeletingShopId(shop.id);
+    try {
+      const res = await apiRequest<{ action?: string; message?: string }>(`/api/shops/${shop.id}`, {
+        method: 'DELETE',
+      });
+      alert(res.message || 'Branch deleted successfully.');
+      fetchAllConfig();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to delete shop.');
+    } finally {
+      setDeletingShopId(null);
     }
   };
 
@@ -242,13 +311,36 @@ export default function OwnerPage() {
                   key={shop.id}
                   className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 space-y-2 hover:border-brand-lime/50 transition-all"
                 >
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-base font-extrabold text-brand-forest">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-base font-extrabold text-brand-forest truncate">
                       {shop.name}
                     </h4>
-                    <span className="px-2 py-0.5 rounded-lg clay-badge-lime text-[10px] font-bold">
-                      {shop.status}
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => openEditShop(shop)}
+                        className="p-1.5 rounded-lg bg-surface-cream border border-border-subtle hover:bg-surface-hover text-brand-forest transition-colors shadow-clay-sm"
+                        title="Edit Shop"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteShop(shop)}
+                        disabled={deletingShopId === shop.id}
+                        className="p-1.5 rounded-lg bg-red-50 border border-red-200 hover:bg-red-100 text-red-600 transition-colors shadow-clay-sm disabled:opacity-50"
+                        title="Delete Shop"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                      <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                        shop.status === 'ACTIVE'
+                          ? 'clay-badge-lime'
+                          : shop.status === 'PAUSED'
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {shop.status}
+                      </span>
+                    </div>
                   </div>
                   <p className="text-xs text-content-muted font-medium">
                     Code: <strong className="text-brand-forest">{shop.code}</strong> • Timezone: {shop.timezone}
@@ -486,6 +578,115 @@ export default function OwnerPage() {
                   className="flex-1 py-2.5 rounded-xl clay-btn-forest text-xs font-bold"
                 >
                   {isSubmittingShop ? 'Creating...' : 'Create Branch'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Shop Modal */}
+      {isEditShopOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-brand-forest/40 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md bg-surface-card rounded-clay border border-border-subtle shadow-clay-lg p-5">
+            <div className="flex items-center justify-between pb-3 border-b border-border-subtle">
+              <h3 className="text-base font-bold text-brand-forest">Edit Shop Branch</h3>
+              <button
+                onClick={() => setIsEditShopOpen(false)}
+                className="p-1 rounded-lg text-content-muted"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateShop} className="mt-4 space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1">
+                  Shop Name *
+                </label>
+                <input
+                  type="text"
+                  value={editShopName}
+                  onChange={(e) => setEditShopName(e.target.value)}
+                  placeholder="e.g. Tumbledry Indiranagar"
+                  required
+                  className="w-full text-xs font-semibold p-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-clay-inset text-brand-forest"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1">
+                  Shop Slug/Code *
+                </label>
+                <input
+                  type="text"
+                  value={editShopCode}
+                  onChange={(e) => setEditShopCode(e.target.value)}
+                  placeholder="e.g. TD-AZ-2026A"
+                  required
+                  className="w-full text-xs font-semibold p-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-clay-inset text-brand-forest"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1">
+                  Address
+                </label>
+                <input
+                  type="text"
+                  value={editShopAddress}
+                  onChange={(e) => setEditShopAddress(e.target.value)}
+                  placeholder="Street and area"
+                  className="w-full text-xs font-semibold p-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-clay-inset text-brand-forest"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">
+                    Timezone
+                  </label>
+                  <select
+                    value={editShopTimezone}
+                    onChange={(e) => setEditShopTimezone(e.target.value)}
+                    className="w-full text-xs font-semibold p-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-clay-inset text-brand-forest"
+                  >
+                    <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+                    <option value="Asia/Dubai">Asia/Dubai (GST)</option>
+                    <option value="UTC">UTC</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">
+                    Branch Status
+                  </label>
+                  <select
+                    value={editShopStatus}
+                    onChange={(e) => setEditShopStatus(e.target.value as 'ACTIVE' | 'PAUSED' | 'ARCHIVED')}
+                    className="w-full text-xs font-semibold p-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-clay-inset text-brand-forest"
+                  >
+                    <option value="ACTIVE">ACTIVE</option>
+                    <option value="PAUSED">PAUSED</option>
+                    <option value="ARCHIVED">ARCHIVED</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditShopOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl clay-btn-secondary text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingEditShop}
+                  className="flex-1 py-2.5 rounded-xl clay-btn-forest text-xs font-bold"
+                >
+                  {isSubmittingEditShop ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </form>
