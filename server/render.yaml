@@ -1,0 +1,23 @@
+# Render Blueprint — Tumbledry API server
+# This file configures the Render deployment.
+# Do NOT include actual secret values here — set them in the Render dashboard.
+# Ref: https://render.com/docs/web-services
+
+services:
+  - type: web
+    name: tumbledry-api
+    runtime: node
+    region: singapore  # choose closest to your users
+    plan: starter       # upgrade as needed for production availability SLA
+    rootDir: server
+    buildCommand: npm ci && npm run prisma:generate && npm run build
+    startCommand: node dist/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      # All secret values must be set in Render dashboard, NOT here:
+      # DATABASE_URL, DIRECT_DATABASE_URL, JWT_SECRET, JWT_REFRESH_SECRET,
+      # CORS_ORIGIN, SUPABASE_STORAGE_URL, SUPABASE_SERVICE_ROLE_KEY

@@ -1,0 +1,548 @@
+// This is the Prisma schema for Tumbledry Operations App
+// Migration authority: Prisma Migrate (single authority)
+// Do NOT use Supabase CLI for application schema changes
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // Use DIRECT_URL for migrations; DATABASE_URL may use a pooler
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// SHOPS / TENANTS
+// ─────────────────────────────────────────────
+model Shop {
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique // short slug/identifier
+  timezone    String   @default("Asia/Kolkata")
+  address     String?
+  contactInfo String?  @map("contact_info")
+  logoPath    String?  @map("logo_path")
+  status      ShopStatus @default(ACTIVE)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // relations
+  shopMemberships     ShopMembership[]
+  positionCategories  PositionCategory[]
+  taskAssignments     TaskAssignment[]
+  taskUnits           TaskUnit[]
+  attendanceSessions  AttendanceSession[]
+  damageIncidents     DamageIncident[]
+  auditLogs           AuditLog[]
+  appSettings         AppSetting[]
+  customFieldDefs     CustomFieldDefinition[]
+
+  @@map("shops")
+}
+
+enum ShopStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+// ─────────────────────────────────────────────
+// ACCOUNTS (login identity)
+// ─────────────────────────────────────────────
+model Account {
+  id                 String    @id @default(uuid())
+  username           String    @unique // normalized lowercase
+  passwordHash       String    @map("password_hash")
+  status             AccountStatus @default(ACTIVE)
+  isOwner            Boolean   @default(false) @map("is_owner")
+  tokenVersion       Int       @default(0) @map("token_version") // increment to invalidate all sessions
+  lastLoginAt        DateTime? @map("last_login_at")
+  forcePasswordChange Boolean  @default(false) @map("force_password_change")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  // optional link to a staff record (Owner-only accounts may have no staff record)
+  staffMember   StaffMember? @relation(fields: [staffMemberId], references: [id])
+  staffMemberId String?      @unique @map("staff_member_id")
+
+  shopMemberships  ShopMembership[]
+  refreshSessions  RefreshSession[]
+  auditLogsAsActor AuditLog[] @relation("AuditActor")
+
+  @@map("accounts")
+}
+
+enum AccountStatus {
+  ACTIVE
+  DISABLED
+  SUSPENDED
+}
+
+// ─────────────────────────────────────────────
+// STAFF MEMBERS (one unified table for ALL workforce)
+// DO NOT create separate washermen/ironman/etc tables
+// ─────────────────────────────────────────────
+model StaffMember {
+  id          String   @id @default(uuid())
+  fullName    String   @map("full_name")
+  mobile      String?
+  address     String?
+  // Sensitive PII — masked by default, access-controlled
+  aadhaarEncrypted String? @map("aadhaar_encrypted")
+  bankAccountEncrypted String? @map("bank_account_encrypted")
+  profilePhotoPath String? @map("profile_photo_path")
+  employmentStatus StaffEmploymentStatus @default(ACTIVE) @map("employment_status")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // relations
+  account          Account?
+  shopMemberships  ShopMembership[]
+  taskAssignments  TaskAssignment[]
+  taskUnits        TaskUnit[]
+  attendanceSessions AttendanceSession[]
+  damageIncidents  DamageIncident[]
+  customFieldValues CustomFieldValue[]
+
+  @@map("staff_members")
+}
+
+enum StaffEmploymentStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+// ─────────────────────────────────────────────
+// SHOP MEMBERSHIPS
+// Links a staff member to a shop with a specific permission profile and position
+// ─────────────────────────────────────────────
+model ShopMembership {
+  id                   String   @id @default(uuid())
+  shopId               String   @map("shop_id")
+  staffMemberId        String   @map("staff_member_id")
+  accountId            String   @map("account_id")
+  permissionProfileId  String   @map("permission_profile_id")
+  positionCategoryId   String?  @map("position_category_id")
+  workflowProfileId    String?  @map("workflow_profile_id")
+  // Employment terms for this shop
+  joiningDate          DateTime? @map("joining_date")
+  monthlySalary        Decimal?  @map("monthly_salary") @db.Decimal(10, 2)
+  securityDeposit      Decimal?  @map("security_deposit") @db.Decimal(10, 2)
+  dutyTimingNotes      String?   @map("duty_timing_notes")
+  incentiveAmount      Decimal?  @map("incentive_amount") @db.Decimal(10, 2)
+  isActive             Boolean   @default(true) @map("is_active")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  shop              Shop              @relation(fields: [shopId], references: [id])
+  staffMember       StaffMember       @relation(fields: [staffMemberId], references: [id])
+  account           Account           @relation(fields: [accountId], references: [id])
+  permissionProfile PermissionProfile @relation(fields: [permissionProfileId], references: [id])
+  positionCategory  PositionCategory? @relation(fields: [positionCategoryId], references: [id])
+  workflowProfile   WorkflowProfile?  @relation(fields: [workflowProfileId], references: [id])
+
+  @@unique([shopId, staffMemberId]) // one active membership per shop per person
+  @@map("shop_memberships")
+}
+
+// ─────────────────────────────────────────────
+// PERMISSION PROFILES
+// ─────────────────────────────────────────────
+model PermissionProfile {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  isOwnerOnly Boolean  @default(false) @map("is_owner_only")
+  isSystem    Boolean  @default(false) @map("is_system") // system profiles cannot be deleted
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  capabilities  PermissionProfileCapability[]
+  shopMemberships ShopMembership[]
+
+  @@map("permission_profiles")
+}
+
+model PermissionProfileCapability {
+  id                  String   @id @default(uuid())
+  permissionProfileId String   @map("permission_profile_id")
+  capability          String   // e.g. "staff.read", "tasks.assign", "attendance.self"
+
+  permissionProfile PermissionProfile @relation(fields: [permissionProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([permissionProfileId, capability])
+  @@map("permission_profile_capabilities")
+}
+
+// ─────────────────────────────────────────────
+// POSITION CATEGORIES (editable job labels)
+// ─────────────────────────────────────────────
+model PositionCategory {
+  id                String   @id @default(uuid())
+  shopId            String?  @map("shop_id") // null = global/owner-level
+  name              String
+  description       String?
+  workflowProfileId String?  @map("workflow_profile_id")
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  shop            Shop?           @relation(fields: [shopId], references: [id])
+  workflowProfile WorkflowProfile? @relation(fields: [workflowProfileId], references: [id])
+  shopMemberships ShopMembership[]
+
+  @@map("position_categories")
+}
+
+// ─────────────────────────────────────────────
+// WORKFLOW PROFILES
+// Three supported counting patterns
+// ─────────────────────────────────────────────
+model WorkflowProfile {
+  id              String        @id @default(uuid())
+  name            String
+  description     String?
+  workflowType    WorkflowType  @map("workflow_type")
+  allowedActivities String[]    @map("allowed_activities") // e.g. ["WASH","DRY"] for piece_activity
+  requiresOrderId Boolean       @default(false) @map("requires_order_id")
+  requiresPieceCount Boolean    @default(false) @map("requires_piece_count")
+  requiresServiceType Boolean   @default(false) @map("requires_service_type")
+  isActive        Boolean       @default(true) @map("is_active")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  positionCategories PositionCategory[]
+  shopMemberships    ShopMembership[]
+  taskAssignments    TaskAssignment[]
+
+  @@map("workflow_profiles")
+}
+
+enum WorkflowType {
+  PIECE_ACTIVITY  // Washerman/Ironman: units = pieces × selected activities
+  PER_ORDER       // Delivery: one unit per order
+  COUNT_BASED     // Pickup: N units from pickup count
+}
+
+// ─────────────────────────────────────────────
+// SERVICE CATALOGUE
+// ─────────────────────────────────────────────
+model ServiceType {
+  id           String   @id @default(uuid())
+  name         String
+  code         String   @unique // e.g. "CL", "WF", "WSI"
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  activityMappings ServiceActivityMapping[]
+  taskAssignments  TaskAssignment[]
+
+  @@map("service_types")
+}
+
+// ─────────────────────────────────────────────
+// ACTIVITY CATALOGUE
+// ─────────────────────────────────────────────
+model ActivityType {
+  id           String   @id @default(uuid())
+  name         String   // e.g. "Wash", "Dry", "Iron", "Fold", "Pack"
+  code         String   @unique // e.g. "WASH", "DRY", "IRON"
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  serviceMappings ServiceActivityMapping[]
+  taskUnits       TaskUnit[]
+
+  @@map("activity_types")
+}
+
+// Owner-approved mapping of service → allowed activities
+model ServiceActivityMapping {
+  id             String   @id @default(uuid())
+  serviceTypeId  String   @map("service_type_id")
+  activityTypeId String   @map("activity_type_id")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  serviceType  ServiceType  @relation(fields: [serviceTypeId], references: [id], onDelete: Cascade)
+  activityType ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceTypeId, activityTypeId])
+  @@map("service_activity_mappings")
+}
+
+// ─────────────────────────────────────────────
+// CUSTOM FIELD DEFINITIONS
+// ─────────────────────────────────────────────
+model CustomFieldDefinition {
+  id            String   @id @default(uuid())
+  shopId        String?  @map("shop_id") // null = global
+  key           String   // stable, used in code references
+  label         String
+  helpText      String?  @map("help_text")
+  fieldType     CustomFieldType @map("field_type")
+  isRequired    Boolean  @default(false) @map("is_required")
+  isActive      Boolean  @default(true) @map("is_active")
+  displayOrder  Int      @default(0) @map("display_order")
+  dropdownOptions String[] @default([]) @map("dropdown_options")
+  visibilityScope String? @map("visibility_scope") // JSON: which profiles can view
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  shop   Shop? @relation(fields: [shopId], references: [id])
+  values CustomFieldValue[]
+
+  @@unique([shopId, key])
+  @@map("custom_field_definitions")
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  FILE_IMAGE
+  DROPDOWN
+  YES_NO
+}
+
+model CustomFieldValue {
+  id                      String   @id @default(uuid())
+  customFieldDefinitionId String   @map("custom_field_definition_id")
+  staffMemberId           String   @map("staff_member_id")
+  valueText               String?  @map("value_text")
+  valueNumber             Decimal? @map("value_number") @db.Decimal(15, 4)
+  valueDate               DateTime? @map("value_date")
+  valueFilePath           String?  @map("value_file_path")
+  valueBoolean            Boolean? @map("value_boolean")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  customFieldDefinition CustomFieldDefinition @relation(fields: [customFieldDefinitionId], references: [id], onDelete: Cascade)
+  staffMember           StaffMember           @relation(fields: [staffMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([customFieldDefinitionId, staffMemberId])
+  @@map("custom_field_values")
+}
+
+// ─────────────────────────────────────────────
+// TASK ASSIGNMENTS
+// ─────────────────────────────────────────────
+model TaskAssignment {
+  id                  String         @id @default(uuid())
+  shopId              String         @map("shop_id")
+  staffMemberId       String         @map("staff_member_id")
+  createdByAccountId  String         @map("created_by_account_id")
+  assignmentDate      DateTime       @map("assignment_date") @db.Date
+  workflowProfileId   String         @map("workflow_profile_id")
+  serviceTypeId       String?        @map("service_type_id")
+  orderId             String?        @map("order_id")
+  pieceCount          Int?           @map("piece_count")
+  pickupCount         Int?           @map("pickup_count")
+  selectedActivities  String[]       @default([]) @map("selected_activities") // activity codes used when generating units
+  notes               String?
+  status              AssignmentStatus @default(ACTIVE)
+  idempotencyKey      String         @unique @map("idempotency_key") // prevents duplicate assignments on retry
+  configVersion       String?        @map("config_version") // snapshot of workflow config at creation time
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
+
+  shop            Shop            @relation(fields: [shopId], references: [id])
+  staffMember     StaffMember     @relation(fields: [staffMemberId], references: [id])
+  workflowProfile WorkflowProfile @relation(fields: [workflowProfileId], references: [id])
+  serviceType     ServiceType?    @relation(fields: [serviceTypeId], references: [id])
+
+  taskUnits       TaskUnit[]
+  damageIncidents DamageIncident[]
+
+  @@index([shopId, staffMemberId, assignmentDate])
+  @@index([shopId, assignmentDate])
+  @@map("task_assignments")
+}
+
+enum AssignmentStatus {
+  ACTIVE
+  CANCELLED
+  REASSIGNED
+}
+
+// ─────────────────────────────────────────────
+// TASK UNITS (one independently completable unit)
+// ─────────────────────────────────────────────
+model TaskUnit {
+  id                 String     @id @default(uuid())
+  shopId             String     @map("shop_id")
+  staffMemberId      String     @map("staff_member_id")
+  taskAssignmentId   String     @map("task_assignment_id")
+  unitType           UnitType   @map("unit_type")
+  // For PIECE_ACTIVITY: piece number and activity code
+  pieceNumber        Int?       @map("piece_number")
+  activityTypeId     String?    @map("activity_type_id")
+  activityCode       String?    @map("activity_code") // denormalized for query speed
+  // For COUNT_BASED: sequence number
+  sequenceNumber     Int?       @map("sequence_number")
+  // For PER_ORDER: order reference (same as assignment.orderId)
+  orderRef           String?    @map("order_ref")
+  status             UnitStatus @default(PENDING)
+  completedAt        DateTime?  @map("completed_at")
+  completedByAccountId String?  @map("completed_by_account_id")
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+
+  shop           Shop           @relation(fields: [shopId], references: [id])
+  staffMember    StaffMember    @relation(fields: [staffMemberId], references: [id])
+  taskAssignment TaskAssignment @relation(fields: [taskAssignmentId], references: [id])
+  activityType   ActivityType?  @relation(fields: [activityTypeId], references: [id])
+
+  damageIncidents DamageIncident[]
+
+  @@index([shopId, staffMemberId, taskAssignmentId])
+  @@index([taskAssignmentId, status])
+  @@map("task_units")
+}
+
+enum UnitType {
+  PIECE_ACTIVITY
+  PER_ORDER
+  COUNT_BASED
+}
+
+enum UnitStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+// ─────────────────────────────────────────────
+// DAMAGE INCIDENTS
+// ─────────────────────────────────────────────
+model DamageIncident {
+  id                 String         @id @default(uuid())
+  shopId             String         @map("shop_id")
+  staffMemberId      String         @map("staff_member_id")
+  taskAssignmentId   String         @map("task_assignment_id")
+  taskUnitId         String?        @map("task_unit_id") // the piece being damaged
+  pieceNumber        Int?           @map("piece_number")
+  reportedByAccountId String        @map("reported_by_account_id")
+  reportedAt         DateTime       @default(now()) @map("reported_at")
+  status             DamageStatus   @default(OPEN)
+  notes              String?
+  photoPath          String?        @map("photo_path")
+  // Review/closure fields
+  reviewedByAccountId String?       @map("reviewed_by_account_id")
+  reviewedAt         DateTime?      @map("reviewed_at")
+  reviewNotes        String?        @map("review_notes")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+
+  shop           Shop           @relation(fields: [shopId], references: [id])
+  staffMember    StaffMember    @relation(fields: [staffMemberId], references: [id])
+  taskAssignment TaskAssignment @relation(fields: [taskAssignmentId], references: [id])
+  taskUnit       TaskUnit?      @relation(fields: [taskUnitId], references: [id])
+
+  @@index([shopId, staffMemberId, reportedAt])
+  @@index([shopId, status])
+  @@map("damage_incidents")
+}
+
+enum DamageStatus {
+  OPEN
+  UNDER_REVIEW
+  CLOSED
+  DISPUTED
+}
+
+// ─────────────────────────────────────────────
+// ATTENDANCE SESSIONS
+// ─────────────────────────────────────────────
+model AttendanceSession {
+  id                 String            @id @default(uuid())
+  shopId             String            @map("shop_id")
+  staffMemberId      String            @map("staff_member_id")
+  checkInAt          DateTime?         @map("check_in_at") // server-assigned
+  checkInPhotoPath   String?           @map("check_in_photo_path")
+  checkOutAt         DateTime?         @map("check_out_at") // server-assigned
+  checkOutPhotoPath  String?           @map("check_out_photo_path")
+  durationMinutes    Int?              @map("duration_minutes") // calculated on checkout
+  status             AttendanceStatus  @default(OPEN)
+  correctionHistory  Json?             @map("correction_history") // array of audited corrections
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+
+  shop        Shop        @relation(fields: [shopId], references: [id])
+  staffMember StaffMember @relation(fields: [staffMemberId], references: [id])
+
+  @@index([shopId, staffMemberId, checkInAt])
+  @@map("attendance_sessions")
+}
+
+enum AttendanceStatus {
+  OPEN          // checked in, not yet checked out
+  CLOSED        // completed session
+  NEEDS_REVIEW  // missing checkout or anomaly
+}
+
+// ─────────────────────────────────────────────
+// REFRESH SESSIONS (revocable session store)
+// ─────────────────────────────────────────────
+model RefreshSession {
+  id              String   @id @default(uuid())
+  accountId       String   @map("account_id")
+  tokenHash       String   @map("token_hash") // SHA-256 hash of the actual refresh token
+  deviceInfo      String?  @map("device_info")
+  ipAddress       String?  @map("ip_address")
+  expiresAt       DateTime @map("expires_at")
+  revokedAt       DateTime? @map("revoked_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([tokenHash])
+  @@map("refresh_sessions")
+}
+
+// ─────────────────────────────────────────────
+// AUDIT LOGS
+// ─────────────────────────────────────────────
+model AuditLog {
+  id              String   @id @default(uuid())
+  shopId          String?  @map("shop_id") // null for global/owner actions
+  actorAccountId  String   @map("actor_account_id")
+  action          String   // e.g. "staff.created", "task.completed", "attendance.checked_in"
+  entityType      String   @map("entity_type")
+  entityId        String   @map("entity_id")
+  metadata        Json?    // redacted safe before/after data only
+  requestId       String?  @map("request_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  shop  Shop?   @relation(fields: [shopId], references: [id])
+  actor Account @relation("AuditActor", fields: [actorAccountId], references: [id])
+
+  @@index([shopId, createdAt])
+  @@index([actorAccountId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────
+// APP SETTINGS (database-driven configuration)
+// ─────────────────────────────────────────────
+model AppSetting {
+  id        String   @id @default(uuid())
+  shopId    String?  @map("shop_id") // null = global platform setting
+  key       String
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  shop Shop? @relation(fields: [shopId], references: [id])
+
+  @@unique([shopId, key])
+  @@map("app_settings")
+}
