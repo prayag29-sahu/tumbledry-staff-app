@@ -47,8 +47,14 @@ staffRouter.get(
             id: true,
             fullName: true,
             mobile: true,
+            address: true,
             profilePhotoPath: true,
             employmentStatus: true,
+            customFieldValues: {
+              include: {
+                customFieldDefinition: { select: { id: true, label: true, key: true } },
+              },
+            },
           },
         },
         positionCategory: { select: { id: true, name: true } },
@@ -64,8 +70,38 @@ staffRouter.get(
       where: { shopId, isActive: status !== 'inactive' },
     });
 
+    // Fetch today's attendance sessions to attach presence status
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todaySessions = await prisma.attendanceSession.findMany({
+      where: {
+        shopId,
+        checkInAt: { gte: today },
+      },
+      select: { staffMemberId: true, checkInAt: true, checkOutAt: true, status: true },
+    });
+    const sessionMap = new Map(todaySessions.map((s) => [s.staffMemberId, s]));
+
+    const enrichedStaff = memberships.map((m) => {
+      const session = sessionMap.get(m.staffMemberId);
+      return {
+        ...m,
+        attendanceToday: session ? {
+          isPresent: true,
+          checkInAt: session.checkInAt,
+          checkOutAt: session.checkOutAt,
+          status: session.status,
+        } : {
+          isPresent: false,
+          checkInAt: null,
+          checkOutAt: null,
+          status: 'ABSENT',
+        },
+      };
+    });
+
     // Never return sensitive fields like aadhaar/bank in list views
-    res.json({ staff: memberships, total, page: parseInt(page), limit: parseInt(limit) });
+    res.json({ staff: enrichedStaff, total, page: parseInt(page), limit: parseInt(limit) });
   }
 );
 
@@ -86,17 +122,18 @@ staffRouter.post(
       fullName: z.string().min(1).max(200),
       mobile: z.string().max(20).optional(),
       address: z.string().max(500).optional(),
-      positionCategoryId: z.string().uuid().optional(),
-      permissionProfileId: z.string().uuid(),
-      workflowProfileId: z.string().uuid().optional(),
+      positionCategoryId: z.string().min(1).optional(),
+      permissionProfileId: z.string().min(1).optional(),
+      workflowProfileId: z.string().min(1).optional(),
       joiningDate: z.string().optional(),
       monthlySalary: z.number().positive().optional(),
       securityDeposit: z.number().min(0).optional(),
       dutyTimingNotes: z.string().max(200).optional(),
       incentiveAmount: z.number().min(0).optional(),
+      role: z.string().optional(),
       // Account creation (optional — person can exist without login access)
       username: z.string().min(3).max(100).optional(),
-      password: z.string().min(8).max(128).optional(),
+      password: z.string().min(6).max(128).optional(),
     }).refine(
       (d) => !d.username || d.password,
       { message: 'Password is required when creating an account.', path: ['password'] }
@@ -111,6 +148,49 @@ staffRouter.post(
       });
       if (existing) {
         return next(new AppError(409, 'CONFLICT', 'Username is already taken.'));
+      }
+    }
+
+    // Resolve permission profile
+    let resolvedPermissionProfileId = body.permissionProfileId;
+    if (!resolvedPermissionProfileId) {
+      const targetRoleName = body.role || 'Staff';
+      const matchedProfile = await prisma.permissionProfile.findFirst({
+        where: {
+          OR: [
+            { id: `sys-${targetRoleName.toLowerCase().replace(/\s+/g, '-')}` },
+            { name: { equals: targetRoleName, mode: 'insensitive' } },
+          ],
+        },
+      });
+      if (matchedProfile) {
+        resolvedPermissionProfileId = matchedProfile.id;
+      } else {
+        const firstProfile = await prisma.permissionProfile.findFirst();
+        if (!firstProfile) return next(new AppError(500, 'SERVER_ERROR', 'No permission profile configured.'));
+        resolvedPermissionProfileId = firstProfile.id;
+      }
+    }
+
+    // Resolve position category
+    let resolvedPositionCategoryId = body.positionCategoryId;
+    if (!resolvedPositionCategoryId && body.role) {
+      const matchedPos = await prisma.positionCategory.findFirst({
+        where: {
+          name: { equals: body.role, mode: 'insensitive' },
+          OR: [{ shopId }, { shopId: null }],
+        },
+      });
+      if (matchedPos) {
+        resolvedPositionCategoryId = matchedPos.id;
+      } else {
+        const newPos = await prisma.positionCategory.create({
+          data: {
+            name: body.role,
+            shopId,
+          },
+        });
+        resolvedPositionCategoryId = newPos.id;
       }
     }
 
@@ -130,7 +210,7 @@ staffRouter.post(
           data: {
             username: body.username.toLowerCase(),
             passwordHash,
-            forcePasswordChange: true, // must change on first login
+            forcePasswordChange: false,
             staffMemberId: staffMember.id,
           },
         });
@@ -140,9 +220,9 @@ staffRouter.post(
         data: {
           shopId,
           staffMemberId: staffMember.id,
-          accountId: account?.id ?? auth.accountId, // fallback — will be corrected when account created later
-          permissionProfileId: body.permissionProfileId,
-          positionCategoryId: body.positionCategoryId ?? null,
+          accountId: account?.id ?? auth.accountId,
+          permissionProfileId: resolvedPermissionProfileId!,
+          positionCategoryId: resolvedPositionCategoryId ?? null,
           workflowProfileId: body.workflowProfileId ?? null,
           joiningDate: body.joiningDate ? new Date(body.joiningDate) : null,
           monthlySalary: body.monthlySalary ?? null,
@@ -156,6 +236,63 @@ staffRouter.post(
     });
 
     res.status(201).json(result);
+  }
+);
+
+// ─── POST /api/shops/:shopId/staff/:staffId/reset-password ───────────────────
+staffRouter.post(
+  '/shops/:shopId/staff/:staffId/reset-password',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
+    const { shopId, staffId } = req.params as { shopId: string; staffId: string };
+
+    const hasAccess = auth.isOwner || auth.shopMemberships.some(
+      (m) => m.shopId === shopId && m.capabilities.includes('staff.update')
+    );
+    if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Permission denied.'));
+
+    const schema = z.object({
+      password: z.string().min(6).max(128),
+    });
+    const { password } = schema.parse(req.body);
+
+    const membership = await prisma.shopMembership.findFirst({
+      where: { staffMemberId: staffId, shopId },
+      include: { staffMember: { include: { account: true } } },
+    });
+
+    if (!membership) {
+      return next(new AppError(404, 'NOT_FOUND', 'Staff member not found.'));
+    }
+
+    const passwordHash = await hashPassword(password);
+
+    if (membership.staffMember.account) {
+      await prisma.account.update({
+        where: { id: membership.staffMember.account.id },
+        data: {
+          passwordHash,
+          tokenVersion: { increment: 1 },
+          forcePasswordChange: false,
+        },
+      });
+    } else {
+      const generatedUsername = `${membership.staffMember.fullName.toLowerCase().replace(/[^a-z0-9]/g, '')}_${Date.now().toString().slice(-4)}`;
+      const newAccount = await prisma.account.create({
+        data: {
+          username: generatedUsername,
+          passwordHash,
+          forcePasswordChange: false,
+          staffMemberId: staffId,
+        },
+      });
+      await prisma.shopMembership.update({
+        where: { id: membership.id },
+        data: { accountId: newAccount.id },
+      });
+    }
+
+    res.json({ message: 'Password updated successfully.' });
   }
 );
 

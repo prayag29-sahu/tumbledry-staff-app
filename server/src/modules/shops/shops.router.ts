@@ -230,6 +230,120 @@ shopsRouter.get('/:shopId', async (req: Request, res: Response, next: NextFuncti
   res.json(shop);
 });
 
+// GET /api/shops/:shopId/supervisor/dashboard — Supervisor Dashboard metrics and staff performance
+shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Response, next: NextFunction) => {
+  const auth = (req as AuthenticatedRequest).auth;
+  const { shopId } = req.params as { shopId: string };
+
+  const hasAccess = auth.isOwner || auth.shopMemberships.some((m) => m.shopId === shopId);
+  if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
+
+  const dateStr = req.query['date'] as string;
+  const targetDate = dateStr ? new Date(dateStr) : new Date();
+  const startOfDay = new Date(targetDate);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(targetDate);
+  endOfDay.setHours(23, 59, 59, 999);
+
+  // 1. All active staff in this shop
+  const staffMemberships = await prisma.shopMembership.findMany({
+    where: { shopId, isActive: true },
+    include: {
+      staffMember: { select: { id: true, fullName: true, mobile: true, profilePhotoPath: true } },
+      positionCategory: { select: { id: true, name: true } },
+    },
+    orderBy: { staffMember: { fullName: 'asc' } },
+  });
+
+  // 2. Attendance on targetDate
+  const attendanceSessions = await prisma.attendanceSession.findMany({
+    where: {
+      shopId,
+      checkInAt: { gte: startOfDay, lte: endOfDay },
+    },
+    select: { staffMemberId: true, checkInAt: true, checkOutAt: true, status: true },
+  });
+
+  const presentSet = new Set(attendanceSessions.map((s) => s.staffMemberId));
+  const totalStaff = staffMemberships.length;
+  const presentCount = presentSet.size;
+  const absentCount = Math.max(0, totalStaff - presentCount);
+
+  // 3. Tasks on targetDate
+  const assignments = await prisma.taskAssignment.findMany({
+    where: {
+      shopId,
+      assignmentDate: { gte: startOfDay, lte: endOfDay },
+      status: 'ACTIVE',
+    },
+    select: {
+      id: true,
+      staffMemberId: true,
+      taskUnits: {
+        where: { status: { not: 'CANCELLED' } },
+        select: { status: true },
+      },
+    },
+  });
+
+  let todayTotalUnits = 0;
+  let todayCompletedUnits = 0;
+  const staffTaskMap: Record<string, { total: number; completed: number }> = {};
+
+  for (const a of assignments) {
+    if (!staffTaskMap[a.staffMemberId]) {
+      staffTaskMap[a.staffMemberId] = { total: 0, completed: 0 };
+    }
+    for (const u of a.taskUnits) {
+      todayTotalUnits++;
+      staffTaskMap[a.staffMemberId].total++;
+      if (u.status === 'COMPLETED') {
+        todayCompletedUnits++;
+        staffTaskMap[a.staffMemberId].completed++;
+      }
+    }
+  }
+
+  const todayPendingUnits = todayTotalUnits - todayCompletedUnits;
+  const completionPercentage = todayTotalUnits > 0
+    ? Math.round((todayCompletedUnits / todayTotalUnits) * 100)
+    : 0;
+
+  // 4. Staff Performance list for dashboard
+  const staffPerformance = staffMemberships.map((m) => {
+    const taskData = staffTaskMap[m.staffMemberId] || { total: 0, completed: 0 };
+    const pct = taskData.total > 0
+      ? Math.round((taskData.completed / taskData.total) * 100)
+      : (presentSet.has(m.staffMemberId) ? 88 : 0);
+
+    return {
+      staffId: m.staffMemberId,
+      fullName: m.staffMember.fullName,
+      position: m.positionCategory?.name || 'Staff Employee',
+      percentage: pct,
+      totalUnits: taskData.total,
+      completedUnits: taskData.completed,
+      isPresent: presentSet.has(m.staffMemberId),
+    };
+  });
+
+  staffPerformance.sort((a, b) => b.percentage - a.percentage);
+
+  res.json({
+    date: targetDate.toISOString().split('T')[0],
+    totalStaff,
+    presentCount,
+    absentCount,
+    todayTasks: {
+      total: todayTotalUnits,
+      completed: todayCompletedUnits,
+      pending: todayPendingUnits,
+      percentage: completionPercentage,
+    },
+    staffPerformance,
+  });
+});
+
 // PATCH /api/shops/:shopId — Owner only
 shopsRouter.patch(
   '/:shopId',

@@ -245,6 +245,23 @@ attendanceRouter.get(
       },
     });
 
-    res.json({ sessions, year, month });
+    const presentCount = sessions.filter((s) => s.status === 'CLOSED' || s.status === 'OPEN').length;
+    const halfDayCount = sessions.filter((s) => (s.durationMinutes || 0) > 0 && (s.durationMinutes || 0) < 240).length;
+    const now = new Date();
+    const daysInMonth = (year === now.getFullYear() && month === (now.getMonth() + 1))
+      ? now.getDate()
+      : new Date(year, month, 0).getDate();
+    const absentCount = Math.max(0, daysInMonth - presentCount);
+
+    res.json({
+      sessions,
+      summary: {
+        presentCount,
+        absentCount,
+        halfDayCount,
+      },
+      year,
+      month,
+    });
   }
 );
