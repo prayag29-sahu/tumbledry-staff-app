@@ -76,17 +76,71 @@ shopsRouter.get('/:shopId', async (req: Request, res: Response, next: NextFuncti
 shopsRouter.patch(
   '/:shopId',
   requireOwner as unknown as (req: Request, res: Response, next: NextFunction) => void,
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     const { shopId } = req.params as { shopId: string };
     const schema = z.object({
       name: z.string().min(1).max(200).optional(),
+      code: z.string().min(1).max(50).regex(/^[a-zA-Z0-9-_]+$/).optional(),
       timezone: z.string().optional(),
       address: z.string().max(500).nullable().optional(),
       contactInfo: z.string().max(500).nullable().optional(),
       status: z.enum(['ACTIVE', 'PAUSED', 'ARCHIVED']).optional(),
     });
     const body = schema.parse(req.body);
+
+    if (body.code) {
+      const existing = await prisma.shop.findFirst({
+        where: { code: body.code, id: { not: shopId } },
+      });
+      if (existing) {
+        return next(new AppError(409, 'CONFLICT', 'A shop with this code already exists.'));
+      }
+    }
+
     const shop = await prisma.shop.update({ where: { id: shopId }, data: body });
     res.json(shop);
+  }
+);
+
+// DELETE /api/shops/:shopId — Owner only
+shopsRouter.delete(
+  '/:shopId',
+  requireOwner as unknown as (req: Request, res: Response, next: NextFunction) => void,
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { shopId } = req.params as { shopId: string };
+
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) return next(new AppError(404, 'NOT_FOUND', 'Shop not found.'));
+
+    // Check if shop has real production task or attendance history
+    const [taskCount, attendanceCount] = await Promise.all([
+      prisma.taskAssignment.count({ where: { shopId } }),
+      prisma.attendanceSession.count({ where: { shopId } }),
+    ]);
+
+    if (taskCount > 0 || attendanceCount > 0) {
+      // Archive to preserve historical operational data
+      const archived = await prisma.shop.update({
+        where: { id: shopId },
+        data: { status: 'ARCHIVED' },
+      });
+      res.json({
+        action: 'ARCHIVED',
+        message: 'Shop has historical task or attendance records and has been safely archived.',
+        shop: archived,
+      });
+      return;
+    }
+
+    // Clean up empty associations and hard delete duplicate/unused shop
+    await prisma.$transaction([
+      prisma.shopMembership.deleteMany({ where: { shopId } }),
+      prisma.positionCategory.deleteMany({ where: { shopId } }),
+      prisma.customFieldDefinition.deleteMany({ where: { shopId } }),
+      prisma.damageIncident.deleteMany({ where: { shopId } }),
+      prisma.shop.delete({ where: { id: shopId } }),
+    ]);
+
+    res.json({ action: 'DELETED', message: 'Shop deleted successfully.' });
   }
 );
