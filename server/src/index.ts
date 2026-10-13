@@ -22,6 +22,21 @@ async function start(): Promise<void> {
     });
   });
 
+  // Keep-alive pinger for Render free tier (pings external health check every 10 minutes)
+  const renderUrl = process.env.RENDER_EXTERNAL_URL;
+  if (renderUrl) {
+    logger.info(`[KEEP-ALIVE] Auto-pinger enabled for ${renderUrl}`);
+    setInterval(async () => {
+      try {
+        const pingUrl = `${renderUrl.replace(/\/+$/, '')}/api/health`;
+        const res = await fetch(pingUrl);
+        logger.info(`[KEEP-ALIVE] Pinged ${pingUrl} — Status: ${res.status}`);
+      } catch (err) {
+        logger.warn('[KEEP-ALIVE] Ping attempt failed', { error: String(err) });
+      }
+    }, 10 * 60 * 1000); // every 10 minutes
+  }
+
   // Graceful shutdown
   const shutdown = async (signal: string) => {
     logger.info(`[SERVER] Received ${signal}. Shutting down...`);

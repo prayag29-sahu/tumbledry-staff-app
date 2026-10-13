@@ -10,7 +10,7 @@ services:
     region: singapore  # choose closest to your users
     plan: starter       # upgrade as needed for production availability SLA
     rootDir: server
-    buildCommand: npm ci && npm run prisma:generate && npm run build
+    buildCommand: npm ci --include=dev && npm run prisma:generate && npm run build
     startCommand: node dist/index.js
     healthCheckPath: /api/health
     envVars:
