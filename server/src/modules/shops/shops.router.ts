@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticate, AuthenticatedRequest, requireOwner } from '../../middleware/auth';
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
+import { logAudit } from '../../lib/audit';
 
 export const shopsRouter = Router();
 
@@ -29,11 +30,158 @@ shopsRouter.get('/', async (req: Request, res: Response) => {
   res.json({ shops });
 });
 
+// GET /api/shops/metrics — Owner high-level cross-shop metrics
+shopsRouter.get('/metrics', async (req: Request, res: Response, next: NextFunction) => {
+  const auth = (req as AuthenticatedRequest).auth;
+  if (!auth.isOwner) {
+    return next(new AppError(403, 'FORBIDDEN', 'Owner access required for cross-shop metrics.'));
+  }
+
+  const today = new Date();
+  const startOfDay = new Date(today);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(today);
+  endOfDay.setHours(23, 59, 59, 999);
+
+  const shops = await prisma.shop.findMany({
+    where: { status: { not: 'ARCHIVED' } },
+    select: { id: true, name: true, code: true, status: true, address: true, timezone: true },
+    orderBy: { name: 'asc' },
+  });
+
+  const shopIds = shops.map((s) => s.id);
+
+  const [
+    totalStaff,
+    todayAttendance,
+    todayUnits,
+    allStaffMemberships,
+    todaySessions,
+  ] = await Promise.all([
+    prisma.shopMembership.count({
+      where: { shopId: { in: shopIds }, isActive: true },
+    }),
+    prisma.attendanceSession.count({
+      where: { shopId: { in: shopIds }, checkInAt: { gte: startOfDay, lte: endOfDay } },
+    }),
+    prisma.taskUnit.findMany({
+      where: {
+        shopId: { in: shopIds },
+        createdAt: { gte: startOfDay, lte: endOfDay },
+        status: { not: 'CANCELLED' },
+      },
+      select: { shopId: true, status: true, activityCode: true, unitType: true },
+    }),
+    prisma.shopMembership.findMany({
+      where: { shopId: { in: shopIds }, isActive: true },
+      select: { shopId: true, staffMemberId: true },
+    }),
+    prisma.attendanceSession.findMany({
+      where: { shopId: { in: shopIds }, checkInAt: { gte: startOfDay, lte: endOfDay } },
+      select: { shopId: true, staffMemberId: true },
+    }),
+  ]);
+
+  let totalCompleted = 0;
+  let totalPending = 0;
+  const activityCounts: Record<string, number> = {
+    wash: 0,
+    dry: 0,
+    iron: 0,
+    fold: 0,
+    pack: 0,
+    delivery: 0,
+    pickup: 0,
+  };
+
+  const perShopMap: Record<string, {
+    staffCount: number;
+    attendanceCount: number;
+    totalUnits: number;
+    completedUnits: number;
+    pendingUnits: number;
+  }> = {};
+
+  for (const shop of shops) {
+    perShopMap[shop.id] = {
+      staffCount: 0,
+      attendanceCount: 0,
+      totalUnits: 0,
+      completedUnits: 0,
+      pendingUnits: 0,
+    };
+  }
+
+  for (const m of allStaffMemberships) {
+    if (perShopMap[m.shopId]) {
+      perShopMap[m.shopId].staffCount++;
+    }
+  }
+
+  const attendanceByShopAndStaff = new Set<string>();
+  for (const s of todaySessions) {
+    const key = `${s.shopId}_${s.staffMemberId}`;
+    if (!attendanceByShopAndStaff.has(key)) {
+      attendanceByShopAndStaff.add(key);
+      if (perShopMap[s.shopId]) {
+        perShopMap[s.shopId].attendanceCount++;
+      }
+    }
+  }
+
+  for (const u of todayUnits) {
+    if (u.status === 'COMPLETED') {
+      totalCompleted++;
+      if (perShopMap[u.shopId]) perShopMap[u.shopId].completedUnits++;
+    } else {
+      totalPending++;
+      if (perShopMap[u.shopId]) perShopMap[u.shopId].pendingUnits++;
+    }
+    if (perShopMap[u.shopId]) perShopMap[u.shopId].totalUnits++;
+
+    const code = (u.activityCode || '').toUpperCase();
+    if (code.includes('WASH')) activityCounts.wash++;
+    else if (code.includes('DRY')) activityCounts.dry++;
+    else if (code.includes('IRON')) activityCounts.iron++;
+    else if (code.includes('FOLD')) activityCounts.fold++;
+    else if (code.includes('PACK')) activityCounts.pack++;
+    else if (u.unitType === 'PER_ORDER') activityCounts.delivery++;
+    else if (u.unitType === 'COUNT_BASED') activityCounts.pickup++;
+  }
+
+  const shopMetrics = shops.map((s) => ({
+    id: s.id,
+    name: s.name,
+    code: s.code,
+    status: s.status,
+    address: s.address,
+    staffCount: perShopMap[s.id]?.staffCount || 0,
+    todayAttendance: perShopMap[s.id]?.attendanceCount || 0,
+    todayTotalUnits: perShopMap[s.id]?.totalUnits || 0,
+    todayCompletedUnits: perShopMap[s.id]?.completedUnits || 0,
+    todayPendingUnits: perShopMap[s.id]?.pendingUnits || 0,
+  }));
+
+  res.json({
+    global: {
+      totalShops: shops.length,
+      totalActiveStaff: totalStaff,
+      todayAttendanceCount: todayAttendance,
+      todayTotalUnits: totalCompleted + totalPending,
+      todayCompletedUnits: totalCompleted,
+      todayPendingUnits: totalPending,
+      activityBreakdown: activityCounts,
+    },
+    shops: shopMetrics,
+  });
+});
+
 // POST /api/shops — Owner only
 shopsRouter.post(
   '/',
   requireOwner as unknown as (req: Request, res: Response, next: NextFunction) => void,
   async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
     const schema = z.object({
       name: z.string().min(1).max(200),
       code: z.string().min(1).max(50).regex(/^[a-zA-Z0-9-_]+$/).transform((c) => c.trim()),
@@ -50,6 +198,16 @@ shopsRouter.post(
     }
 
     const shop = await prisma.shop.create({ data: body });
+
+    logAudit({
+      action: 'shop.created',
+      entityType: 'Shop',
+      entityId: shop.id,
+      actorAccountId: auth.accountId,
+      shopId: shop.id,
+      metadata: { name: shop.name, code: shop.code },
+    });
+
     res.status(201).json(shop);
   }
 );
@@ -98,6 +256,17 @@ shopsRouter.patch(
     }
 
     const shop = await prisma.shop.update({ where: { id: shopId }, data: body });
+
+    const auth = (req as AuthenticatedRequest).auth;
+    logAudit({
+      action: 'shop.updated',
+      entityType: 'Shop',
+      entityId: shop.id,
+      actorAccountId: auth.accountId,
+      shopId: shop.id,
+      metadata: body,
+    });
+
     res.json(shop);
   }
 );
@@ -107,6 +276,7 @@ shopsRouter.delete(
   '/:shopId',
   requireOwner as unknown as (req: Request, res: Response, next: NextFunction) => void,
   async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
     const { shopId } = req.params as { shopId: string };
 
     const shop = await prisma.shop.findUnique({ where: { id: shopId } });
@@ -124,6 +294,16 @@ shopsRouter.delete(
         where: { id: shopId },
         data: { status: 'ARCHIVED' },
       });
+
+      logAudit({
+        action: 'shop.archived',
+        entityType: 'Shop',
+        entityId: shopId,
+        actorAccountId: auth.accountId,
+        shopId: shopId,
+        metadata: { reason: 'Has production history' },
+      });
+
       res.json({
         action: 'ARCHIVED',
         message: 'Shop has historical task or attendance records and has been safely archived.',
@@ -140,6 +320,15 @@ shopsRouter.delete(
       prisma.damageIncident.deleteMany({ where: { shopId } }),
       prisma.shop.delete({ where: { id: shopId } }),
     ]);
+
+    logAudit({
+      action: 'shop.deleted',
+      entityType: 'Shop',
+      entityId: shopId,
+      actorAccountId: auth.accountId,
+      shopId: null,
+      metadata: { name: shop.name, code: shop.code },
+    });
 
     res.json({ action: 'DELETED', message: 'Shop deleted successfully.' });
   }

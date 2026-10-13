@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticate, requireOwner, AuthenticatedRequest } from '../../middleware/auth';
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
+import { logAudit } from '../../lib/audit';
 
 export const configRouter = Router();
 configRouter.use(authenticate as unknown as (req: Request, res: Response, next: NextFunction) => void);
@@ -152,5 +153,77 @@ configRouter.post('/shops/:shopId/custom-fields', async (req: Request, res: Resp
   const field = await prisma.customFieldDefinition.create({
     data: { ...body, shopId },
   });
+
+  logAudit({
+    action: 'custom_field.created',
+    entityType: 'CustomFieldDefinition',
+    entityId: field.id,
+    actorAccountId: auth.accountId,
+    shopId,
+    metadata: { key: field.key, label: field.label, fieldType: field.fieldType },
+  });
+
   res.status(201).json(field);
 });
+
+// DELETE /api/config/shops/:shopId/custom-fields/:fieldId
+configRouter.delete(
+  '/shops/:shopId/custom-fields/:fieldId',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
+    const { shopId, fieldId } = req.params as { shopId: string; fieldId: string };
+    const hasAccess = auth.isOwner || auth.shopMemberships.some(
+      (m) => m.shopId === shopId && m.capabilities.includes('custom_fields.manage')
+    );
+    if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Permission denied.'));
+
+    const field = await prisma.customFieldDefinition.findFirst({
+      where: { id: fieldId, shopId },
+    });
+    if (!field) return next(new AppError(404, 'NOT_FOUND', 'Custom field not found.'));
+
+    await prisma.customFieldDefinition.delete({ where: { id: fieldId } });
+
+    logAudit({
+      action: 'custom_field.deleted',
+      entityType: 'CustomFieldDefinition',
+      entityId: fieldId,
+      actorAccountId: auth.accountId,
+      shopId,
+      metadata: { key: field.key, label: field.label },
+    });
+
+    res.json({ message: 'Custom field deleted successfully.' });
+  }
+);
+
+// ─── AUDIT LOGS ───────────────────────────────────────────────────────────────
+
+// GET /api/config/audit-logs — Owner only
+configRouter.get(
+  '/audit-logs',
+  requireOwner as unknown as (req: Request, res: Response, next: NextFunction) => void,
+  async (req: Request, res: Response) => {
+    const { shopId, limit = '50', page = '1' } = req.query as Record<string, string>;
+    const take = Math.min(parseInt(limit) || 50, 100);
+    const skip = ((parseInt(page) || 1) - 1) * take;
+
+    const [logs, total] = await Promise.all([
+      prisma.auditLog.findMany({
+        where: shopId ? { shopId } : {},
+        include: {
+          shop: { select: { id: true, name: true, code: true } },
+          actor: { select: { id: true, username: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
+      prisma.auditLog.count({
+        where: shopId ? { shopId } : {},
+      }),
+    ]);
+
+    res.json({ logs, total, page: parseInt(page) || 1, limit: take });
+  }
+);

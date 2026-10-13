@@ -23,6 +23,20 @@ export interface TaskUnitSummary {
   completed: number;
   pending: number;
   percentageComplete: number | null;
+  breakdown?: {
+    wash: number;
+    dry: number;
+    iron: number;
+    fold: number;
+    pack: number;
+    delivery: number;
+    pickup: number;
+  };
+  dailyProgress?: Array<{
+    date: string;
+    total: number;
+    completed: number;
+  }>;
 }
 
 /**
@@ -278,20 +292,40 @@ export async function getTaskSummary(
   });
 
   if (assignments.length === 0) {
-    return { total: 0, completed: 0, pending: 0, percentageComplete: null };
+    return {
+      total: 0,
+      completed: 0,
+      pending: 0,
+      percentageComplete: null,
+      breakdown: { wash: 0, dry: 0, iron: 0, fold: 0, pack: 0, delivery: 0, pickup: 0 },
+    };
   }
 
   const assignmentIds = assignments.map((a) => a.id);
 
-  const [totalCount, completedCount] = await Promise.all([
-    prisma.taskUnit.count({
-      where: { taskAssignmentId: { in: assignmentIds }, status: { not: 'CANCELLED' } },
-    }),
-    prisma.taskUnit.count({
-      where: { taskAssignmentId: { in: assignmentIds }, status: 'COMPLETED' },
-    }),
-  ]);
+  const units = await prisma.taskUnit.findMany({
+    where: { taskAssignmentId: { in: assignmentIds }, status: { not: 'CANCELLED' } },
+    select: { status: true, activityCode: true, unitType: true },
+  });
 
+  let completedCount = 0;
+  const breakdown = { wash: 0, dry: 0, iron: 0, fold: 0, pack: 0, delivery: 0, pickup: 0 };
+
+  for (const u of units) {
+    if (u.status === 'COMPLETED') {
+      completedCount++;
+    }
+    const code = (u.activityCode || '').toUpperCase();
+    if (code.includes('WASH')) breakdown.wash++;
+    else if (code.includes('DRY')) breakdown.dry++;
+    else if (code.includes('IRON')) breakdown.iron++;
+    else if (code.includes('FOLD')) breakdown.fold++;
+    else if (code.includes('PACK')) breakdown.pack++;
+    else if (u.unitType === 'PER_ORDER') breakdown.delivery++;
+    else if (u.unitType === 'COUNT_BASED') breakdown.pickup++;
+  }
+
+  const totalCount = units.length;
   const percentageComplete = totalCount > 0
     ? Math.round((completedCount / totalCount) * 100)
     : null;
@@ -301,6 +335,7 @@ export async function getTaskSummary(
     completed: completedCount,
     pending: totalCount - completedCount,
     percentageComplete,
+    breakdown,
   };
 }
 
@@ -323,22 +358,63 @@ export async function getMonthlyTaskSummary(
       assignmentDate: { gte: startOfMonth, lte: endOfMonth },
       status: 'ACTIVE',
     },
-    select: { id: true },
+    select: {
+      id: true,
+      assignmentDate: true,
+      taskUnits: {
+        where: { status: { not: 'CANCELLED' } },
+        select: { status: true, activityCode: true, unitType: true },
+      },
+    },
+    orderBy: { assignmentDate: 'asc' },
   });
 
   if (assignments.length === 0) {
-    return { total: 0, completed: 0, pending: 0, percentageComplete: null };
+    return {
+      total: 0,
+      completed: 0,
+      pending: 0,
+      percentageComplete: null,
+      breakdown: { wash: 0, dry: 0, iron: 0, fold: 0, pack: 0, delivery: 0, pickup: 0 },
+      dailyProgress: [],
+    };
   }
 
-  const assignmentIds = assignments.map((a) => a.id);
-  const [totalCount, completedCount] = await Promise.all([
-    prisma.taskUnit.count({
-      where: { taskAssignmentId: { in: assignmentIds }, status: { not: 'CANCELLED' } },
-    }),
-    prisma.taskUnit.count({
-      where: { taskAssignmentId: { in: assignmentIds }, status: 'COMPLETED' },
-    }),
-  ]);
+  let totalCount = 0;
+  let completedCount = 0;
+  const breakdown = { wash: 0, dry: 0, iron: 0, fold: 0, pack: 0, delivery: 0, pickup: 0 };
+  const dailyMap: Record<string, { total: number; completed: number }> = {};
+
+  for (const a of assignments) {
+    const dateKey = a.assignmentDate.toISOString().split('T')[0];
+    if (!dailyMap[dateKey]) {
+      dailyMap[dateKey] = { total: 0, completed: 0 };
+    }
+
+    for (const u of a.taskUnits) {
+      totalCount++;
+      dailyMap[dateKey].total++;
+      if (u.status === 'COMPLETED') {
+        completedCount++;
+        dailyMap[dateKey].completed++;
+      }
+
+      const code = (u.activityCode || '').toUpperCase();
+      if (code.includes('WASH')) breakdown.wash++;
+      else if (code.includes('DRY')) breakdown.dry++;
+      else if (code.includes('IRON')) breakdown.iron++;
+      else if (code.includes('FOLD')) breakdown.fold++;
+      else if (code.includes('PACK')) breakdown.pack++;
+      else if (u.unitType === 'PER_ORDER') breakdown.delivery++;
+      else if (u.unitType === 'COUNT_BASED') breakdown.pickup++;
+    }
+  }
+
+  const dailyProgress = Object.entries(dailyMap).map(([date, counts]) => ({
+    date,
+    total: counts.total,
+    completed: counts.completed,
+  }));
 
   const percentageComplete = totalCount > 0
     ? Math.round((completedCount / totalCount) * 100)
@@ -349,5 +425,7 @@ export async function getMonthlyTaskSummary(
     completed: completedCount,
     pending: totalCount - completedCount,
     percentageComplete,
+    breakdown,
+    dailyProgress,
   };
 }
