@@ -1,0 +1,133 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-lime: #82BE28;
+  --brand-gold: #F2C94C;
+  --brand-forest: #254B32;
+  --brand-forest-dark: #1A3523;
+  --surface-cream: #F7F4EA;
+  --surface-card: #FFFDF7;
+  --text-primary: #20291F;
+  --text-muted: #687166;
+  --border-subtle: #E4E4D8;
+  --status-success: #267847;
+  --status-warning: #A56B00;
+  --status-danger: #B42318;
+}
+
+body {
+  background-color: var(--surface-cream);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+/* Claymorphism tactile utility classes */
+.clay-card {
+  background: #FFFDF7;
+  border: 1px solid rgba(228, 228, 216, 0.7);
+  box-shadow: 6px 6px 16px rgba(37, 75, 50, 0.06), -6px -6px 16px rgba(255, 255, 255, 0.95);
+  border-radius: 1.25rem;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.clay-card:hover {
+  box-shadow: 8px 8px 20px rgba(37, 75, 50, 0.08), -8px -8px 20px rgba(255, 255, 255, 0.98);
+}
+
+.clay-card-sm {
+  background: #FFFDF7;
+  border: 1px solid rgba(228, 228, 216, 0.6);
+  box-shadow: 4px 4px 10px rgba(37, 75, 50, 0.05), -4px -4px 10px rgba(255, 255, 255, 0.9);
+  border-radius: 0.875rem;
+}
+
+.clay-inset {
+  background: #F2EFE2;
+  box-shadow: inset 2px 2px 5px rgba(37, 75, 50, 0.08), inset -2px -2px 5px rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(228, 228, 216, 0.6);
+  border-radius: 0.875rem;
+}
+
+.clay-btn-lime {
+  background: linear-gradient(135deg, #8FD22D 0%, #76B022 100%);
+  color: #FFFFFF;
+  box-shadow: 4px 4px 12px rgba(118, 176, 34, 0.35), -2px -2px 6px rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  font-weight: 600;
+  border-radius: 0.875rem;
+  transition: all 0.15s ease-in-out;
+}
+
+.clay-btn-lime:active {
+  transform: scale(0.97);
+  box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.clay-btn-forest {
+  background: linear-gradient(135deg, #2D5B3D 0%, #1F402A 100%);
+  color: #FFFFFF;
+  box-shadow: 4px 4px 12px rgba(31, 64, 42, 0.25), -2px -2px 6px rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-weight: 600;
+  border-radius: 0.875rem;
+  transition: all 0.15s ease-in-out;
+}
+
+.clay-btn-forest:active {
+  transform: scale(0.97);
+  box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.clay-btn-secondary {
+  background: #FFFDF7;
+  color: #20291F;
+  border: 1px solid rgba(228, 228, 216, 0.8);
+  box-shadow: 3px 3px 8px rgba(37, 75, 50, 0.05), -3px -3px 8px rgba(255, 255, 255, 0.9);
+  font-weight: 500;
+  border-radius: 0.875rem;
+  transition: all 0.15s ease-in-out;
+}
+
+.clay-btn-secondary:active {
+  transform: scale(0.97);
+  background: #F7F4EA;
+  box-shadow: inset 1px 1px 3px rgba(37, 75, 50, 0.08);
+}
+
+.clay-badge-lime {
+  background: #E8F5D8;
+  color: #2E6B15;
+  border: 1px solid rgba(130, 190, 40, 0.4);
+}
+
+.clay-badge-gold {
+  background: #FEF7DE;
+  color: #8C6200;
+  border: 1px solid rgba(242, 201, 76, 0.4);
+}
+
+.clay-badge-danger {
+  background: #FDE8E8;
+  color: #9B1C1C;
+  border: 1px solid rgba(180, 35, 24, 0.3);
+}
+
+/* Custom scrollbars for clean mobile feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #D0D0C0;
+  border-radius: 3px;
+}
