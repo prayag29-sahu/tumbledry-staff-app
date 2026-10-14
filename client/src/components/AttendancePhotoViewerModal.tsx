@@ -34,7 +34,6 @@ export function AttendancePhotoViewerModal({
   timestamp,
   checkOutTimestamp,
   status,
-  date: _date,
 }: AttendancePhotoViewerModalProps) {
   if (!isOpen) return null;
 

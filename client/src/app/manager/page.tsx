@@ -64,6 +64,8 @@ interface StaffTaskMonthlySummary {
 
 interface StaffAttendance {
   isPresent: boolean;
+  isOnFloor?: boolean;
+  isShiftCompleted?: boolean;
   checkInAt: string | null;
   checkOutAt: string | null;
   status: string;
@@ -90,12 +92,16 @@ interface ManagerStaffItem {
   monthlySalary?: number | null;
   dutyTimingNotes?: string | null;
   incentiveAmount?: number | null;
+  attendanceEnabled?: boolean;
   attendanceToday: StaffAttendance;
 }
 
 interface DashboardMetrics {
   totalStaff: number;
+  totalEmployees?: number;
   presentCount: number;
+  activeOnFloorCount?: number;
+  completedShiftCount?: number;
   absentCount: number;
   todayTasks: {
     total: number;
@@ -112,11 +118,16 @@ interface DashboardMetrics {
   staffPerformance: Array<{
     staffId: string;
     fullName: string;
-    position: string;
+    position?: string;
+    role?: string;
     percentage: number;
     totalUnits: number;
     completedUnits: number;
+    attendanceEnabled?: boolean;
     isPresent: boolean;
+    isOnFloor?: boolean;
+    isShiftCompleted?: boolean;
+    attendanceStatus?: string;
     checkInAt?: string | null;
     checkInPhotoPath?: string | null;
     checkOutAt?: string | null;
@@ -232,7 +243,7 @@ function ManagerPageInner() {
     try {
       const [dashRes, staffRes, svcRes, wfRes, sessRes] = await Promise.all([
         apiRequest<DashboardMetrics>(`/api/shops/${activeShopId}/supervisor/dashboard?date=${selectedDate}`).catch(() => null),
-        apiRequest<{ staff: ManagerStaffItem[] }>(`/api/shops/${activeShopId}/staff`).catch(() => ({ staff: [] })),
+        apiRequest<{ staff: ManagerStaffItem[] }>(`/api/shops/${activeShopId}/staff?date=${selectedDate}`).catch(() => ({ staff: [] })),
         apiRequest<{ serviceTypes: ServiceType[] }>('/api/config/service-types').catch(() => ({ serviceTypes: [] })),
         apiRequest<{ profiles: WorkflowProfile[] }>('/api/config/workflow-profiles').catch(() => ({ profiles: [] })),
         apiRequest<{ session: { id: string; checkInAt: string; checkOutAt: string | null; status: string; checkInPhotoPath?: string | null } | null }>(`/api/shops/${activeShopId}/attendance/my-session`).catch(() => ({ session: null })),
@@ -250,8 +261,27 @@ function ManagerPageInner() {
     }
   }, [activeShopId, selectedDate]);
 
+  // Refetch when nav tab or selected date changes
   useEffect(() => {
     fetchData();
+  }, [fetchData, currentNav, selectedDate]);
+
+  // Auto-refresh when window receives focus or returns to view
+  useEffect(() => {
+    const handleFocus = () => {
+      fetchData();
+    };
+    window.addEventListener('focus', handleFocus);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [fetchData]);
 
   // Fetch individual staff member's tasks and monthly metrics
@@ -436,11 +466,6 @@ function ManagerPageInner() {
     }
   };
 
-  // Handle Manager Self Attendance Check-In / Check-Out (Fallback/Profile subtab)
-  const handleSelfAttendance = async (action: 'check-in' | 'check-out') => {
-    setCameraAction(action);
-    setIsLiveCameraOpen(true);
-  };
 
   // Filter staff list by search query and role filter chips (Screen 3)
   const roleCounts = useMemo(() => {
@@ -479,9 +504,16 @@ function ManagerPageInner() {
     return 'Good Evening!';
   }, []);
 
-  // Attendance donut calculations
-  const totalStaffCount = dashboardData?.totalStaff ?? staffList.length;
-  const presentCount = dashboardData?.presentCount ?? staffList.filter((s) => s.attendanceToday.isPresent).length;
+  // Attendance calculations (strictly for attendance-tracked staff; exempt staff like supervisor are excluded!)
+  const attendanceTrackedStaff = useMemo(() => staffList.filter((s) => s.attendanceEnabled !== false), [staffList]);
+  const totalStaffCount = dashboardData?.totalStaff ?? attendanceTrackedStaff.length;
+  const activeOnFloorCount = dashboardData?.activeOnFloorCount ?? attendanceTrackedStaff.filter(
+    (s) => s.attendanceToday.isOnFloor || (s.attendanceToday.isPresent && !s.attendanceToday.checkOutAt && s.attendanceToday.status === 'OPEN')
+  ).length;
+  const completedShiftCount = dashboardData?.completedShiftCount ?? attendanceTrackedStaff.filter(
+    (s) => s.attendanceToday.isShiftCompleted || (s.attendanceToday.isPresent && (!!s.attendanceToday.checkOutAt || s.attendanceToday.status === 'CLOSED'))
+  ).length;
+  const presentCount = dashboardData?.presentCount ?? (activeOnFloorCount + completedShiftCount);
   const absentCount = dashboardData?.absentCount ?? Math.max(0, totalStaffCount - presentCount);
   const attendanceRate = totalStaffCount > 0 ? Math.round((presentCount / totalStaffCount) * 100) : 0;
 
@@ -902,15 +934,25 @@ function ManagerPageInner() {
             </div>
 
             <div className="text-right">
-              <span
-                className={`inline-block px-3 py-1 rounded-full text-xs font-bold ${
-                  selectedStaff.attendanceToday.isPresent
-                    ? 'bg-emerald-100 text-emerald-800'
-                    : 'bg-red-100 text-red-700'
-                }`}
-              >
-                {selectedStaff.attendanceToday.isPresent ? 'Present' : 'Absent'}
-              </span>
+              {selectedStaff.attendanceEnabled === false ? (
+                <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                  Exempt
+                </span>
+              ) : selectedStaff.attendanceToday.isOnFloor || (selectedStaff.attendanceToday.isPresent && !selectedStaff.attendanceToday.checkOutAt && selectedStaff.attendanceToday.status === 'OPEN') ? (
+                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                  ● On Floor
+                </span>
+              ) : selectedStaff.attendanceToday.isShiftCompleted || (selectedStaff.attendanceToday.isPresent && (!!selectedStaff.attendanceToday.checkOutAt || selectedStaff.attendanceToday.status === 'CLOSED')) ? (
+                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-300">
+                  <CheckCircle2 className="w-3 h-3 text-blue-600" />
+                  Shift Done
+                </span>
+              ) : (
+                <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">
+                  Absent
+                </span>
+              )}
               {selectedStaff.attendanceToday.checkInAt && (
                 <span className="block text-[10px] text-content-muted font-mono mt-0.5">
                   Checked in: {new Date(selectedStaff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
@@ -1339,9 +1381,24 @@ function ManagerPageInner() {
                 <h4 className="text-xs font-black text-brand-forest">Attendance Record</h4>
                 <div className="flex items-center justify-between text-xs py-2 border-b border-border-subtle">
                   <span className="text-content-muted">Status Today:</span>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${selectedStaff.attendanceToday.isPresent ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
-                    {selectedStaff.attendanceToday.isPresent ? 'Present' : 'Absent'}
-                  </span>
+                  {selectedStaff.attendanceEnabled === false ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                      Attendance Exempt
+                    </span>
+                  ) : selectedStaff.attendanceToday.isOnFloor || (selectedStaff.attendanceToday.isPresent && !selectedStaff.attendanceToday.checkOutAt && selectedStaff.attendanceToday.status === 'OPEN') ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                      On Floor
+                    </span>
+                  ) : selectedStaff.attendanceToday.isShiftCompleted || (selectedStaff.attendanceToday.isPresent && (!!selectedStaff.attendanceToday.checkOutAt || selectedStaff.attendanceToday.status === 'CLOSED')) ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+                      Shift Completed
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">
+                      Absent
+                    </span>
+                  )}
                 </div>
                 {selectedStaff.attendanceToday.checkInAt && (
                   <div className="flex items-center justify-between text-xs py-2 border-b border-border-subtle">
@@ -1739,15 +1796,25 @@ function ManagerPageInner() {
 
                   <div className="flex items-center gap-2">
                     <div className="text-right">
-                      <span
-                        className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          staff.attendanceToday.isPresent
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-red-100 text-red-700'
-                        }`}
-                      >
-                        {staff.attendanceToday.isPresent ? 'Present' : 'Absent'}
-                      </span>
+                      {staff.attendanceEnabled === false ? (
+                        <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-800 border border-amber-200">
+                          Exempt
+                        </span>
+                      ) : staff.attendanceToday.isOnFloor || (staff.attendanceToday.isPresent && !staff.attendanceToday.checkOutAt && staff.attendanceToday.status === 'OPEN') ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                          ● On Floor
+                        </span>
+                      ) : staff.attendanceToday.isShiftCompleted || (staff.attendanceToday.isPresent && (!!staff.attendanceToday.checkOutAt || staff.attendanceToday.status === 'CLOSED')) ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-300">
+                          <CheckCircle2 className="w-3 h-3 text-blue-600" />
+                          Shift Done
+                        </span>
+                      ) : (
+                        <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">
+                          Absent
+                        </span>
+                      )}
                       {staff.attendanceToday.checkInAt && (
                         <span className="block text-[10px] text-content-muted font-mono mt-0.5">
                           {new Date(staff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
@@ -1782,14 +1849,21 @@ function ManagerPageInner() {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white p-3.5 rounded-2xl border border-border-subtle text-center shadow-sm">
-              <span className="text-xl font-black text-emerald-700 block">{presentCount}</span>
-              <span className="text-[10px] font-bold text-emerald-600">Present on Floor</span>
+          <div className="grid grid-cols-3 gap-2.5">
+            <div className="bg-emerald-50/50 p-3 rounded-2xl border border-emerald-200 text-center shadow-sm">
+              <div className="flex items-center justify-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                <span className="text-xl font-black text-emerald-800">{activeOnFloorCount}</span>
+              </div>
+              <span className="text-[10px] font-bold text-emerald-700">On Floor</span>
             </div>
-            <div className="bg-white p-3.5 rounded-2xl border border-border-subtle text-center shadow-sm">
+            <div className="bg-blue-50/50 p-3 rounded-2xl border border-blue-200 text-center shadow-sm">
+              <span className="text-xl font-black text-blue-800 block">{completedShiftCount}</span>
+              <span className="text-[10px] font-bold text-blue-700">Shift Done</span>
+            </div>
+            <div className="bg-red-50/30 p-3 rounded-2xl border border-red-100 text-center shadow-sm">
               <span className="text-xl font-black text-red-600 block">{absentCount}</span>
-              <span className="text-[10px] font-bold text-red-500">Absent / Off Duty</span>
+              <span className="text-[10px] font-bold text-red-500">Absent</span>
             </div>
           </div>
 
@@ -1921,9 +1995,25 @@ function ManagerPageInner() {
                         <span>Selfie</span>
                       </button>
                     )}
-                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${staff.attendanceToday.isPresent ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
-                      {staff.attendanceToday.isPresent ? 'Present' : 'Absent'}
-                    </span>
+                    {staff.attendanceEnabled === false || staff.attendanceToday.status === 'EXEMPT' ? (
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-50 text-amber-800 border border-amber-200">
+                        Exempt
+                      </span>
+                    ) : staff.attendanceToday.isOnFloor || (staff.attendanceToday.isPresent && !staff.attendanceToday.checkOutAt && staff.attendanceToday.status === 'OPEN') ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                        ● On Floor
+                      </span>
+                    ) : staff.attendanceToday.isShiftCompleted || (staff.attendanceToday.isPresent && (!!staff.attendanceToday.checkOutAt || staff.attendanceToday.status === 'CLOSED')) ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-300">
+                        <CheckCircle2 className="w-3 h-3 text-blue-600" />
+                        Shift Done
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-red-100 text-red-700">
+                        Absent
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

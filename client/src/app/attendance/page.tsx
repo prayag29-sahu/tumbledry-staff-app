@@ -38,6 +38,24 @@ export default function AttendancePage() {
     fetchCurrentSession();
   }, [fetchCurrentSession]);
 
+  // Auto-refresh attendance status on window focus / tab return
+  useEffect(() => {
+    const handleFocus = () => {
+      fetchCurrentSession();
+    };
+    window.addEventListener('focus', handleFocus);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchCurrentSession();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [fetchCurrentSession]);
+
   const handleCaptureAttendance = async (photoDataUrl: string) => {
     if (!activeShopId) return;
     setIsSubmitting(true);

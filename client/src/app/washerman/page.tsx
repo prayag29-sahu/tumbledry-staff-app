@@ -64,6 +64,24 @@ export default function WashermanPage() {
     fetchTasks(true);
   }, [fetchTasks]);
 
+  // Auto-refresh tasks silently when returning to app tab or focusing window
+  useEffect(() => {
+    const handleFocus = () => {
+      fetchTasks(false);
+    };
+    window.addEventListener('focus', handleFocus);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchTasks(false);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [fetchTasks]);
+
   const handleCompleteUnit = async (unit: TaskUnit) => {
     if (!activeShopId || unit.status === 'COMPLETED' || completingUnitId) return;
     setCompletingUnitId(unit.id);

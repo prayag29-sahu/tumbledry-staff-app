@@ -57,7 +57,10 @@ import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoView
 interface BranchDashboardData {
   date: string;
   totalStaff: number;
+  totalEmployees?: number;
   presentCount: number;
+  activeOnFloorCount?: number;
+  completedShiftCount?: number;
   absentCount: number;
   todayTasks: {
     total: number;
@@ -74,11 +77,20 @@ interface BranchDashboardData {
   staffPerformance: Array<{
     staffId: string;
     fullName: string;
-    position: string;
+    position?: string;
+    role?: string;
     percentage: number;
     totalUnits: number;
     completedUnits: number;
+    attendanceEnabled?: boolean;
     isPresent: boolean;
+    isOnFloor?: boolean;
+    isShiftCompleted?: boolean;
+    attendanceStatus?: string;
+    checkInAt?: string | null;
+    checkInPhotoPath?: string | null;
+    checkOutAt?: string | null;
+    checkOutPhotoPath?: string | null;
   }>;
 }
 
@@ -144,8 +156,12 @@ interface StaffMembershipItem {
   attendanceEnabled?: boolean;
   attendanceToday?: {
     isPresent: boolean;
+    isOnFloor?: boolean;
+    isShiftCompleted?: boolean;
     checkInAt?: string | null;
     checkOutAt?: string | null;
+    checkInPhotoPath?: string | null;
+    checkOutPhotoPath?: string | null;
     status: string;
   };
 }
@@ -244,7 +260,10 @@ function OwnerPageInner() {
   // Staff Task Performance Modal
   const [selectedStaff, setSelectedStaff] = useState<StaffMembershipItem | null>(null);
   const [staffTaskDate, setStaffTaskDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [staffPerfTab, setStaffPerfTab] = useState<'daily' | 'monthly'>('daily');
+  const [staffPerfTab, setStaffPerfTab] = useState<'daily' | 'monthly' | 'attendance'>('daily');
+  const [staffAttendanceSession, setStaffAttendanceSession] = useState<BranchAttendanceSession | null>(null);
+  const [isMarkingAttendance, setIsMarkingAttendance] = useState(false);
+  const [attendanceActionMessage, setAttendanceActionMessage] = useState<string | null>(null);
   const [staffDaySummary, setStaffDaySummary] = useState<StaffTaskDaySummary | null>(null);
   const [staffMonthSummary, setStaffMonthSummary] = useState<StaffTaskMonthlySummary | null>(null);
   const [isLoadingStaffPerf, setIsLoadingStaffPerf] = useState(false);
@@ -536,13 +555,35 @@ function OwnerPageInner() {
     }
   }, [authLoading, fetchAllData]);
 
-  // Fetch staff and branch operational data when selectedShopId or branchDate changes
+  // Fetch staff and branch operational data when selectedShopId, branchDate, or sub-tabs change
   useEffect(() => {
     if (selectedShopId) {
       fetchShopStaff(selectedShopId);
       fetchBranchData(selectedShopId, branchDate);
     }
-  }, [selectedShopId, branchDate, fetchShopStaff, fetchBranchData]);
+  }, [selectedShopId, branchDate, branchSubTab, activeTab, fetchShopStaff, fetchBranchData]);
+
+  // Auto-refresh on window focus / visibility change without manual page reload
+  useEffect(() => {
+    const handleFocus = () => {
+      if (selectedShopId && activeTab === 'overview') {
+        fetchShopStaff(selectedShopId);
+        fetchBranchData(selectedShopId, branchDate);
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && selectedShopId && activeTab === 'overview') {
+        fetchShopStaff(selectedShopId);
+        fetchBranchData(selectedShopId, branchDate);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [selectedShopId, branchDate, activeTab, fetchShopStaff, fetchBranchData]);
 
   // Synchronize view query parameter from URL (e.g. from BottomNav 'workforce' or 'tasks')
   useEffect(() => {
@@ -558,17 +599,20 @@ function OwnerPageInner() {
     }
   }, [viewParam]);
 
-  // Fetch staff performance details (daily + monthly)
+  // Fetch staff performance details (daily + monthly + attendance)
   const fetchStaffPerformance = useCallback(async (staffMemberId: string, shopId: string, date: string, year: number, month: number) => {
     setIsLoadingStaffPerf(true);
     try {
-      const [dayData, monthData] = await Promise.all([
+      const [dayData, monthData, attData] = await Promise.all([
         apiRequest<{ assignments: StaffTaskDaySummary['assignments']; summary: StaffTaskDaySummary }>(
           `/api/shops/${shopId}/staff/${staffMemberId}/tasks?date=${date}`
         ).catch(() => null),
         apiRequest<StaffTaskMonthlySummary>(
           `/api/shops/${shopId}/staff/${staffMemberId}/task-summary/monthly?year=${year}&month=${month}`
         ).catch(() => null),
+        apiRequest<{ sessions: BranchAttendanceSession[] }>(
+          `/api/shops/${shopId}/attendance/today?date=${date}`
+        ).catch(() => ({ sessions: [] })),
       ]);
 
       if (dayData) {
@@ -581,23 +625,59 @@ function OwnerPageInner() {
       }
 
       setStaffMonthSummary(monthData);
+
+      const matchedSession = (attData?.sessions || []).find((s) => s.staffMemberId === staffMemberId);
+      setStaffAttendanceSession(matchedSession || null);
     } catch {
       setStaffDaySummary(null);
       setStaffMonthSummary(null);
+      setStaffAttendanceSession(null);
     } finally {
       setIsLoadingStaffPerf(false);
     }
   }, []);
 
-  const openStaffPerformance = (staff: StaffMembershipItem) => {
+  const openStaffPerformance = (staff: StaffMembershipItem, initialTab: 'daily' | 'monthly' | 'attendance' = 'daily') => {
     setSelectedStaff(staff);
     const today = new Date().toISOString().split('T')[0];
     setStaffTaskDate(today);
-    setStaffPerfTab('daily');
+    setStaffPerfTab(initialTab);
     const now = new Date();
     setMonthlyYear(now.getFullYear());
     setMonthlyMonth(now.getMonth() + 1);
     fetchStaffPerformance(staff.staffMember.id, selectedShopId, today, now.getFullYear(), now.getMonth() + 1);
+  };
+
+  const handleOwnerMarkAttendance = async (status: 'PRESENT' | 'CHECK_OUT' | 'HALF_DAY' | 'ABSENT') => {
+    if (!selectedStaff || !selectedShopId) return;
+    setIsMarkingAttendance(true);
+    setAttendanceActionMessage(null);
+    try {
+      await apiRequest(`/api/shops/${selectedShopId}/attendance/mark-staff`, {
+        method: 'POST',
+        body: JSON.stringify({
+          staffMemberId: selectedStaff.staffMember.id,
+          status,
+          date: staffTaskDate,
+        }),
+      });
+      setAttendanceActionMessage(
+        status === 'PRESENT'
+          ? 'Marked as Present (Check-In).'
+          : status === 'CHECK_OUT'
+          ? 'Marked as Checked Out.'
+          : status === 'HALF_DAY'
+          ? 'Marked as Half Day.'
+          : 'Marked as Absent.'
+      );
+      setTimeout(() => setAttendanceActionMessage(null), 3500);
+      fetchStaffPerformance(selectedStaff.staffMember.id, selectedShopId, staffTaskDate, monthlyYear, monthlyMonth);
+      fetchBranchData(selectedShopId, branchDate);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to update attendance.');
+    } finally {
+      setIsMarkingAttendance(false);
+    }
   };
 
   // Fetch custom fields when customFieldsShopId changes
@@ -1253,16 +1333,26 @@ function OwnerPageInner() {
                   <p className="text-[11px] text-content-muted font-medium">Registered in branch</p>
                 </div>
 
-                {/* Present Today */}
+                {/* Present / Active On Floor */}
                 <div className="p-3.5 rounded-2xl bg-emerald-50/50 border border-emerald-200/60 space-y-1">
                   <div className="flex items-center justify-between text-xs text-emerald-800 font-bold">
-                    <span>Present</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                      Active On Floor
+                    </span>
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                   </div>
-                  <div className="text-2xl font-black text-emerald-800">
-                    {branchDashboard?.presentCount ?? branchAttendance.length}
+                  <div className="flex items-baseline gap-2">
+                    <div className="text-2xl font-black text-emerald-800">
+                      {branchDashboard?.activeOnFloorCount ?? branchAttendance.filter((s) => s.status === 'OPEN' && !s.checkOutAt).length}
+                    </div>
+                    <span className="text-xs font-bold text-blue-700">
+                      + {branchDashboard?.completedShiftCount ?? branchAttendance.filter((s) => s.status === 'CLOSED' || !!s.checkOutAt).length} completed
+                    </span>
                   </div>
-                  <p className="text-[11px] text-emerald-700 font-medium">Checked-in on {new Date(branchDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
+                  <p className="text-[11px] text-emerald-700 font-medium">
+                    Total {branchDashboard?.presentCount ?? branchAttendance.length} checked-in today
+                  </p>
                 </div>
 
                 {/* Absent Today */}
@@ -1567,13 +1657,23 @@ function OwnerPageInner() {
                             {/* Real-time Presence & Floor Output on Date */}
                             <div className="flex items-center justify-between gap-1.5 text-xs">
                               {staff.attendanceEnabled === false ? (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
                                   Attendance Exempt
+                                </span>
+                              ) : staff.attendanceToday?.isOnFloor ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1 border border-emerald-300">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                                  ● On Floor {staff.attendanceToday.checkInAt ? `(${new Date(staff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })})` : ''}
+                                </span>
+                              ) : staff.attendanceToday?.isShiftCompleted ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 flex items-center gap-1 border border-blue-300">
+                                  <CheckCircle2 className="w-3 h-3 text-blue-600" />
+                                  Shift Done {staff.attendanceToday.checkOutAt ? `(${new Date(staff.attendanceToday.checkOutAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })})` : ''}
                                 </span>
                               ) : staff.attendanceToday?.isPresent ? (
                                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
                                   <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                  Present {staff.attendanceToday.checkInAt ? `(${new Date(staff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })})` : ''}
+                                  Present
                                 </span>
                               ) : (
                                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">
@@ -1590,13 +1690,33 @@ function OwnerPageInner() {
                               )}
                             </div>
 
-                            {/* Inspect Tasks Action Button */}
-                            <div className="flex items-center justify-between text-xs pt-1 px-2.5 py-1.5 rounded-xl bg-surface-card border border-border-subtle group-hover:border-brand-forest/40 transition-all text-brand-forest font-bold">
-                              <span className="flex items-center gap-1.5 text-[11px]">
-                                <Sparkles className="w-3.5 h-3.5 text-brand-forest" />
-                                Inspect Tasks & Productivity
-                              </span>
-                              <ChevronRight className="w-3.5 h-3.5 text-content-muted group-hover:text-brand-forest transition-transform group-hover:translate-x-0.5" />
+                            {/* Two Dedicated Action Buttons: Tasks & Output + Shift Attendance */}
+                            <div className="grid grid-cols-2 gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openStaffPerformance(staff, 'daily');
+                                }}
+                                className="flex items-center justify-center gap-1.5 text-[11px] py-1.5 px-2 rounded-xl bg-surface-card border border-border-subtle hover:border-brand-forest text-brand-forest font-bold transition-all shadow-sm"
+                                title="Inspect daily & monthly tasks"
+                              >
+                                <Sparkles className="w-3.5 h-3.5 text-brand-forest shrink-0" />
+                                <span className="truncate">Tasks & Output</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openStaffPerformance(staff, 'attendance');
+                                }}
+                                className="flex items-center justify-center gap-1.5 text-[11px] py-1.5 px-2 rounded-xl bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 text-emerald-950 font-bold transition-all shadow-sm"
+                                title="View shift attendance, clock times, selfies & mark attendance"
+                              >
+                                <Clock className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                                <span className="truncate">Shift Attendance</span>
+                              </button>
                             </div>
 
                             {staff.staffMember.mobile && (
@@ -1955,9 +2075,20 @@ function OwnerPageInner() {
                                     <span>View Selfie</span>
                                   </button>
                                 )}
-                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                                  {session.status}
-                                </span>
+                                {session.status === 'OPEN' && !session.checkOutAt ? (
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                                    On Floor
+                                  </span>
+                                ) : session.status === 'CLOSED' || session.checkOutAt ? (
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-300">
+                                    Shift Completed
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                    {session.status}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -2124,7 +2255,7 @@ function OwnerPageInner() {
             </div>
 
             {/* Performance Sub-tabs */}
-            <div className="flex items-center gap-2 p-1 bg-surface-cream rounded-xl border border-border-subtle">
+            <div className="flex items-center gap-1.5 p-1 bg-surface-cream rounded-xl border border-border-subtle">
               <button
                 onClick={() => setStaffPerfTab('daily')}
                 className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all text-center ${
@@ -2133,7 +2264,7 @@ function OwnerPageInner() {
                     : 'text-content-muted hover:text-brand-forest'
                 }`}
               >
-                Daily Task Summary
+                Daily Tasks
               </button>
               <button
                 onClick={() => setStaffPerfTab('monthly')}
@@ -2143,7 +2274,17 @@ function OwnerPageInner() {
                     : 'text-content-muted hover:text-brand-forest'
                 }`}
               >
-                Monthly Output History
+                Monthly Output
+              </button>
+              <button
+                onClick={() => setStaffPerfTab('attendance')}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all text-center ${
+                  staffPerfTab === 'attendance'
+                    ? 'bg-brand-forest text-white shadow-sm'
+                    : 'text-content-muted hover:text-brand-forest'
+                }`}
+              >
+                Shift Attendance
               </button>
             </div>
 
@@ -2524,6 +2665,228 @@ function OwnerPageInner() {
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Sub-tab 3: Shift Attendance & Overrides */}
+            {staffPerfTab === 'attendance' && (
+              <div className="space-y-4">
+                {/* Date Picker */}
+                <div className="flex items-center justify-between gap-2 bg-surface-cream/50 p-2.5 rounded-xl border border-border-subtle">
+                  <span className="text-xs font-bold text-brand-forest flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-brand-forest" />
+                    Select Date:
+                  </span>
+                  <input
+                    type="date"
+                    value={staffTaskDate}
+                    onChange={(e) => {
+                      setStaffTaskDate(e.target.value);
+                      fetchStaffPerformance(selectedStaff.staffMember.id, selectedShopId, e.target.value, monthlyYear, monthlyMonth);
+                    }}
+                    className="text-xs font-bold text-brand-forest bg-white px-2.5 py-1 rounded-lg border border-border-subtle focus:outline-none focus:ring-1 focus:ring-brand-forest"
+                  />
+                </div>
+
+                {attendanceActionMessage && (
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800 text-center animate-fade-in">
+                    {attendanceActionMessage}
+                  </div>
+                )}
+
+                {/* Current Presence Card */}
+                <div className="p-4 rounded-2xl bg-surface-cream/40 border border-border-subtle space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-content-muted uppercase tracking-wider block">Shift Status</span>
+                      <h4 className="text-sm font-extrabold text-brand-forest">
+                        {staffAttendanceSession ? (
+                          staffAttendanceSession.checkOutAt ? (
+                            <span className="text-blue-800">Shift Completed</span>
+                          ) : (
+                            <span className="text-emerald-700">On Floor (Active Duty)</span>
+                          )
+                        ) : selectedStaff.attendanceEnabled === false ? (
+                          <span className="text-amber-800">Exempt (Managed by Owner)</span>
+                        ) : (
+                          <span className="text-red-700">Absent / Not Checked In</span>
+                        )}
+                      </h4>
+                    </div>
+
+                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                      staffAttendanceSession?.checkOutAt
+                        ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                        : staffAttendanceSession
+                        ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                        : selectedStaff.attendanceEnabled === false
+                        ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                        : 'bg-red-100 text-red-800 border border-red-200'
+                    }`}>
+                      {staffAttendanceSession?.checkOutAt
+                        ? 'Completed'
+                        : staffAttendanceSession
+                        ? 'Active Shift'
+                        : selectedStaff.attendanceEnabled === false
+                        ? 'Exempt'
+                        : 'Absent'}
+                    </span>
+                  </div>
+
+                  {/* Timing Details */}
+                  {staffAttendanceSession && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2 border-t border-border-subtle text-xs">
+                      <div className="p-2.5 bg-white rounded-xl border border-border-subtle">
+                        <span className="text-[10px] text-content-muted block font-medium">Clock In</span>
+                        <strong className="text-brand-forest font-bold">
+                          {new Date(staffAttendanceSession.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        </strong>
+                      </div>
+                      <div className="p-2.5 bg-white rounded-xl border border-border-subtle">
+                        <span className="text-[10px] text-content-muted block font-medium">Clock Out</span>
+                        <strong className="text-brand-forest font-bold">
+                          {staffAttendanceSession.checkOutAt
+                            ? new Date(staffAttendanceSession.checkOutAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                            : 'In Progress'}
+                        </strong>
+                      </div>
+                      <div className="p-2.5 bg-white rounded-xl border border-border-subtle col-span-2 sm:col-span-1">
+                        <span className="text-[10px] text-content-muted block font-medium">Duration</span>
+                        <strong className="text-brand-forest font-bold">
+                          {staffAttendanceSession.durationMinutes
+                            ? `${Math.round(staffAttendanceSession.durationMinutes / 60)}h ${staffAttendanceSession.durationMinutes % 60}m`
+                            : 'Active Duty'}
+                        </strong>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Selfie Evidences */}
+                  <div className="pt-2 border-t border-border-subtle space-y-2">
+                    <span className="text-[10px] font-black text-brand-forest uppercase tracking-wider block">
+                      Photographic Verification
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {staffAttendanceSession?.checkInPhotoPath ? (
+                        <div className="p-2.5 bg-white rounded-xl border border-border-subtle flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={staffAttendanceSession.checkInPhotoPath}
+                              alt="Check-in Selfie"
+                              className="w-10 h-10 rounded-lg object-cover border border-emerald-300"
+                            />
+                            <div>
+                              <span className="font-extrabold text-brand-forest text-xs block">Check-In Selfie</span>
+                              <span className="text-[10px] text-emerald-700 font-bold">Verified Capture</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setViewingAttendancePhoto({
+                              staffName: selectedStaff.staffMember.fullName,
+                              role: selectedStaff.positionCategory?.name || selectedStaff.role,
+                              photoUrl: staffAttendanceSession.checkInPhotoPath!,
+                              checkOutPhotoUrl: staffAttendanceSession.checkOutPhotoPath || undefined,
+                              timestamp: staffAttendanceSession.checkInAt,
+                              checkOutTimestamp: staffAttendanceSession.checkOutAt || undefined,
+                              status: staffAttendanceSession.status,
+                            })}
+                            className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-bold"
+                          >
+                            View
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-white/60 rounded-xl border border-border-subtle text-xs text-content-muted">
+                          No check-in selfie captured
+                        </div>
+                      )}
+
+                      {staffAttendanceSession?.checkOutPhotoPath ? (
+                        <div className="p-2.5 bg-white rounded-xl border border-border-subtle flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={staffAttendanceSession.checkOutPhotoPath}
+                              alt="Check-out Photo"
+                              className="w-10 h-10 rounded-lg object-cover border border-blue-300"
+                            />
+                            <div>
+                              <span className="font-extrabold text-brand-forest text-xs block">Check-Out Photo</span>
+                              <span className="text-[10px] text-blue-700 font-bold">Verified Capture</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setViewingAttendancePhoto({
+                              staffName: selectedStaff.staffMember.fullName,
+                              role: selectedStaff.positionCategory?.name || selectedStaff.role,
+                              photoUrl: staffAttendanceSession.checkInPhotoPath || staffAttendanceSession.checkOutPhotoPath!,
+                              checkOutPhotoUrl: staffAttendanceSession.checkOutPhotoPath || undefined,
+                              timestamp: staffAttendanceSession.checkInAt,
+                              checkOutTimestamp: staffAttendanceSession.checkOutAt || undefined,
+                              status: staffAttendanceSession.status,
+                            })}
+                            className="px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-300 text-[10px] font-bold"
+                          >
+                            View
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-white/60 rounded-xl border border-border-subtle text-xs text-content-muted">
+                          No check-out photo captured
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Owner Override & Marking Actions */}
+                  <div className="pt-3 border-t border-border-subtle space-y-2">
+                    <span className="text-[10px] font-black text-brand-forest uppercase tracking-wider block">
+                      Owner Shift & Attendance Controls
+                    </span>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <button
+                        type="button"
+                        disabled={isMarkingAttendance}
+                        onClick={() => handleOwnerMarkAttendance('PRESENT')}
+                        className="py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-sm flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Mark Present</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isMarkingAttendance || !staffAttendanceSession || !!staffAttendanceSession.checkOutAt}
+                        onClick={() => handleOwnerMarkAttendance('CHECK_OUT')}
+                        className="py-2 px-3 rounded-xl bg-brand-forest hover:bg-emerald-900 text-white text-xs font-black shadow-sm flex items-center justify-center gap-1.5 transition-all disabled:opacity-40"
+                      >
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>Check Out</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isMarkingAttendance}
+                        onClick={() => handleOwnerMarkAttendance('HALF_DAY')}
+                        className="py-2 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-black shadow-sm transition-all disabled:opacity-50"
+                      >
+                        <span>Half Day</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isMarkingAttendance}
+                        onClick={() => handleOwnerMarkAttendance('ABSENT')}
+                        className="py-2 px-3 rounded-xl bg-white hover:bg-red-50 text-red-700 border border-red-200 text-xs font-black shadow-sm transition-all disabled:opacity-50"
+                      >
+                        <span>Mark Absent</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>

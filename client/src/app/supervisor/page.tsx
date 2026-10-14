@@ -86,6 +86,8 @@ interface EnrichedStaffItem {
   incentiveAmount?: number | null;
   attendanceToday: {
     isPresent: boolean;
+    isOnFloor?: boolean;
+    isShiftCompleted?: boolean;
     checkInAt: string | null;
     checkOutAt: string | null;
     checkInPhotoPath?: string | null;
@@ -98,7 +100,10 @@ interface EnrichedStaffItem {
 interface SupervisorDashboardData {
   date: string;
   totalStaff: number;
+  totalEmployees?: number;
   presentCount: number;
+  activeOnFloorCount?: number;
+  completedShiftCount?: number;
   absentCount: number;
   todayTasks: {
     total: number;
@@ -109,11 +114,20 @@ interface SupervisorDashboardData {
   staffPerformance: Array<{
     staffId: string;
     fullName: string;
-    position: string;
+    position?: string;
+    role?: string;
     percentage: number;
     totalUnits: number;
     completedUnits: number;
+    attendanceEnabled?: boolean;
     isPresent: boolean;
+    isOnFloor?: boolean;
+    isShiftCompleted?: boolean;
+    attendanceStatus?: string;
+    checkInAt?: string | null;
+    checkInPhotoPath?: string | null;
+    checkOutAt?: string | null;
+    checkOutPhotoPath?: string | null;
   }>;
   departmentBreakdown?: {
     wash: { name: string; total: number; completed: number; percentage: number };
@@ -304,7 +318,7 @@ export default function SupervisorPage() {
 
   // ─── Attendance Section State ──────────────────────────────────────────────
   const [attendanceDate, setAttendanceDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [attendanceFilter, setAttendanceFilter] = useState<'ALL' | 'PRESENT' | 'ABSENT'>('ALL');
+  const [attendanceFilter, setAttendanceFilter] = useState<'ALL' | 'ON_FLOOR' | 'COMPLETED' | 'ABSENT'>('ALL');
   const [markingStaffId, setMarkingStaffId] = useState<string | null>(null);
   const [attendanceFeedback, setAttendanceFeedback] = useState<string | null>(null);
 
@@ -336,11 +350,25 @@ export default function SupervisorPage() {
   // Staff tracked for attendance (exclude staff with attendanceEnabled === false)
   const attendanceTrackedStaff = staffList.filter((s) => s.attendanceEnabled !== false);
   const presentTrackedStaff = attendanceTrackedStaff.filter((s) => s.attendanceToday?.isPresent);
+  const activeOnFloorStaff = attendanceTrackedStaff.filter(
+    (s) => s.attendanceToday?.isOnFloor || (s.attendanceToday?.isPresent && !s.attendanceToday?.checkOutAt && s.attendanceToday?.status === 'OPEN')
+  );
+  const completedShiftStaff = attendanceTrackedStaff.filter(
+    (s) => s.attendanceToday?.isShiftCompleted || (s.attendanceToday?.isPresent && (!!s.attendanceToday?.checkOutAt || s.attendanceToday?.status === 'CLOSED'))
+  );
   const absentTrackedStaff = attendanceTrackedStaff.filter((s) => !s.attendanceToday?.isPresent);
 
-  const filteredAttendanceStaff = attendanceTrackedStaff.filter((staff) => {
-    if (attendanceFilter === 'PRESENT') return staff.attendanceToday?.isPresent;
-    if (attendanceFilter === 'ABSENT') return !staff.attendanceToday?.isPresent;
+  const filteredAttendanceStaff = staffList.filter((staff) => {
+    if (staff.attendanceEnabled === false) return false;
+    if (attendanceFilter === 'ON_FLOOR') {
+      return staff.attendanceToday?.isOnFloor || (staff.attendanceToday?.isPresent && !staff.attendanceToday?.checkOutAt && staff.attendanceToday?.status === 'OPEN');
+    }
+    if (attendanceFilter === 'COMPLETED') {
+      return staff.attendanceToday?.isShiftCompleted || (staff.attendanceToday?.isPresent && (!!staff.attendanceToday?.checkOutAt || staff.attendanceToday?.status === 'CLOSED'));
+    }
+    if (attendanceFilter === 'ABSENT') {
+      return !staff.attendanceToday?.isPresent;
+    }
     return true;
   });
 
@@ -349,9 +377,10 @@ export default function SupervisorPage() {
     if (!activeShopId) return;
     setIsLoading(true);
     try {
+      const activeDate = currentNav === 'attendance' ? attendanceDate : dashboardDate;
       const [dashRes, staffRes, posRes, permRes, fieldsRes, svcRes, wfRes] = await Promise.all([
         apiRequest<SupervisorDashboardData>(`/api/shops/${activeShopId}/supervisor/dashboard?date=${dashboardDate}`).catch(() => null),
-        apiRequest<{ staff: EnrichedStaffItem[] }>(`/api/shops/${activeShopId}/staff`).catch(() => ({ staff: [] })),
+        apiRequest<{ staff: EnrichedStaffItem[] }>(`/api/shops/${activeShopId}/staff?date=${activeDate}`).catch(() => ({ staff: [] })),
         apiRequest<{ categories: PositionCategory[] }>(`/api/config/shops/${activeShopId}/position-categories`).catch(() => ({ categories: [] })),
         apiRequest<{ profiles: PermissionProfileItem[] }>(`/api/config/shops/${activeShopId}/permission-profiles`).catch(() => ({ profiles: [] })),
         apiRequest<{ fields: CustomFieldDefinition[] }>(`/api/config/shops/${activeShopId}/custom-fields`).catch(() => ({ fields: [] })),
@@ -376,10 +405,29 @@ export default function SupervisorPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [activeShopId, dashboardDate, taskServiceTypeId]);
+  }, [activeShopId, dashboardDate, attendanceDate, currentNav, taskServiceTypeId]);
 
+  // Refetch when nav tab or dates change
   useEffect(() => {
     fetchAllData();
+  }, [fetchAllData, currentNav, dashboardDate, attendanceDate]);
+
+  // Auto-refresh when window receives focus or returns from background tab
+  useEffect(() => {
+    const handleFocus = () => {
+      fetchAllData();
+    };
+    window.addEventListener('focus', handleFocus);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchAllData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [fetchAllData]);
 
   // Fetch Staff Daily Tasks (Screen 7)
@@ -2146,23 +2194,28 @@ export default function SupervisorPage() {
             />
           </div>
 
-          {/* Three Metric Cards: Total Staff, Present, Absent (Screen 10) */}
+          {/* Three Floor Metric Badges */}
           <div className="grid grid-cols-3 gap-2.5">
             <div className="bg-white p-3.5 rounded-2xl border border-border-subtle shadow-sm text-center">
               <span className="text-xl font-black text-brand-forest block">
-                {dashboardData?.totalStaff ?? staffList.length}
+                {dashboardData?.totalStaff ?? attendanceTrackedStaff.length}
               </span>
-              <span className="text-[11px] font-bold text-content-muted">Total Staff</span>
+              <span className="text-[11px] font-bold text-content-muted">Tracked Staff</span>
             </div>
-            <div className="bg-white p-3.5 rounded-2xl border border-border-subtle shadow-sm text-center">
-              <span className="text-xl font-black text-emerald-700 block">
-                {dashboardData?.presentCount ?? 0}
+            <div className="bg-white p-3.5 rounded-2xl border border-emerald-200 shadow-sm text-center bg-emerald-50/40">
+              <div className="flex items-center justify-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                <span className="text-xl font-black text-emerald-800">
+                  {dashboardData?.activeOnFloorCount ?? activeOnFloorStaff.length}
+                </span>
+              </div>
+              <span className="text-[11px] font-bold text-emerald-700">
+                On Floor {dashboardData?.completedShiftCount ? `(${dashboardData.completedShiftCount} done)` : ''}
               </span>
-              <span className="text-[11px] font-bold text-emerald-600">Present</span>
             </div>
-            <div className="bg-white p-3.5 rounded-2xl border border-border-subtle shadow-sm text-center">
+            <div className="bg-white p-3.5 rounded-2xl border border-red-100 shadow-sm text-center bg-red-50/20">
               <span className="text-xl font-black text-red-600 block">
-                {dashboardData?.absentCount ?? 0}
+                {dashboardData?.absentCount ?? absentTrackedStaff.length}
               </span>
               <span className="text-[11px] font-bold text-red-500">Absent</span>
             </div>
@@ -2322,15 +2375,25 @@ export default function SupervisorPage() {
 
                 <div className="flex items-center gap-2">
                   <div className="text-right">
-                    <span
-                      className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                        staff.attendanceToday.isPresent
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-red-100 text-red-700'
-                      }`}
-                    >
-                      {staff.attendanceToday.isPresent ? 'Present' : 'Absent'}
-                    </span>
+                    {staff.attendanceEnabled === false ? (
+                      <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-800 border border-amber-200">
+                        Exempt
+                      </span>
+                    ) : staff.attendanceToday.isOnFloor || (staff.attendanceToday.isPresent && !staff.attendanceToday.checkOutAt && staff.attendanceToday.status === 'OPEN') ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                        ● On Floor
+                      </span>
+                    ) : staff.attendanceToday.isShiftCompleted || (staff.attendanceToday.isPresent && (!!staff.attendanceToday.checkOutAt || staff.attendanceToday.status === 'CLOSED')) ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-300">
+                        <CheckCircle2 className="w-3 h-3 text-blue-600" />
+                        Shift Done
+                      </span>
+                    ) : (
+                      <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">
+                        Absent
+                      </span>
+                    )}
                     {staff.attendanceToday.checkInAt && (
                       <span className="block text-[10px] text-content-muted font-mono mt-0.5">
                         {new Date(staff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
@@ -2635,21 +2698,30 @@ export default function SupervisorPage() {
             </div>
           </div>
 
-          {/* 3 Metric Cards: Total On Roll, Present, Absent */}
-          <div className="grid grid-cols-3 gap-2.5">
+          {/* 4 Metric Cards: Total On Roll, On Floor, Shift Done, Absent */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
               <span className="text-lg font-black text-brand-forest block">
                 {attendanceTrackedStaff.length}
               </span>
               <span className="text-[10px] font-bold text-content-muted">Tracked Staff</span>
             </div>
-            <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
-              <span className="text-lg font-black text-emerald-700 block">
-                {presentTrackedStaff.length}
-              </span>
-              <span className="text-[10px] font-bold text-emerald-600">Present</span>
+            <div className="bg-emerald-50/50 p-3 rounded-2xl border border-emerald-200 shadow-sm text-center">
+              <div className="flex items-center justify-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                <span className="text-lg font-black text-emerald-800">
+                  {activeOnFloorStaff.length}
+                </span>
+              </div>
+              <span className="text-[10px] font-bold text-emerald-700">On Floor</span>
             </div>
-            <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
+            <div className="bg-blue-50/50 p-3 rounded-2xl border border-blue-200 shadow-sm text-center">
+              <span className="text-lg font-black text-blue-800 block">
+                {completedShiftStaff.length}
+              </span>
+              <span className="text-[10px] font-bold text-blue-700">Shift Done</span>
+            </div>
+            <div className="bg-red-50/30 p-3 rounded-2xl border border-red-100 shadow-sm text-center">
               <span className="text-lg font-black text-red-600 block">
                 {absentTrackedStaff.length}
               </span>
@@ -2657,20 +2729,21 @@ export default function SupervisorPage() {
             </div>
           </div>
 
-          {/* Filter Chips: All, Present, Absent */}
-          <div className="flex items-center gap-2">
-            {(['ALL', 'PRESENT', 'ABSENT'] as const).map((tab) => (
+          {/* Filter Chips: All, On Floor, Shift Done, Absent */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            {(['ALL', 'ON_FLOOR', 'COMPLETED', 'ABSENT'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setAttendanceFilter(tab)}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap ${
                   attendanceFilter === tab
                     ? 'bg-brand-forest text-white shadow-sm'
                     : 'bg-white border border-border-subtle text-content-muted hover:text-brand-forest'
                 }`}
               >
                 {tab === 'ALL' && `All (${attendanceTrackedStaff.length})`}
-                {tab === 'PRESENT' && `Present (${presentTrackedStaff.length})`}
+                {tab === 'ON_FLOOR' && `On Floor (${activeOnFloorStaff.length})`}
+                {tab === 'COMPLETED' && `Shift Done (${completedShiftStaff.length})`}
                 {tab === 'ABSENT' && `Absent (${absentTrackedStaff.length})`}
               </button>
             ))}
@@ -2698,6 +2771,8 @@ export default function SupervisorPage() {
             ) : (
               filteredAttendanceStaff.map((staff) => {
                 const isPresent = staff.attendanceToday?.isPresent;
+                const isOnFloor = staff.attendanceToday?.isOnFloor || (isPresent && !staff.attendanceToday?.checkOutAt && staff.attendanceToday?.status === 'OPEN');
+                const isShiftCompleted = staff.attendanceToday?.isShiftCompleted || (isPresent && (!!staff.attendanceToday?.checkOutAt || staff.attendanceToday?.status === 'CLOSED'));
                 const isMarking = markingStaffId === staff.staffMember.id;
 
                 return (
@@ -2728,22 +2803,32 @@ export default function SupervisorPage() {
 
                       {/* Presence Badge */}
                       <div className="text-right space-y-0.5">
-                        <span
-                          className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                            isPresent
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-red-100 text-red-700'
-                          }`}
-                        >
-                          {isPresent ? '● Present' : '○ Absent'}
-                        </span>
+                        {staff.attendanceEnabled === false ? (
+                          <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-800 border border-amber-200">
+                            Exempt
+                          </span>
+                        ) : isOnFloor ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                            ● On Floor
+                          </span>
+                        ) : isShiftCompleted ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-300">
+                            <CheckCircle2 className="w-3 h-3 text-blue-600" />
+                            Shift Done
+                          </span>
+                        ) : (
+                          <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">
+                            ○ Absent
+                          </span>
+                        )}
                         {staff.attendanceToday?.checkInAt && (
                           <span className="block text-[10px] text-content-muted font-mono">
                             In: {new Date(staff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         )}
                         {staff.attendanceToday?.checkOutAt && (
-                          <span className="block text-[10px] text-emerald-700 font-mono">
+                          <span className="block text-[10px] text-blue-700 font-mono">
                             Out: {new Date(staff.attendanceToday.checkOutAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         )}
@@ -2790,12 +2875,16 @@ export default function SupervisorPage() {
                       ) : (
                         <>
                           <button
-                            disabled={isMarking || !!staff.attendanceToday?.checkOutAt}
+                            disabled={isMarking || isShiftCompleted}
                             onClick={() => handleMarkStaffAttendance(staff.staffMember.id, 'CHECK_OUT')}
-                            className="flex-1 py-1.5 px-2 rounded-xl bg-brand-forest hover:bg-emerald-900 text-white text-[11px] font-bold shadow-sm flex items-center justify-center gap-1 transition-all disabled:opacity-50"
+                            className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold shadow-sm flex items-center justify-center gap-1 transition-all ${
+                              isShiftCompleted
+                                ? 'bg-blue-50 text-blue-800 border border-blue-200 opacity-80 cursor-default'
+                                : 'bg-brand-forest hover:bg-emerald-900 text-white disabled:opacity-50'
+                            }`}
                           >
                             <Clock className="w-3.5 h-3.5" />
-                            <span>{staff.attendanceToday?.checkOutAt ? 'Completed Shift' : 'Check Out'}</span>
+                            <span>{isShiftCompleted ? 'Shift Completed' : 'Check Out'}</span>
                           </button>
                           <button
                             disabled={isMarking}
