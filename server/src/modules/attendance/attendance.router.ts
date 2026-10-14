@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import { authenticate, AuthenticatedRequest } from '../../middleware/auth';
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
@@ -265,3 +266,132 @@ attendanceRouter.get(
     });
   }
 );
+
+// POST /api/shops/:shopId/attendance/mark-staff
+// Accessible to Supervisor / Owner to record or update attendance for a staff member
+attendanceRouter.post(
+  '/shops/:shopId/attendance/mark-staff',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
+    const { shopId } = req.params as { shopId: string };
+
+    const hasAccess = auth.isOwner || auth.shopMemberships.some(
+      (m) => m.shopId === shopId && (
+        m.capabilities.includes('attendance.read_team') ||
+        m.capabilities.includes('staff.update')
+      )
+    );
+    if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
+
+    const schema = z.object({
+      staffMemberId: z.string().uuid(),
+      status: z.enum(['PRESENT', 'ABSENT', 'HALF_DAY', 'CHECK_OUT']),
+      date: z.string().optional(),
+    });
+    const body = schema.parse(req.body);
+
+    const targetDate = body.date ? new Date(body.date) : new Date();
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    if (body.status === 'PRESENT') {
+      let session = await prisma.attendanceSession.findFirst({
+        where: {
+          shopId,
+          staffMemberId: body.staffMemberId,
+          checkInAt: { gte: startOfDay, lte: endOfDay },
+        },
+      });
+
+      if (!session) {
+        session = await prisma.attendanceSession.create({
+          data: {
+            shopId,
+            staffMemberId: body.staffMemberId,
+            checkInAt: new Date(),
+            status: 'OPEN',
+          },
+        });
+      }
+      return res.json({ success: true, session, message: 'Marked as Present.' });
+    }
+
+    if (body.status === 'CHECK_OUT') {
+      const openSession = await prisma.attendanceSession.findFirst({
+        where: {
+          shopId,
+          staffMemberId: body.staffMemberId,
+          status: 'OPEN',
+          checkInAt: { gte: startOfDay, lte: endOfDay },
+        },
+        orderBy: { checkInAt: 'desc' },
+      });
+
+      if (openSession && openSession.checkInAt) {
+        const checkOutAt = new Date();
+        const durationMinutes = Math.floor((checkOutAt.getTime() - openSession.checkInAt.getTime()) / 60000);
+        await prisma.attendanceSession.update({
+          where: { id: openSession.id },
+          data: {
+            checkOutAt,
+            durationMinutes: Math.max(1, durationMinutes),
+            status: 'CLOSED',
+          },
+        });
+      }
+      return res.json({ success: true, message: 'Staff checked out successfully.' });
+    }
+
+    if (body.status === 'HALF_DAY') {
+      let session = await prisma.attendanceSession.findFirst({
+        where: {
+          shopId,
+          staffMemberId: body.staffMemberId,
+          checkInAt: { gte: startOfDay, lte: endOfDay },
+        },
+      });
+
+      const checkInAt = new Date();
+      const checkOutAt = new Date(checkInAt.getTime() + 4 * 60 * 60 * 1000);
+
+      if (session) {
+        await prisma.attendanceSession.update({
+          where: { id: session.id },
+          data: {
+            checkOutAt,
+            durationMinutes: 240,
+            status: 'CLOSED',
+          },
+        });
+      } else {
+        await prisma.attendanceSession.create({
+          data: {
+            shopId,
+            staffMemberId: body.staffMemberId,
+            checkInAt,
+            checkOutAt,
+            durationMinutes: 240,
+            status: 'CLOSED',
+          },
+        });
+      }
+      return res.json({ success: true, message: 'Marked as Half Day.' });
+    }
+
+    if (body.status === 'ABSENT') {
+      await prisma.attendanceSession.deleteMany({
+        where: {
+          shopId,
+          staffMemberId: body.staffMemberId,
+          checkInAt: { gte: startOfDay, lte: endOfDay },
+        },
+      });
+      return res.json({ success: true, message: 'Marked as Absent.' });
+    }
+
+    res.json({ success: true });
+  }
+);
+

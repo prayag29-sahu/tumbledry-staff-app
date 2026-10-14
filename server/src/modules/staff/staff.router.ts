@@ -131,6 +131,7 @@ staffRouter.post(
       dutyTimingNotes: z.string().max(200).optional(),
       incentiveAmount: z.number().min(0).optional(),
       role: z.string().optional(),
+      attendanceEnabled: z.boolean().optional(),
       // Account creation (optional — person can exist without login access)
       username: z.string().min(3).max(100).optional(),
       password: z.string().min(6).max(128).optional(),
@@ -216,6 +217,12 @@ staffRouter.post(
         });
       }
 
+      const isSupervisor = (body.role || '').toLowerCase().includes('supervisor') ||
+        resolvedPermissionProfileId === 'sys-supervisor';
+      const resolvedAttendanceEnabled = body.attendanceEnabled !== undefined
+        ? body.attendanceEnabled
+        : !isSupervisor;
+
       const membership = await tx.shopMembership.create({
         data: {
           shopId,
@@ -232,6 +239,7 @@ staffRouter.post(
           securityDeposit: body.securityDeposit ?? null,
           dutyTimingNotes: body.dutyTimingNotes ?? null,
           incentiveAmount: body.incentiveAmount ?? null,
+          attendanceEnabled: resolvedAttendanceEnabled,
         },
       });
 
@@ -411,6 +419,42 @@ staffRouter.patch(
     });
 
     res.json({ message: 'Staff member updated.' });
+  }
+);
+
+// ─── PATCH /api/shops/:shopId/staff/:staffId/attendance-toggle ───────────────
+// Dedicated endpoint for Owner to enable/disable attendance tracking per staff
+staffRouter.patch(
+  '/shops/:shopId/staff/:staffId/attendance-toggle',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
+    const { shopId, staffId } = req.params as { shopId: string; staffId: string };
+
+    const hasAccess = auth.isOwner || auth.shopMemberships.some(
+      (m) => m.shopId === shopId && m.capabilities.includes('staff.update')
+    );
+    if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Permission denied.'));
+
+    const { attendanceEnabled } = z.object({
+      attendanceEnabled: z.boolean(),
+    }).parse(req.body);
+
+    const membership = await prisma.shopMembership.findFirst({
+      where: { staffMemberId: staffId, shopId },
+    });
+    if (!membership) return next(new AppError(404, 'NOT_FOUND', 'Staff membership not found.'));
+
+    const updated = await prisma.shopMembership.update({
+      where: { id: membership.id },
+      data: { attendanceEnabled },
+      select: { id: true, staffMemberId: true, attendanceEnabled: true },
+    });
+
+    res.json({
+      success: true,
+      attendanceEnabled: updated.attendanceEnabled,
+      message: `Attendance tracking ${attendanceEnabled ? 'enabled' : 'disabled'} for this staff member.`,
+    });
   }
 );
 

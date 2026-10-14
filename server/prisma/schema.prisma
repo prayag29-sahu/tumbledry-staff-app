@@ -134,6 +134,7 @@ model ShopMembership {
   securityDeposit      Decimal?  @map("security_deposit") @db.Decimal(10, 2)
   dutyTimingNotes      String?   @map("duty_timing_notes")
   incentiveAmount      Decimal?  @map("incentive_amount") @db.Decimal(10, 2)
+  attendanceEnabled    Boolean   @default(true) @map("attendance_enabled")
   isActive             Boolean   @default(true) @map("is_active")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
