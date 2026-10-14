@@ -83,9 +83,9 @@ taskRouter.post(
     const { shopId, staffId } = req.params as { shopId: string; staffId: string };
 
     const schema = z.object({
-      assignmentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-      workflowProfileId: z.string().uuid(),
-      serviceTypeId: z.string().uuid().optional(),
+      assignmentDate: z.string().min(1).transform((v) => v.split('T')[0]),
+      workflowProfileId: z.string().min(1),
+      serviceTypeId: z.string().nullable().optional().transform((v) => (v && v.trim() ? v.trim() : undefined)),
       orderId: z.string().min(1).max(100).optional(),
       pieceCount: z.number().int().positive().optional(),
       pickupCount: z.number().int().positive().optional(),

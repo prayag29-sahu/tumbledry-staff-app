@@ -89,7 +89,7 @@ configRouter.post('/shops/:shopId/position-categories', async (req: Request, res
   const schema = z.object({
     name: z.string().min(1).max(100),
     description: z.string().max(300).optional(),
-    workflowProfileId: z.string().uuid().optional(),
+    workflowProfileId: z.string().optional(),
   });
   const body = schema.parse(req.body);
   const category = await prisma.positionCategory.create({

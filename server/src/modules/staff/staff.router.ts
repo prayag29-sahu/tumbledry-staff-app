@@ -377,12 +377,30 @@ staffRouter.patch(
     );
     if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Permission denied.'));
 
+    const targetMembership = await prisma.shopMembership.findFirst({
+      where: { staffMemberId: staffId, shopId },
+      include: { account: true, permissionProfile: true },
+    });
+    if (!targetMembership) {
+      return next(new AppError(404, 'NOT_FOUND', 'Staff member not found in this shop.'));
+    }
+
+    if (!auth.isOwner) {
+      if (targetMembership.accountId === auth.accountId) {
+        return next(new AppError(403, 'FORBIDDEN', 'Supervisors cannot modify their own record. Contact the Owner.'));
+      }
+      if (targetMembership.permissionProfile?.isOwnerOnly) {
+        return next(new AppError(403, 'FORBIDDEN', 'Supervisors cannot modify Owner records.'));
+      }
+    }
+
     const schema = z.object({
       fullName: z.string().min(1).max(200).optional(),
-      mobile: z.string().max(20).optional(),
-      address: z.string().max(500).optional(),
-      positionCategoryId: z.string().uuid().nullable().optional(),
-      workflowProfileId: z.string().uuid().nullable().optional(),
+      mobile: z.string().max(20).nullable().optional(),
+      address: z.string().max(500).nullable().optional(),
+      permissionProfileId: z.string().nullable().optional(),
+      positionCategoryId: z.string().nullable().optional(),
+      workflowProfileId: z.string().nullable().optional(),
       joiningDate: z.string().nullable().optional(),
       monthlySalary: z.number().positive().nullable().optional(),
       securityDeposit: z.number().min(0).nullable().optional(),
@@ -407,6 +425,7 @@ staffRouter.patch(
       await tx.shopMembership.updateMany({
         where: { staffMemberId: staffId, shopId },
         data: {
+          ...(body.permissionProfileId !== undefined ? { permissionProfileId: body.permissionProfileId || undefined } : {}),
           ...(body.positionCategoryId !== undefined ? { positionCategoryId: body.positionCategoryId } : {}),
           ...(body.workflowProfileId !== undefined ? { workflowProfileId: body.workflowProfileId } : {}),
           ...(body.joiningDate !== undefined ? { joiningDate: body.joiningDate ? new Date(body.joiningDate) : null } : {}),
@@ -418,7 +437,7 @@ staffRouter.patch(
       });
     });
 
-    res.json({ message: 'Staff member updated.' });
+    res.json({ message: 'Staff member updated successfully.' });
   }
 );
 

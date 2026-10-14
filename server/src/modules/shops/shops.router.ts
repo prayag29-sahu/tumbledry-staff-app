@@ -30,11 +30,17 @@ shopsRouter.get('/', async (req: Request, res: Response) => {
   res.json({ shops });
 });
 
-// GET /api/shops/metrics — Owner high-level cross-shop metrics
+// GET /api/shops/metrics — Owner & branch high-level cross-shop metrics
 shopsRouter.get('/metrics', async (req: Request, res: Response, next: NextFunction) => {
   const auth = (req as AuthenticatedRequest).auth;
+  
+  let targetShopWhere: Record<string, unknown> = { status: { not: 'ARCHIVED' } };
   if (!auth.isOwner) {
-    return next(new AppError(403, 'FORBIDDEN', 'Owner access required for cross-shop metrics.'));
+    const memberShopIds = auth.shopMemberships.map((m) => m.shopId);
+    if (memberShopIds.length === 0) {
+      return next(new AppError(403, 'FORBIDDEN', 'No accessible shops found.'));
+    }
+    targetShopWhere = { id: { in: memberShopIds }, status: { not: 'ARCHIVED' } };
   }
 
   const today = new Date();
@@ -44,7 +50,7 @@ shopsRouter.get('/metrics', async (req: Request, res: Response, next: NextFuncti
   endOfDay.setHours(23, 59, 59, 999);
 
   const shops = await prisma.shop.findMany({
-    where: { status: { not: 'ARCHIVED' } },
+    where: targetShopWhere,
     select: { id: true, name: true, code: true, status: true, address: true, timezone: true },
     orderBy: { name: 'asc' },
   });
