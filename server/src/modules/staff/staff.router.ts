@@ -70,24 +70,42 @@ staffRouter.get(
       where: { shopId, isActive: status !== 'inactive' },
     });
 
-    // Fetch today's attendance sessions to attach presence status
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Fetch attendance sessions to attach presence status (supports ?date=YYYY-MM-DD)
+    const dateStr = req.query['date'] as string;
+    const targetDate = dateStr ? new Date(dateStr) : new Date();
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
     const todaySessions = await prisma.attendanceSession.findMany({
       where: {
         shopId,
-        checkInAt: { gte: today },
+        checkInAt: { gte: startOfDay, lte: endOfDay },
       },
+      orderBy: { checkInAt: 'desc' },
       select: { staffMemberId: true, checkInAt: true, checkInPhotoPath: true, checkOutAt: true, checkOutPhotoPath: true, status: true },
     });
-    const sessionMap = new Map(todaySessions.map((s) => [s.staffMemberId, s]));
+
+    const sessionMap = new Map<string, typeof todaySessions[0]>();
+    for (const s of todaySessions) {
+      if (!sessionMap.has(s.staffMemberId)) {
+        sessionMap.set(s.staffMemberId, s);
+      }
+    }
 
     const enrichedStaff = memberships.map((m) => {
       const session = sessionMap.get(m.staffMemberId);
+      const isOnFloor = session ? (session.status === 'OPEN' && !session.checkOutAt) : false;
+      const isShiftCompleted = session ? (session.status === 'CLOSED' || !!session.checkOutAt) : false;
+
       return {
         ...m,
+        attendanceEnabled: m.attendanceEnabled,
         attendanceToday: session ? {
           isPresent: true,
+          isOnFloor,
+          isShiftCompleted,
           checkInAt: session.checkInAt,
           checkOutAt: session.checkOutAt,
           checkInPhotoPath: session.checkInPhotoPath,
@@ -95,11 +113,13 @@ staffRouter.get(
           status: session.status,
         } : {
           isPresent: false,
+          isOnFloor: false,
+          isShiftCompleted: false,
           checkInAt: null,
           checkOutAt: null,
           checkInPhotoPath: null,
           checkOutPhotoPath: null,
-          status: 'ABSENT',
+          status: m.attendanceEnabled === false ? 'EXEMPT' : 'ABSENT',
         },
       };
     });

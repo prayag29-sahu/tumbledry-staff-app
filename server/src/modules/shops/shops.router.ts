@@ -267,12 +267,39 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
       shopId,
       checkInAt: { gte: startOfDay, lte: endOfDay },
     },
+    orderBy: { checkInAt: 'desc' },
     select: { staffMemberId: true, checkInAt: true, checkInPhotoPath: true, checkOutAt: true, checkOutPhotoPath: true, status: true },
   });
 
-  const presentSet = new Set(attendanceSessions.map((s) => s.staffMemberId));
-  const totalStaff = staffMemberships.length;
-  const presentCount = presentSet.size;
+  const sessionMap = new Map<string, typeof attendanceSessions[0]>();
+  for (const s of attendanceSessions) {
+    if (!sessionMap.has(s.staffMemberId)) {
+      sessionMap.set(s.staffMemberId, s);
+    }
+  }
+
+  // Only count staff whose attendance tracking is enabled
+  const attendanceTrackedStaff = staffMemberships.filter(
+    (m) => m.attendanceEnabled !== false
+  );
+
+  let activeOnFloorCount = 0;
+  let completedShiftCount = 0;
+  let presentCount = 0;
+
+  for (const m of attendanceTrackedStaff) {
+    const session = sessionMap.get(m.staffMemberId);
+    if (session) {
+      presentCount++;
+      if (session.status === 'OPEN' && !session.checkOutAt) {
+        activeOnFloorCount++;
+      } else {
+        completedShiftCount++;
+      }
+    }
+  }
+
+  const totalStaff = attendanceTrackedStaff.length;
   const absentCount = Math.max(0, totalStaff - presentCount);
 
   // 3. Tasks on targetDate
@@ -310,6 +337,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
     if (!staffTaskMap[a.staffMemberId]) {
       staffTaskMap[a.staffMemberId] = { total: 0, completed: 0 };
     }
+
     for (const u of a.taskUnits) {
       todayTotalUnits++;
       staffTaskMap[a.staffMemberId].total++;
@@ -360,7 +388,12 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
     const pct = taskData.total > 0
       ? Math.round((taskData.completed / taskData.total) * 100)
       : 0;
-    const session = attendanceSessions.find((s) => s.staffMemberId === m.staffMemberId);
+    const session = sessionMap.get(m.staffMemberId);
+    const isPresent = !!session;
+    const isOnFloor = session ? (session.status === 'OPEN' && !session.checkOutAt) : false;
+    const isShiftCompleted = session ? (session.status === 'CLOSED' || !!session.checkOutAt) : false;
+
+    const isAttendanceEnabled = m.attendanceEnabled !== false;
 
     return {
       staffId: m.staffMemberId,
@@ -369,7 +402,17 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
       percentage: pct,
       totalUnits: taskData.total,
       completedUnits: taskData.completed,
-      isPresent: presentSet.has(m.staffMemberId),
+      attendanceEnabled: isAttendanceEnabled,
+      isPresent,
+      isOnFloor,
+      isShiftCompleted,
+      attendanceStatus: !isAttendanceEnabled
+        ? 'EXEMPT'
+        : isOnFloor
+        ? 'ON_FLOOR'
+        : isShiftCompleted
+        ? 'COMPLETED'
+        : 'ABSENT',
       checkInAt: session?.checkInAt || null,
       checkInPhotoPath: session?.checkInPhotoPath || null,
       checkOutAt: session?.checkOutAt || null,
@@ -382,7 +425,10 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
   res.json({
     date: targetDate.toISOString().split('T')[0],
     totalStaff,
+    totalEmployees: staffMemberships.length,
     presentCount,
+    activeOnFloorCount,
+    completedShiftCount,
     absentCount,
     todayTasks: {
       total: todayTotalUnits,
