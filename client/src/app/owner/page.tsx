@@ -178,7 +178,7 @@ export default function OwnerPage() {
   const [supUsername, setSupUsername] = useState('');
   const [supPassword, setSupPassword] = useState('');
   const [supSalary, setSupSalary] = useState('');
-  const [supDutyTiming, setSupDutyTiming] = useState('09:00 AM - 06:00 PM');
+  const [supDutyTiming, setSupDutyTiming] = useState('');
   const [isSubmittingSupervisor, setIsSubmittingSupervisor] = useState(false);
   const [createdSupCredentials, setCreatedSupCredentials] = useState<{
     fullName: string;
@@ -249,6 +249,7 @@ export default function OwnerPage() {
       setSupUsername('');
       setSupPassword('');
       setSupSalary('');
+      setSupDutyTiming('');
       fetchShopStaff(selectedShopId);
       fetchAllData();
     } catch (err: unknown) {

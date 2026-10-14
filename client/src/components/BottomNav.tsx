@@ -19,7 +19,7 @@ export function BottomNav() {
   const pathname = usePathname();
   const { user, activeRole } = useAuth();
 
-  if (!user || pathname === '/login' || pathname === '/supervisor') return null;
+  if (!user || pathname === '/login' || pathname === '/supervisor' || pathname === '/manager') return null;
 
   // Build role-appropriate navigation
   const navItems = [];

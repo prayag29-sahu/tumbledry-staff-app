@@ -2,13 +2,15 @@
 
 import React from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import { Building2, ChevronDown, User, ShieldCheck } from 'lucide-react';
 
 export function Header() {
   const { user, activeShopId, activeRole, setActiveShopId } = useAuth();
 
-  if (!user) return null;
+  const pathname = usePathname();
+  if (!user || pathname === '/login' || pathname === '/supervisor' || pathname === '/manager') return null;
 
   const memberships = user.shopMemberships || [];
   const currentShop = memberships.find((m) => m.shopId === activeShopId);

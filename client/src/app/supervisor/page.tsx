@@ -233,7 +233,7 @@ export default function SupervisorPage() {
   const [addPassword, setAddPassword] = useState('');
   const [addAadhaar, setAddAadhaar] = useState('');
   const [addBankAccount, setAddBankAccount] = useState('');
-  const [addJoiningDate, setAddJoiningDate] = useState(new Date().toISOString().split('T')[0]);
+  const [addJoiningDate, setAddJoiningDate] = useState('');
   const [addSalary, setAddSalary] = useState('');
   const [addSecurityDeposit, setAddSecurityDeposit] = useState('');
   const [addDutyTiming, setAddDutyTiming] = useState('');
@@ -396,7 +396,7 @@ export default function SupervisorPage() {
     setAddPassword('');
     setAddAadhaar('');
     setAddBankAccount('');
-    setAddJoiningDate(new Date().toISOString().split('T')[0]);
+    setAddJoiningDate('');
     setAddSalary('');
     setAddSecurityDeposit('');
     setAddDutyTiming('');
@@ -970,7 +970,7 @@ export default function SupervisorPage() {
                 <MapPin className="w-4 h-4 text-brand-forest" />
                 <div>
                   <span className="text-content-muted block text-[10px]">Address</span>
-                  <span className="font-bold text-brand-forest">{selectedStaff.staffMember.address || 'Guwahati, Assam'}</span>
+                  <span className="font-bold text-brand-forest">{selectedStaff.staffMember.address || 'Not provided'}</span>
                 </div>
               </div>
 
@@ -979,7 +979,7 @@ export default function SupervisorPage() {
                 <div>
                   <span className="text-content-muted block text-[10px]">Joining Date</span>
                   <span className="font-bold text-brand-forest">
-                    {selectedStaff.joiningDate ? new Date(selectedStaff.joiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '01 Oct 2026'}
+                    {selectedStaff.joiningDate ? new Date(selectedStaff.joiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Not provided'}
                   </span>
                 </div>
               </div>
@@ -988,7 +988,9 @@ export default function SupervisorPage() {
                 <CreditCard className="w-4 h-4 text-brand-forest" />
                 <div>
                   <span className="text-content-muted block text-[10px]">Salary</span>
-                  <span className="font-bold text-brand-forest">₹ {selectedStaff.monthlySalary?.toLocaleString('en-IN') || '15,000'}</span>
+                  <span className="font-bold text-brand-forest">
+                    {selectedStaff.monthlySalary != null ? `₹ ${selectedStaff.monthlySalary.toLocaleString('en-IN')}` : '—'}
+                  </span>
                 </div>
               </div>
 
@@ -996,7 +998,7 @@ export default function SupervisorPage() {
                 <Clock className="w-4 h-4 text-brand-forest" />
                 <div>
                   <span className="text-content-muted block text-[10px]">Duty Timing</span>
-                  <span className="font-bold text-brand-forest">{selectedStaff.dutyTimingNotes || '09:00 AM - 06:00 PM'}</span>
+                  <span className="font-bold text-brand-forest">{selectedStaff.dutyTimingNotes || 'Not specified'}</span>
                 </div>
               </div>
 
@@ -1004,7 +1006,9 @@ export default function SupervisorPage() {
                 <Gift className="w-4 h-4 text-brand-forest" />
                 <div>
                   <span className="text-content-muted block text-[10px]">Incentive</span>
-                  <span className="font-bold text-brand-forest">₹ {selectedStaff.incentiveAmount?.toLocaleString('en-IN') || '2,000'}</span>
+                  <span className="font-bold text-brand-forest">
+                    {selectedStaff.incentiveAmount != null ? `₹ ${selectedStaff.incentiveAmount.toLocaleString('en-IN')}` : '—'}
+                  </span>
                 </div>
               </div>
 
@@ -1333,43 +1337,51 @@ export default function SupervisorPage() {
                     </div>
                   </div>
 
-                  {/* Task Completion Trend Bar Chart (Screen 9) */}
+                  {/* Task Completion Trend Bar Chart */}
                   <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
                     <h4 className="text-xs font-black text-brand-forest">Task Completion Trend</h4>
-                <div className="flex items-end justify-between h-28 pt-4 px-2">
-                  {[
-                    { day: 'Mon', h: '60%' },
-                    { day: 'Tue', h: '85%' },
-                    { day: 'Wed', h: '90%' },
-                    { day: 'Thu', h: '70%' },
-                    { day: 'Fri', h: '95%' },
-                    { day: 'Sat', h: '80%' },
-                    { day: 'Sun', h: '40%' },
-                  ].map((bar, i) => (
-                    <div key={i} className="flex flex-col items-center gap-1.5">
-                      <div className="w-5 bg-border-subtle/50 rounded-t-md h-20 relative flex items-end">
-                        <div
-                          className="w-full bg-gradient-to-t from-[#245431] to-[#3B7A49] rounded-t-md transition-all"
-                          style={{ height: bar.h }}
-                        />
+                    {staffMonthlyPerf && staffMonthlyPerf.total > 0 ? (
+                      <div className="flex items-end justify-between h-28 pt-4 px-2">
+                        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => {
+                          const dayPct = staffMonthlyPerf.dailyProgress?.[i]
+                            ? Math.round((staffMonthlyPerf.dailyProgress[i].completed / Math.max(1, staffMonthlyPerf.dailyProgress[i].total)) * 100)
+                            : 0;
+                          return (
+                            <div key={day} className="flex flex-col items-center gap-1.5">
+                              <div className="w-5 bg-border-subtle/50 rounded-t-md h-20 relative flex items-end">
+                                <div
+                                  className="w-full bg-gradient-to-t from-[#245431] to-[#3B7A49] rounded-t-md transition-all"
+                                  style={{ height: `${dayPct}%` }}
+                                />
+                              </div>
+                              <span className="text-[10px] font-bold text-content-muted">{day}</span>
+                            </div>
+                          );
+                        })}
                       </div>
-                      <span className="text-[10px] font-bold text-content-muted">{bar.day}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                    ) : (
+                      <div className="py-8 text-center space-y-1">
+                        <p className="text-xs font-bold text-content-muted">No task records for this month</p>
+                        <p className="text-[10px] text-content-muted/60">Trend bars will populate as tasks are completed</p>
+                      </div>
+                    )}
+                  </div>
 
-              {/* Bottom Stat Chips (Screen 9) */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-white p-3.5 rounded-2xl border border-border-subtle text-center shadow-sm">
-                  <span className="text-lg font-black text-brand-forest block">4.5</span>
-                  <span className="text-[10px] font-bold text-content-muted">Avg. Hours/Day</span>
-                </div>
-                <div className="bg-white p-3.5 rounded-2xl border border-border-subtle text-center shadow-sm">
-                  <span className="text-lg font-black text-emerald-700 block">92%</span>
-                  <span className="text-[10px] font-bold text-content-muted">On Time %</span>
-                </div>
-              </div>
+                  {/* Bottom Stat Chips */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-white p-3.5 rounded-2xl border border-border-subtle text-center shadow-sm">
+                      <span className="text-lg font-black text-brand-forest block">
+                        {staffMonthlyPerf && staffMonthlyPerf.total > 0 ? (staffMonthlyPerf.completed / 8).toFixed(1) : '—'}
+                      </span>
+                      <span className="text-[10px] font-bold text-content-muted">Avg. Tasks/Day</span>
+                    </div>
+                    <div className="bg-white p-3.5 rounded-2xl border border-border-subtle text-center shadow-sm">
+                      <span className="text-lg font-black text-emerald-700 block">
+                        {staffMonthlyPerf?.percentageComplete != null ? `${Math.round(staffMonthlyPerf.percentageComplete)}%` : '—'}
+                      </span>
+                      <span className="text-[10px] font-bold text-content-muted">Completion Rate</span>
+                    </div>
+                  </div>
                 </>
               )}
             </div>
