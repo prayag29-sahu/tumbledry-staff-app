@@ -267,7 +267,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
       shopId,
       checkInAt: { gte: startOfDay, lte: endOfDay },
     },
-    select: { staffMemberId: true, checkInAt: true, checkOutAt: true, status: true },
+    select: { staffMemberId: true, checkInAt: true, checkInPhotoPath: true, checkOutAt: true, checkOutPhotoPath: true, status: true },
   });
 
   const presentSet = new Set(attendanceSessions.map((s) => s.staffMemberId));
@@ -360,6 +360,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
     const pct = taskData.total > 0
       ? Math.round((taskData.completed / taskData.total) * 100)
       : 0;
+    const session = attendanceSessions.find((s) => s.staffMemberId === m.staffMemberId);
 
     return {
       staffId: m.staffMemberId,
@@ -369,6 +370,10 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
       totalUnits: taskData.total,
       completedUnits: taskData.completed,
       isPresent: presentSet.has(m.staffMemberId),
+      checkInAt: session?.checkInAt || null,
+      checkInPhotoPath: session?.checkInPhotoPath || null,
+      checkOutAt: session?.checkOutAt || null,
+      checkOutPhotoPath: session?.checkOutPhotoPath || null,
     };
   });
 

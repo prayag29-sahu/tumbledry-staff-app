@@ -71,6 +71,7 @@ taskRouter.get(
             taskUnitId: true,
             staffMember: { select: { id: true, fullName: true } },
           },
+          orderBy: { reportedAt: 'desc' },
         },
         taskUnits: {
           where: { status: { not: 'CANCELLED' } },
@@ -142,6 +143,7 @@ taskRouter.get(
             taskUnitId: true,
             staffMember: { select: { id: true, fullName: true } },
           },
+          orderBy: { reportedAt: 'desc' },
         },
         taskUnits: {
           where: { status: { not: 'CANCELLED' } },

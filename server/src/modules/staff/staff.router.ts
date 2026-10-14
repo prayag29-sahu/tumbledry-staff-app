@@ -78,7 +78,7 @@ staffRouter.get(
         shopId,
         checkInAt: { gte: today },
       },
-      select: { staffMemberId: true, checkInAt: true, checkOutAt: true, status: true },
+      select: { staffMemberId: true, checkInAt: true, checkInPhotoPath: true, checkOutAt: true, checkOutPhotoPath: true, status: true },
     });
     const sessionMap = new Map(todaySessions.map((s) => [s.staffMemberId, s]));
 
@@ -90,11 +90,15 @@ staffRouter.get(
           isPresent: true,
           checkInAt: session.checkInAt,
           checkOutAt: session.checkOutAt,
+          checkInPhotoPath: session.checkInPhotoPath,
+          checkOutPhotoPath: session.checkOutPhotoPath,
           status: session.status,
         } : {
           isPresent: false,
           checkInAt: null,
           checkOutAt: null,
+          checkInPhotoPath: null,
+          checkOutPhotoPath: null,
           status: 'ABSENT',
         },
       };
