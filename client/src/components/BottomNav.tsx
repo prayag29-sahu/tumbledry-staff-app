@@ -1,8 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import {
   ClipboardList,
@@ -15,8 +15,10 @@ import {
   Layers,
 } from 'lucide-react';
 
-export function BottomNav() {
+function BottomNavInner() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const currentView = searchParams.get('view');
   const { user, activeRole } = useAuth();
 
   if (!user || pathname === '/login' || pathname === '/supervisor' || pathname === '/manager') return null;
@@ -26,46 +28,46 @@ export function BottomNav() {
 
   if (user.isOwner) {
     navItems.push(
-      { label: 'Admin', href: '/owner', icon: Shield },
-      { label: 'Workforce', href: '/supervisor', icon: Users },
-      { label: 'Tasks', href: '/manager', icon: ClipboardList },
-      { label: 'Profile', href: '/profile', icon: User }
+      { label: 'Admin', href: '/owner', icon: Shield, id: 'admin' },
+      { label: 'Workforce', href: '/owner?view=workforce', icon: Users, id: 'workforce' },
+      { label: 'Live Tasks', href: '/owner?view=tasks', icon: ClipboardList, id: 'tasks' },
+      { label: 'Profile', href: '/profile', icon: User, id: 'profile' }
     );
   } else if (activeRole === 'Supervisor') {
     navItems.push(
-      { label: 'Overview', href: '/supervisor', icon: Users },
-      { label: 'Attendance', href: '/attendance', icon: Camera },
-      { label: 'Profile', href: '/profile', icon: User }
+      { label: 'Overview', href: '/supervisor', icon: Users, id: 'overview' },
+      { label: 'Attendance', href: '/attendance', icon: Camera, id: 'attendance' },
+      { label: 'Profile', href: '/profile', icon: User, id: 'profile' }
     );
   } else if (activeRole === 'Manager') {
     navItems.push(
-      { label: 'Tasks', href: '/manager', icon: ClipboardList },
-      { label: 'Attendance', href: '/attendance', icon: Camera },
-      { label: 'Profile', href: '/profile', icon: User }
+      { label: 'Tasks', href: '/manager', icon: ClipboardList, id: 'tasks' },
+      { label: 'Attendance', href: '/attendance', icon: Camera, id: 'attendance' },
+      { label: 'Profile', href: '/profile', icon: User, id: 'profile' }
     );
   } else if (activeRole === 'Washerman') {
     navItems.push(
-      { label: 'Wash Tasks', href: '/washerman', icon: Layers },
-      { label: 'Attendance', href: '/attendance', icon: Camera },
-      { label: 'Profile', href: '/profile', icon: User }
+      { label: 'Wash Tasks', href: '/washerman', icon: Layers, id: 'wash' },
+      { label: 'Attendance', href: '/attendance', icon: Camera, id: 'attendance' },
+      { label: 'Profile', href: '/profile', icon: User, id: 'profile' }
     );
   } else if (activeRole === 'Ironman') {
     navItems.push(
-      { label: 'Iron Tasks', href: '/ironman', icon: CheckCircle2 },
-      { label: 'Attendance', href: '/attendance', icon: Camera },
-      { label: 'Profile', href: '/profile', icon: User }
+      { label: 'Iron Tasks', href: '/ironman', icon: CheckCircle2, id: 'iron' },
+      { label: 'Attendance', href: '/attendance', icon: Camera, id: 'attendance' },
+      { label: 'Profile', href: '/profile', icon: User, id: 'profile' }
     );
   } else if (activeRole === 'Delivery Boy') {
     navItems.push(
-      { label: 'Deliveries', href: '/delivery', icon: Building },
-      { label: 'Attendance', href: '/attendance', icon: Camera },
-      { label: 'Profile', href: '/profile', icon: User }
+      { label: 'Deliveries', href: '/delivery', icon: Building, id: 'deliver' },
+      { label: 'Attendance', href: '/attendance', icon: Camera, id: 'attendance' },
+      { label: 'Profile', href: '/profile', icon: User, id: 'profile' }
     );
   } else {
     navItems.push(
-      { label: 'Home', href: '/', icon: ClipboardList },
-      { label: 'Attendance', href: '/attendance', icon: Camera },
-      { label: 'Profile', href: '/profile', icon: User }
+      { label: 'Home', href: '/', icon: ClipboardList, id: 'home' },
+      { label: 'Attendance', href: '/attendance', icon: Camera, id: 'attendance' },
+      { label: 'Profile', href: '/profile', icon: User, id: 'profile' }
     );
   }
 
@@ -74,7 +76,21 @@ export function BottomNav() {
       <div className="max-w-md mx-auto flex items-center justify-around">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = pathname === item.href;
+          let isActive = false;
+          if (user.isOwner) {
+            if (item.id === 'admin') {
+              isActive = pathname === '/owner' && (!currentView || currentView === 'shops' || currentView === 'admin');
+            } else if (item.id === 'workforce') {
+              isActive = pathname === '/owner' && currentView === 'workforce';
+            } else if (item.id === 'tasks') {
+              isActive = pathname === '/owner' && currentView === 'tasks';
+            } else if (item.id === 'profile') {
+              isActive = pathname === '/profile';
+            }
+          } else {
+            isActive = pathname === item.href;
+          }
+
           return (
             <Link
               key={item.href}
@@ -100,5 +116,13 @@ export function BottomNav() {
         })}
       </div>
     </nav>
+  );
+}
+
+export function BottomNav() {
+  return (
+    <Suspense fallback={null}>
+      <BottomNavInner />
+    </Suspense>
   );
 }

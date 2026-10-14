@@ -720,8 +720,22 @@ export default function SupervisorPage() {
 
   return (
     <div className="max-w-md mx-auto min-h-screen pb-24 bg-[#F8F9FA] text-[#1E293B] antialiased">
+      {user?.isOwner && (
+        <div className="mx-4 mt-2 px-3.5 py-2.5 rounded-xl bg-brand-forest text-brand-lime text-xs font-bold flex items-center justify-between shadow-md">
+          <div className="flex items-center gap-2">
+            <span>👑</span>
+            <span>Logged in as Owner (Supervisor Terminal)</span>
+          </div>
+          <button
+            onClick={() => router.push('/owner')}
+            className="px-2.5 py-1 rounded-lg bg-brand-lime text-brand-forest font-extrabold hover:opacity-90 transition-all text-[11px]"
+          >
+            Owner Console
+          </button>
+        </div>
+      )}
       {isLoading && (
-        <div className="mx-4 mt-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-800 text-center animate-pulse">
+        <div className="mx-4 mt-2 px-3.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-800 text-center animate-pulse">
           Refreshing shop data...
         </div>
       )}

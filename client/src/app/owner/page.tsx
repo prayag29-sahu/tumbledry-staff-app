@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { apiRequest } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -30,6 +31,7 @@ import {
   Search,
   Calendar,
   ChevronRight,
+  ChevronLeft,
   SlidersHorizontal,
   FileText,
   TrendingUp,
@@ -42,7 +44,77 @@ import {
   KeyRound,
   Copy,
   CalendarCheck2,
+  Layers,
 } from 'lucide-react';
+
+interface BranchDashboardData {
+  date: string;
+  totalStaff: number;
+  presentCount: number;
+  absentCount: number;
+  todayTasks: {
+    total: number;
+    completed: number;
+    pending: number;
+    percentage: number;
+  };
+  departmentBreakdown?: {
+    wash: { name: string; total: number; completed: number; percentage: number };
+    iron: { name: string; total: number; completed: number; percentage: number };
+    dryClean: { name: string; total: number; completed: number; percentage: number };
+    packaging: { name: string; total: number; completed: number; percentage: number };
+  };
+  staffPerformance: Array<{
+    staffId: string;
+    fullName: string;
+    position: string;
+    percentage: number;
+    totalUnits: number;
+    completedUnits: number;
+    isPresent: boolean;
+  }>;
+}
+
+interface BranchTaskAssignment {
+  id: string;
+  orderId?: string | null;
+  pieceCount?: number | null;
+  pickupCount?: number | null;
+  status: string;
+  assignmentDate: string;
+  assignedAt: string;
+  notes?: string | null;
+  staffMember: {
+    id: string;
+    fullName: string;
+    mobile?: string | null;
+    profilePhotoPath?: string | null;
+  };
+  serviceType?: { name: string; code: string } | null;
+  workflowProfile?: { workflowType: string; name: string } | null;
+  taskUnits: Array<{
+    id: string;
+    pieceNumber?: number | null;
+    activityCode?: string | null;
+    status: string;
+    unitType: string;
+    completedAt?: string | null;
+  }>;
+}
+
+interface BranchAttendanceSession {
+  id: string;
+  staffMemberId: string;
+  checkInAt: string;
+  checkOutAt?: string | null;
+  durationMinutes?: number | null;
+  status: string;
+  staffMember: {
+    id: string;
+    fullName: string;
+    mobile?: string | null;
+  };
+}
 
 interface StaffMembershipItem {
   id: string;
@@ -112,7 +184,9 @@ interface StaffTaskMonthlySummary {
   }>;
 }
 
-export default function OwnerPage() {
+function OwnerPageInner() {
+  const searchParams = useSearchParams();
+  const viewParam = searchParams.get('view');
   const { isLoading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'custom-fields' | 'audit-logs' | 'config'>('overview');
   const [configSubTab, setConfigSubTab] = useState<'positions' | 'catalogues' | 'permissions'>('positions');
@@ -132,6 +206,20 @@ export default function OwnerPage() {
   const [shopStaff, setShopStaff] = useState<StaffMembershipItem[]>([]);
   const [isLoadingStaff, setIsLoadingStaff] = useState(false);
   const [staffSearchQuery, setStaffSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string>('ALL');
+
+  // Branch Operational Inspection State
+  const [branchDate, setBranchDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [branchSubTab, setBranchSubTab] = useState<'workforce' | 'tasks' | 'attendance' | 'leaderboard'>('workforce');
+  const [branchDashboard, setBranchDashboard] = useState<BranchDashboardData | null>(null);
+  const [isLoadingBranchDashboard, setIsLoadingBranchDashboard] = useState(false);
+  const [branchTasks, setBranchTasks] = useState<BranchTaskAssignment[]>([]);
+  const [isLoadingBranchTasks, setIsLoadingBranchTasks] = useState(false);
+  const [taskStatusFilter, setTaskStatusFilter] = useState<'ALL' | 'COMPLETED' | 'PENDING'>('ALL');
+  const [taskSearchQuery, setTaskSearchQuery] = useState('');
+  const [branchAttendance, setBranchAttendance] = useState<BranchAttendanceSession[]>([]);
+  const [isLoadingBranchAttendance, setIsLoadingBranchAttendance] = useState(false);
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Record<string, boolean>>({});
 
   // Staff Task Performance Modal
   const [selectedStaff, setSelectedStaff] = useState<StaffMembershipItem | null>(null);
@@ -177,17 +265,21 @@ export default function OwnerPage() {
   const [isSubmittingEditShop, setIsSubmittingEditShop] = useState(false);
   const [deletingShopId, setDeletingShopId] = useState<string | null>(null);
 
-  // Supervisor Management State
-  const [isAddSupervisorOpen, setIsAddSupervisorOpen] = useState(false);
-  const [supFullName, setSupFullName] = useState('');
-  const [supMobile, setSupMobile] = useState('');
-  const [supUsername, setSupUsername] = useState('');
-  const [supPassword, setSupPassword] = useState('');
-  const [supSalary, setSupSalary] = useState('');
-  const [supDutyTiming, setSupDutyTiming] = useState('');
-  const [isSubmittingSupervisor, setIsSubmittingSupervisor] = useState(false);
-  const [createdSupCredentials, setCreatedSupCredentials] = useState<{
+  // General Staff Creation State (Supports any role)
+  const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
+  const [newStaffRole, setNewStaffRole] = useState<'Supervisor' | 'Manager' | 'Washerman' | 'Ironman' | 'Delivery Boy' | 'Other'>('Supervisor');
+  const [newStaffCustomRole, setNewStaffCustomRole] = useState('');
+  const [newStaffFullName, setNewStaffFullName] = useState('');
+  const [newStaffMobile, setNewStaffMobile] = useState('');
+  const [newStaffUsername, setNewStaffUsername] = useState('');
+  const [newStaffPassword, setNewStaffPassword] = useState('');
+  const [newStaffSalary, setNewStaffSalary] = useState('');
+  const [newStaffDutyTiming, setNewStaffDutyTiming] = useState('');
+  const [newStaffAttendanceEnabled, setNewStaffAttendanceEnabled] = useState(true);
+  const [isSubmittingNewStaff, setIsSubmittingNewStaff] = useState(false);
+  const [createdStaffCredentials, setCreatedStaffCredentials] = useState<{
     fullName: string;
+    role: string;
     username: string;
     password: string;
     shopName: string;
@@ -222,46 +314,105 @@ export default function OwnerPage() {
     }
   }, []);
 
-  const handleCreateSupervisor = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedShopId || !supFullName.trim() || !supUsername.trim() || !supPassword.trim()) return;
+  // Fetch Branch Operational Data (Supervisor Dashboard, Tasks, Attendance)
+  const fetchBranchData = useCallback(async (shopId: string, date: string) => {
+    if (!shopId) return;
+    setIsLoadingBranchDashboard(true);
+    setIsLoadingBranchTasks(true);
+    setIsLoadingBranchAttendance(true);
+    try {
+      const [dashRes, tasksRes, attRes] = await Promise.all([
+        apiRequest<BranchDashboardData>(`/api/shops/${shopId}/supervisor/dashboard?date=${date}`).catch(() => null),
+        apiRequest<{ assignments: BranchTaskAssignment[] }>(`/api/shops/${shopId}/tasks?date=${date}`).catch(() => ({ assignments: [] })),
+        apiRequest<{ sessions: BranchAttendanceSession[] }>(`/api/shops/${shopId}/attendance/today?date=${date}`).catch(() => ({ sessions: [] })),
+      ]);
 
-    setIsSubmittingSupervisor(true);
+      setBranchDashboard(dashRes);
+      setBranchTasks(tasksRes.assignments || []);
+      setBranchAttendance(attRes.sessions || []);
+    } finally {
+      setIsLoadingBranchDashboard(false);
+      setIsLoadingBranchTasks(false);
+      setIsLoadingBranchAttendance(false);
+    }
+  }, []);
+
+  // Date Navigation Helpers
+  const handlePrevDay = () => {
+    const d = new Date(branchDate + 'T00:00:00');
+    d.setDate(d.getDate() - 1);
+    setBranchDate(d.toISOString().split('T')[0]);
+  };
+
+  const handleNextDay = () => {
+    const d = new Date(branchDate + 'T00:00:00');
+    d.setDate(d.getDate() + 1);
+    setBranchDate(d.toISOString().split('T')[0]);
+  };
+
+  const handleToday = () => {
+    setBranchDate(new Date().toISOString().split('T')[0]);
+  };
+
+  const toggleTaskExpansion = (taskId: string) => {
+    setExpandedTaskIds((prev) => ({ ...prev, [taskId]: !prev[taskId] }));
+  };
+
+  // Create Staff Member (Supervisor, Manager, Washerman, etc.)
+  const handleCreateStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedShopId || !newStaffFullName.trim()) return;
+
+    const roleName = newStaffRole === 'Other' ? newStaffCustomRole.trim() : newStaffRole;
+    if (!roleName) {
+      alert('Please specify a role.');
+      return;
+    }
+
+    setIsSubmittingNewStaff(true);
     try {
       await apiRequest(`/api/shops/${selectedShopId}/staff`, {
         method: 'POST',
         body: JSON.stringify({
-          fullName: supFullName.trim(),
-          mobile: supMobile.trim() || undefined,
-          username: supUsername.trim().toLowerCase(),
-          password: supPassword.trim(),
-          role: 'Supervisor',
-          monthlySalary: supSalary ? parseFloat(supSalary) : undefined,
-          dutyTimingNotes: supDutyTiming.trim() || undefined,
+          fullName: newStaffFullName.trim(),
+          mobile: newStaffMobile.trim() || undefined,
+          username: newStaffUsername.trim() ? newStaffUsername.trim().toLowerCase() : undefined,
+          password: newStaffPassword.trim() || undefined,
+          role: roleName,
+          monthlySalary: newStaffSalary ? parseFloat(newStaffSalary) : undefined,
+          dutyTimingNotes: newStaffDutyTiming.trim() || undefined,
+          attendanceEnabled: newStaffAttendanceEnabled,
         }),
       });
 
       const currentShop = shops.find((s) => s.id === selectedShopId);
-      setCreatedSupCredentials({
-        fullName: supFullName.trim(),
-        username: supUsername.trim().toLowerCase(),
-        password: supPassword.trim(),
-        shopName: currentShop?.name || 'Shop',
-      });
+      if (newStaffUsername.trim() && newStaffPassword.trim()) {
+        setCreatedStaffCredentials({
+          fullName: newStaffFullName.trim(),
+          role: roleName,
+          username: newStaffUsername.trim().toLowerCase(),
+          password: newStaffPassword.trim(),
+          shopName: currentShop?.name || 'Shop',
+        });
+      } else {
+        alert(`Staff member ${newStaffFullName.trim()} created successfully!`);
+      }
 
-      setIsAddSupervisorOpen(false);
-      setSupFullName('');
-      setSupMobile('');
-      setSupUsername('');
-      setSupPassword('');
-      setSupSalary('');
-      setSupDutyTiming('');
+      setIsAddStaffOpen(false);
+      setNewStaffFullName('');
+      setNewStaffMobile('');
+      setNewStaffUsername('');
+      setNewStaffPassword('');
+      setNewStaffSalary('');
+      setNewStaffDutyTiming('');
+      setNewStaffAttendanceEnabled(true);
       fetchShopStaff(selectedShopId);
+      fetchBranchData(selectedShopId, branchDate);
       fetchAllData();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to create supervisor.');
+      alert(err instanceof Error ? err.message : 'Failed to create staff member.');
     } finally {
-      setIsSubmittingSupervisor(false);
+      setIsSubmittingNewStaff(false);
     }
   };
 
@@ -352,10 +503,27 @@ export default function OwnerPage() {
     }
   }, [authLoading, fetchAllData]);
 
-  // Fetch staff when selectedShopId changes
+  // Fetch staff and branch operational data when selectedShopId or branchDate changes
   useEffect(() => {
-    fetchShopStaff(selectedShopId);
-  }, [selectedShopId, fetchShopStaff]);
+    if (selectedShopId) {
+      fetchShopStaff(selectedShopId);
+      fetchBranchData(selectedShopId, branchDate);
+    }
+  }, [selectedShopId, branchDate, fetchShopStaff, fetchBranchData]);
+
+  // Synchronize view query parameter from URL (e.g. from BottomNav 'workforce' or 'tasks')
+  useEffect(() => {
+    if (viewParam === 'workforce') {
+      setActiveTab('overview');
+      setBranchSubTab('workforce');
+    } else if (viewParam === 'tasks') {
+      setActiveTab('overview');
+      setBranchSubTab('tasks');
+    } else if (viewParam === 'attendance') {
+      setActiveTab('overview');
+      setBranchSubTab('attendance');
+    }
+  }, [viewParam]);
 
   // Fetch staff performance details (daily + monthly)
   const fetchStaffPerformance = useCallback(async (staffMemberId: string, shopId: string, date: string, year: number, month: number) => {
@@ -586,17 +754,44 @@ export default function OwnerPage() {
   };
 
   const selectedShopObj = shops.find((s) => s.id === selectedShopId) || shops[0];
-  const selectedShopMetrics = metrics?.shops.find((s) => s.id === selectedShopId);
 
-  // Filter staff by search query
+  // Filter staff by search query and role filter
   const filteredStaff = shopStaff.filter((m) => {
+    if (roleFilter !== 'ALL') {
+      const staffRole = (m.role || m.positionCategory?.name || '').toLowerCase();
+      if (!staffRole.includes(roleFilter.toLowerCase())) return false;
+    }
     if (!staffSearchQuery.trim()) return true;
     const q = staffSearchQuery.toLowerCase();
     const nameMatch = m.staffMember.fullName.toLowerCase().includes(q);
-    const roleMatch = m.positionCategory?.name.toLowerCase().includes(q);
+    const roleMatch = (m.role || m.positionCategory?.name || '').toLowerCase().includes(q);
     const mobileMatch = m.staffMember.mobile?.includes(q);
-    return nameMatch || roleMatch || mobileMatch;
+    const userMatch = m.account?.username?.toLowerCase().includes(q);
+    return nameMatch || roleMatch || mobileMatch || userMatch;
   });
+
+  // Filter tasks by status and search query
+  const filteredTasks = branchTasks.filter((t) => {
+    if (taskStatusFilter === 'COMPLETED') {
+      const allUnitsDone = t.taskUnits.length > 0 && t.taskUnits.every((u) => u.status === 'COMPLETED');
+      if (!allUnitsDone && t.status !== 'COMPLETED') return false;
+    } else if (taskStatusFilter === 'PENDING') {
+      const hasPendingUnits = t.taskUnits.some((u) => u.status !== 'COMPLETED');
+      if (!hasPendingUnits && t.status === 'COMPLETED') return false;
+    }
+
+    if (!taskSearchQuery.trim()) return true;
+    const q = taskSearchQuery.toLowerCase();
+    const orderMatch = (t.orderId || '').toLowerCase().includes(q);
+    const staffMatch = t.staffMember.fullName.toLowerCase().includes(q);
+    const svcMatch = (t.serviceType?.name || '').toLowerCase().includes(q);
+    return orderMatch || staffMatch || svcMatch;
+  });
+
+  // Attendance breakdown lists
+  const presentStaffMemberIds = new Set(branchAttendance.map((s) => s.staffMemberId));
+  const absentStaffList = shopStaff.filter((s) => s.attendanceEnabled !== false && !presentStaffMemberIds.has(s.staffMember.id));
+  const exemptStaffList = shopStaff.filter((s) => s.attendanceEnabled === false);
 
   return (
     <div className="space-y-6 animate-fade-in pb-36 sm:pb-32">
@@ -925,212 +1120,844 @@ export default function OwnerPage() {
 
           {/* Section: Selected Shop Staff & Performance Drill-down */}
           {selectedShopObj && (
-            <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-5 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-border-subtle pb-4">
+            <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 sm:p-5 space-y-5">
+              {/* Branch Header & Controls */}
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-border-subtle pb-4">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="px-2.5 py-0.5 rounded-lg bg-brand-forest text-brand-lime text-xs font-black">
-                      BRANCH INSPECTION
+                      BRANCH SURVEILLANCE
                     </span>
-                    <h3 className="text-lg font-black text-brand-forest">
+                    <h3 className="text-lg sm:text-xl font-black text-brand-forest">
                       {selectedShopObj.name} ({selectedShopObj.code})
                     </h3>
+                    <select
+                      value={selectedShopId}
+                      onChange={(e) => setSelectedShopId(e.target.value)}
+                      className="px-2.5 py-1 text-xs rounded-xl bg-surface-cream border border-border-subtle font-bold text-brand-forest focus:ring-1 focus:ring-brand-forest"
+                    >
+                      {shops.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          Switch to: {s.name} ({s.code})
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                  <p className="text-xs text-content-muted mt-0.5">
-                    Click any staff member to view their daily pieces washed/ironed/delivered and monthly consistency
+                  <p className="text-xs text-content-muted mt-1">
+                    Multi-tier floor operations, workforce surveillance, live piece-level tasks & branch attendance
                   </p>
-                  {selectedShopMetrics && (
-                    <div className="flex items-center gap-2 text-[11px] font-semibold text-content-muted mt-1">
-                      <span>Staff: <strong className="text-brand-forest">{selectedShopMetrics.staffCount}</strong></span>
-                      <span>•</span>
-                      <span>Present: <strong className="text-purple-700">{selectedShopMetrics.todayAttendance}</strong></span>
-                      <span>•</span>
-                      <span>Today Output: <strong className="text-emerald-700">{selectedShopMetrics.todayCompletedUnits} / {selectedShopMetrics.todayTotalUnits} units</strong></span>
-                    </div>
-                  )}
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <div className="relative">
-                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
-                    <input
-                      type="text"
-                      placeholder="Search staff or role..."
-                      value={staffSearchQuery}
-                      onChange={(e) => setStaffSearchQuery(e.target.value)}
-                      className="pl-8 pr-3 py-1.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:outline-none focus:ring-1 focus:ring-brand-forest w-36 sm:w-44"
-                    />
+                {/* Date Navigator Bar & Add Staff */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1 bg-surface-cream p-1 rounded-xl border border-border-subtle shadow-clay-sm">
+                    <button
+                      onClick={handlePrevDay}
+                      title="Previous Day"
+                      className="p-1.5 rounded-lg hover:bg-surface-card text-brand-forest transition-colors"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <div className="flex items-center gap-1 px-1">
+                      <Calendar className="w-3.5 h-3.5 text-brand-forest" />
+                      <input
+                        type="date"
+                        value={branchDate}
+                        onChange={(e) => setBranchDate(e.target.value)}
+                        className="px-1.5 py-0.5 text-xs font-bold text-brand-forest bg-transparent border-0 focus:ring-0 cursor-pointer"
+                      />
+                    </div>
+                    <button
+                      onClick={handleNextDay}
+                      title="Next Day"
+                      className="p-1.5 rounded-lg hover:bg-surface-card text-brand-forest transition-colors"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={handleToday}
+                      className="px-2 py-1 text-[11px] font-bold bg-white text-brand-forest rounded-lg border border-border-subtle hover:bg-surface-card shadow-sm"
+                    >
+                      Today
+                    </button>
                   </div>
+
                   <button
                     onClick={() => {
-                      setSupFullName('');
-                      setSupMobile('');
-                      setSupUsername(`sup_${selectedShopObj.code.toLowerCase()}_${Math.floor(10 + Math.random() * 90)}`);
-                      setSupPassword('');
-                      setSupSalary('');
-                      setIsAddSupervisorOpen(true);
+                      setNewStaffRole('Supervisor');
+                      setNewStaffCustomRole('');
+                      setNewStaffFullName('');
+                      setNewStaffMobile('');
+                      setNewStaffUsername(`staff_${selectedShopObj.code.toLowerCase()}_${Math.floor(10 + Math.random() * 90)}`);
+                      setNewStaffPassword('');
+                      setNewStaffSalary('');
+                      setNewStaffDutyTiming('');
+                      setNewStaffAttendanceEnabled(true);
+                      setIsAddStaffOpen(true);
                     }}
-                    className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black flex items-center gap-1.5 shadow-clay hover:opacity-95 transition-all whitespace-nowrap"
+                    className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black flex items-center gap-1.5 shadow-clay hover:opacity-95 transition-all whitespace-nowrap"
                   >
-                    <UserPlus className="w-3.5 h-3.5" />
-                    <span>+ Add Supervisor</span>
+                    <UserPlus className="w-4 h-4" />
+                    <span>+ Add Staff Member</span>
                   </button>
                 </div>
               </div>
 
-              {isLoadingStaff ? (
-                <div className="py-12 text-center text-xs font-semibold text-content-muted">
-                  Loading staff members for {selectedShopObj.name}...
+              {/* 4 Floor Metric Badges */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* Total Staff */}
+                <div className="p-3.5 rounded-2xl bg-surface-cream/50 border border-border-subtle space-y-1">
+                  <div className="flex items-center justify-between text-xs text-content-muted font-bold">
+                    <span>Total Staff</span>
+                    <Users className="w-4 h-4 text-blue-600" />
+                  </div>
+                  <div className="text-2xl font-black text-brand-forest">
+                    {branchDashboard?.totalStaff ?? shopStaff.length}
+                  </div>
+                  <p className="text-[11px] text-content-muted font-medium">Registered in branch</p>
                 </div>
-              ) : filteredStaff.length === 0 ? (
-                <div className="py-8 text-center text-xs text-content-muted">
-                  {staffSearchQuery ? 'No staff matching search query.' : 'No staff registered in this shop branch yet. Click "+ Add Supervisor" to create one.'}
+
+                {/* Present Today */}
+                <div className="p-3.5 rounded-2xl bg-emerald-50/50 border border-emerald-200/60 space-y-1">
+                  <div className="flex items-center justify-between text-xs text-emerald-800 font-bold">
+                    <span>Present</span>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div className="text-2xl font-black text-emerald-800">
+                    {branchDashboard?.presentCount ?? branchAttendance.length}
+                  </div>
+                  <p className="text-[11px] text-emerald-700 font-medium">Checked-in on {new Date(branchDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {filteredStaff.map((staff) => {
-                    const isSupervisor = (staff.role || '').toLowerCase().includes('supervisor') ||
-                      (staff.positionCategory?.name || '').toLowerCase().includes('supervisor');
 
-                    return (
-                      <div
-                        key={staff.id}
-                        onClick={() => openStaffPerformance(staff)}
-                        className={`cursor-pointer p-3.5 rounded-2xl border transition-all space-y-2 group ${
-                          isSupervisor
-                            ? 'bg-emerald-50/40 border-emerald-300 hover:border-emerald-600 shadow-sm'
-                            : 'bg-surface-cream/50 border-border-subtle hover:border-brand-forest/60 hover:shadow-clay-sm'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2.5">
-                            <div className={`w-9 h-9 rounded-xl font-black text-sm flex items-center justify-center shadow-sm ${
-                              isSupervisor ? 'bg-brand-forest text-brand-lime' : 'bg-surface-card text-brand-forest border border-border-subtle'
-                            }`}>
-                              {staff.staffMember.fullName.charAt(0).toUpperCase()}
-                            </div>
-                            <div>
-                              <h4 className="text-sm font-extrabold text-brand-forest">
-                                {staff.staffMember.fullName}
-                              </h4>
-                              <p className="text-[11px] font-medium text-content-muted">
-                                {staff.positionCategory?.name || 'Staff Employee'}
-                              </p>
-                            </div>
-                          </div>
+                {/* Absent Today */}
+                <div className="p-3.5 rounded-2xl bg-red-50/50 border border-red-200/60 space-y-1">
+                  <div className="flex items-center justify-between text-xs text-red-800 font-bold">
+                    <span>Absent</span>
+                    <Clock className="w-4 h-4 text-red-500" />
+                  </div>
+                  <div className="text-2xl font-black text-red-700">
+                    {branchDashboard?.absentCount ?? absentStaffList.length}
+                  </div>
+                  <p className="text-[11px] text-red-600 font-medium">Expected on floor today</p>
+                </div>
 
-                          <div className="flex items-center gap-1.5">
-                            {isSupervisor && (
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-brand-forest text-brand-lime uppercase">
-                                Supervisor
-                              </span>
-                            )}
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                              staff.staffMember.employmentStatus === 'ACTIVE'
-                                ? 'clay-badge-lime'
-                                : 'bg-gray-100 text-gray-600'
-                            }`}>
-                              {staff.staffMember.employmentStatus}
-                            </span>
-                          </div>
-                        </div>
+                {/* Floor Units Output */}
+                <div className="p-3.5 rounded-2xl bg-amber-50/50 border border-amber-200/60 space-y-1">
+                  <div className="flex items-center justify-between text-xs text-amber-900 font-bold">
+                    <span>Floor Units Output</span>
+                    <TrendingUp className="w-4 h-4 text-amber-600" />
+                  </div>
+                  <div className="text-2xl font-black text-brand-forest flex items-baseline gap-1.5">
+                    <span>{branchDashboard?.todayTasks.completed ?? 0}</span>
+                    <span className="text-xs font-bold text-content-muted">
+                      / {branchDashboard?.todayTasks.total ?? 0}
+                    </span>
+                    <span className="text-xs font-black text-emerald-700 ml-auto">
+                      {branchDashboard?.todayTasks.percentage ?? 0}%
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 rounded-full bg-amber-200 overflow-hidden">
+                    <div
+                      className="h-full bg-brand-forest rounded-full transition-all duration-300"
+                      style={{ width: `${branchDashboard?.todayTasks.percentage ?? 0}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
 
-                        {/* Real-time Today Presence */}
-                        <div className="flex items-center gap-1.5 pt-0.5">
-                          {staff.attendanceEnabled === false ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600">
-                              Attendance Exempt
-                            </span>
-                          ) : staff.attendanceToday?.isPresent ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              Present {staff.attendanceToday.checkInAt ? `(${new Date(staff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })})` : ''}
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">
-                              Absent Today
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Inspect Staff Performance & Tasks Action */}
-                        <div className="flex items-center justify-between text-xs pt-1.5 px-2.5 py-1.5 rounded-xl bg-surface-card border border-border-subtle group-hover:border-brand-forest/40 transition-all text-brand-forest font-bold">
-                          <span className="flex items-center gap-1.5 text-[11px]">
-                            <Sparkles className="w-3.5 h-3.5 text-brand-forest" />
-                            Inspect Tasks & Productivity
-                          </span>
-                          <ChevronRight className="w-3.5 h-3.5 text-content-muted group-hover:text-brand-forest transition-transform group-hover:translate-x-0.5" />
-                        </div>
-
-                        {staff.staffMember.mobile && (
-                          <div className="flex items-center gap-1.5 text-xs text-content-muted">
-                            <Phone className="w-3 h-3" />
-                            <span>{staff.staffMember.mobile}</span>
-                          </div>
-                        )}
-
-                        {staff.account?.username && (
-                          <div className="flex items-center justify-between text-[11px] font-mono bg-white/80 px-2 py-1 rounded-lg border border-border-subtle/60">
-                            <span className="text-content-muted truncate">User: <strong className="text-brand-forest">{staff.account.username}</strong></span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setResetStaffTarget(staff);
-                                setResetNewPassword('');
-                              }}
-                              className="p-1 rounded hover:bg-surface-cream text-content-muted hover:text-brand-forest transition-colors flex items-center gap-1 font-sans text-[10px]"
-                              title="Reset Login Password"
-                            >
-                              <KeyRound className="w-3 h-3 text-amber-600" />
-                              <span>Reset Pass</span>
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Attendance Tracking Toggle */}
-                        <div className="pt-2 border-t border-border-subtle/60 flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
-                            <CalendarCheck2 className={`w-3.5 h-3.5 ${staff.attendanceEnabled !== false ? 'text-emerald-700' : 'text-content-muted'}`} />
-                            <span className="text-[11px] font-bold text-brand-forest">
-                              Attendance Tracking:
-                            </span>
-                            <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
-                              staff.attendanceEnabled !== false
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {staff.attendanceEnabled !== false ? 'Required' : 'Exempt'}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleAttendance(staff);
-                            }}
-                            disabled={togglingStaffId === staff.id}
-                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                              staff.attendanceEnabled !== false ? 'bg-emerald-600' : 'bg-gray-300'
-                            } ${togglingStaffId === staff.id ? 'opacity-50' : ''}`}
-                            title={staff.attendanceEnabled !== false ? 'Attendance required (click to exempt)' : 'Attendance exempt (click to require)'}
-                          >
-                            <span
-                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                                staff.attendanceEnabled !== false ? 'translate-x-4' : 'translate-x-0'
-                              }`}
-                            />
-                          </button>
-                        </div>
-
-                        <div className="pt-1 flex items-center justify-between text-xs font-bold text-brand-forest">
-                          <span className="text-[11px] text-content-muted group-hover:text-brand-forest">
-                            Inspect Daily & Monthly Tasks
-                          </span>
-                          <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                        </div>
+              {/* 4 Live Department Breakdown Cards */}
+              {branchDashboard?.departmentBreakdown && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs font-black text-brand-forest">
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-brand-forest" />
+                      Live Floor Departments Progress
+                    </span>
+                    <span className="text-[10px] text-content-muted font-normal">
+                      Real-time piece/unit completion breakdown
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+                    {/* Wash */}
+                    <div className="p-3 rounded-2xl bg-blue-50/60 border border-blue-200/70 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-extrabold text-blue-950 flex items-center gap-1.5">
+                          <Shirt className="w-3.5 h-3.5 text-blue-600" />
+                          Washing & Cleaning
+                        </span>
+                        <span className="text-[11px] font-black text-blue-800">
+                          {branchDashboard.departmentBreakdown.wash.percentage}%
+                        </span>
                       </div>
-                    );
-                  })}
+                      <div className="flex items-baseline justify-between text-xs">
+                        <span className="text-lg font-black text-blue-950">
+                          {branchDashboard.departmentBreakdown.wash.completed} <span className="text-xs font-semibold text-blue-700">/ {branchDashboard.departmentBreakdown.wash.total} pcs</span>
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-blue-200 overflow-hidden">
+                        <div
+                          className="h-full bg-blue-600 rounded-full transition-all"
+                          style={{ width: `${branchDashboard.departmentBreakdown.wash.percentage}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Iron */}
+                    <div className="p-3 rounded-2xl bg-orange-50/60 border border-orange-200/70 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-extrabold text-orange-950 flex items-center gap-1.5">
+                          Steam Press & Iron
+                        </span>
+                        <span className="text-[11px] font-black text-orange-800">
+                          {branchDashboard.departmentBreakdown.iron.percentage}%
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between text-xs">
+                        <span className="text-lg font-black text-orange-950">
+                          {branchDashboard.departmentBreakdown.iron.completed} <span className="text-xs font-semibold text-orange-700">/ {branchDashboard.departmentBreakdown.iron.total} pcs</span>
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-orange-200 overflow-hidden">
+                        <div
+                          className="h-full bg-orange-600 rounded-full transition-all"
+                          style={{ width: `${branchDashboard.departmentBreakdown.iron.percentage}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Dry Clean */}
+                    <div className="p-3 rounded-2xl bg-cyan-50/60 border border-cyan-200/70 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-extrabold text-cyan-950 flex items-center gap-1.5">
+                          Dry Clean & Delicate
+                        </span>
+                        <span className="text-[11px] font-black text-cyan-800">
+                          {branchDashboard.departmentBreakdown.dryClean.percentage}%
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between text-xs">
+                        <span className="text-lg font-black text-cyan-950">
+                          {branchDashboard.departmentBreakdown.dryClean.completed} <span className="text-xs font-semibold text-cyan-700">/ {branchDashboard.departmentBreakdown.dryClean.total} pcs</span>
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-cyan-200 overflow-hidden">
+                        <div
+                          className="h-full bg-cyan-600 rounded-full transition-all"
+                          style={{ width: `${branchDashboard.departmentBreakdown.dryClean.percentage}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Packaging */}
+                    <div className="p-3 rounded-2xl bg-indigo-50/60 border border-indigo-200/70 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-extrabold text-indigo-950 flex items-center gap-1.5">
+                          <Package className="w-3.5 h-3.5 text-indigo-600" />
+                          Packaging & Dispatch
+                        </span>
+                        <span className="text-[11px] font-black text-indigo-800">
+                          {branchDashboard.departmentBreakdown.packaging.percentage}%
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between text-xs">
+                        <span className="text-lg font-black text-indigo-950">
+                          {branchDashboard.departmentBreakdown.packaging.completed} <span className="text-xs font-semibold text-indigo-700">/ {branchDashboard.departmentBreakdown.packaging.total} pcs</span>
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-indigo-200 overflow-hidden">
+                        <div
+                          className="h-full bg-indigo-600 rounded-full transition-all"
+                          style={{ width: `${branchDashboard.departmentBreakdown.packaging.percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Branch Sub-Tabs Navigation */}
+              <div className="flex items-center gap-2 p-1 bg-surface-cream rounded-2xl border border-border-subtle overflow-x-auto">
+                <button
+                  onClick={() => setBranchSubTab('workforce')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
+                    branchSubTab === 'workforce'
+                      ? 'bg-brand-forest text-white shadow-sm'
+                      : 'text-content-muted hover:text-brand-forest'
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  <span>Staff Workforce ({shopStaff.length})</span>
+                </button>
+
+                <button
+                  onClick={() => setBranchSubTab('tasks')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
+                    branchSubTab === 'tasks'
+                      ? 'bg-brand-forest text-white shadow-sm'
+                      : 'text-content-muted hover:text-brand-forest'
+                  }`}
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Live Floor Tasks ({branchTasks.length})</span>
+                </button>
+
+                <button
+                  onClick={() => setBranchSubTab('attendance')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
+                    branchSubTab === 'attendance'
+                      ? 'bg-brand-forest text-white shadow-sm'
+                      : 'text-content-muted hover:text-brand-forest'
+                  }`}
+                >
+                  <CalendarCheck2 className="w-4 h-4" />
+                  <span>Attendance Register ({branchAttendance.length})</span>
+                </button>
+
+                <button
+                  onClick={() => setBranchSubTab('leaderboard')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
+                    branchSubTab === 'leaderboard'
+                      ? 'bg-brand-forest text-white shadow-sm'
+                      : 'text-content-muted hover:text-brand-forest'
+                  }`}
+                >
+                  <TrendingUp className="w-4 h-4" />
+                  <span>Staff Leaderboard ({branchDashboard?.staffPerformance?.length ?? 0})</span>
+                </button>
+              </div>
+
+              {/* ═════════════════════════════════════════════════════════════════
+                  SUB-TAB 1: STAFF WORKFORCE
+              ═════════════════════════════════════════════════════════════════ */}
+              {branchSubTab === 'workforce' && (
+                <div className="space-y-4">
+                  {/* Search and Role Filter Bar */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                      {['ALL', 'Supervisor', 'Manager', 'Washerman', 'Ironman', 'Delivery Boy'].map((role) => (
+                        <button
+                          key={role}
+                          onClick={() => setRoleFilter(role)}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                            roleFilter === role
+                              ? 'bg-brand-forest text-white shadow-sm'
+                              : 'bg-surface-cream text-content-muted hover:text-brand-forest border border-border-subtle'
+                          }`}
+                        >
+                          {role}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
+                      <input
+                        type="text"
+                        placeholder="Search staff, role or user..."
+                        value={staffSearchQuery}
+                        onChange={(e) => setStaffSearchQuery(e.target.value)}
+                        className="pl-8 pr-3 py-1.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:outline-none focus:ring-1 focus:ring-brand-forest w-full sm:w-56 font-medium"
+                      />
+                    </div>
+                  </div>
+
+                  {isLoadingStaff ? (
+                    <div className="py-12 text-center text-xs font-semibold text-content-muted">
+                      Loading staff members for {selectedShopObj.name}...
+                    </div>
+                  ) : filteredStaff.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-content-muted bg-surface-cream/40 rounded-2xl border border-border-subtle p-6 space-y-2">
+                      <p className="font-bold text-brand-forest">No staff members found.</p>
+                      <p className="text-[11px]">
+                        {staffSearchQuery || roleFilter !== 'ALL'
+                          ? 'Try clearing your search or role filters.'
+                          : 'No staff registered in this branch yet. Click "+ Add Staff Member" to add supervisors, managers, or operators.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {filteredStaff.map((staff) => {
+                        const isSupervisor = (staff.role || '').toLowerCase().includes('supervisor') ||
+                          (staff.positionCategory?.name || '').toLowerCase().includes('supervisor');
+                        const isManager = (staff.role || '').toLowerCase().includes('manager');
+
+                        // Staff performance on branchDate
+                        const perfData = branchDashboard?.staffPerformance?.find((p) => p.staffId === staff.staffMember.id);
+
+                        return (
+                          <div
+                            key={staff.id}
+                            onClick={() => openStaffPerformance(staff)}
+                            className={`cursor-pointer p-4 rounded-2xl border transition-all space-y-2.5 group ${
+                              isSupervisor
+                                ? 'bg-emerald-50/40 border-emerald-300 hover:border-emerald-600 shadow-sm'
+                                : isManager
+                                ? 'bg-blue-50/30 border-blue-200 hover:border-blue-400 shadow-sm'
+                                : 'bg-surface-cream/50 border-border-subtle hover:border-brand-forest/60 hover:shadow-clay-sm'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2.5">
+                                <div className={`w-9 h-9 rounded-xl font-black text-sm flex items-center justify-center shadow-sm ${
+                                  isSupervisor
+                                    ? 'bg-brand-forest text-brand-lime'
+                                    : isManager
+                                    ? 'bg-blue-700 text-white'
+                                    : 'bg-surface-card text-brand-forest border border-border-subtle'
+                                }`}>
+                                  {staff.staffMember.fullName.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <h4 className="text-sm font-extrabold text-brand-forest">
+                                    {staff.staffMember.fullName}
+                                  </h4>
+                                  <p className="text-[11px] font-medium text-content-muted">
+                                    {staff.positionCategory?.name || staff.role || 'Staff Employee'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5">
+                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                  staff.staffMember.employmentStatus === 'ACTIVE'
+                                    ? 'clay-badge-lime'
+                                    : 'bg-gray-100 text-gray-600'
+                                }`}>
+                                  {staff.staffMember.employmentStatus}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Real-time Presence & Floor Output on Date */}
+                            <div className="flex items-center justify-between gap-1.5 text-xs">
+                              {staff.attendanceEnabled === false ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600">
+                                  Attendance Exempt
+                                </span>
+                              ) : staff.attendanceToday?.isPresent ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  Present {staff.attendanceToday.checkInAt ? `(${new Date(staff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })})` : ''}
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">
+                                  Absent Today
+                                </span>
+                              )}
+
+                              {perfData && perfData.totalUnits > 0 ? (
+                                <span className="text-[11px] font-bold text-brand-forest">
+                                  {perfData.completedUnits}/{perfData.totalUnits} units ({perfData.percentage}%)
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-content-muted">0 assigned</span>
+                              )}
+                            </div>
+
+                            {/* Inspect Tasks Action Button */}
+                            <div className="flex items-center justify-between text-xs pt-1 px-2.5 py-1.5 rounded-xl bg-surface-card border border-border-subtle group-hover:border-brand-forest/40 transition-all text-brand-forest font-bold">
+                              <span className="flex items-center gap-1.5 text-[11px]">
+                                <Sparkles className="w-3.5 h-3.5 text-brand-forest" />
+                                Inspect Tasks & Productivity
+                              </span>
+                              <ChevronRight className="w-3.5 h-3.5 text-content-muted group-hover:text-brand-forest transition-transform group-hover:translate-x-0.5" />
+                            </div>
+
+                            {staff.staffMember.mobile && (
+                              <div className="flex items-center gap-1.5 text-xs text-content-muted">
+                                <Phone className="w-3 h-3" />
+                                <span>{staff.staffMember.mobile}</span>
+                              </div>
+                            )}
+
+                            {staff.account?.username && (
+                              <div className="flex items-center justify-between text-[11px] font-mono bg-white/80 px-2 py-1 rounded-lg border border-border-subtle/60">
+                                <span className="text-content-muted truncate">User: <strong className="text-brand-forest">{staff.account.username}</strong></span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setResetStaffTarget(staff);
+                                    setResetNewPassword('');
+                                  }}
+                                  className="p-1 rounded hover:bg-surface-cream text-content-muted hover:text-brand-forest transition-colors flex items-center gap-1 font-sans text-[10px]"
+                                  title="Reset Login Password"
+                                >
+                                  <KeyRound className="w-3 h-3 text-amber-600" />
+                                  <span>Reset Pass</span>
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Attendance Tracking Toggle */}
+                            <div className="pt-2 border-t border-border-subtle/60 flex items-center justify-between">
+                              <div className="flex items-center gap-1.5">
+                                <CalendarCheck2 className={`w-3.5 h-3.5 ${staff.attendanceEnabled !== false ? 'text-emerald-700' : 'text-content-muted'}`} />
+                                <span className="text-[11px] font-bold text-brand-forest">
+                                  Attendance:
+                                </span>
+                                <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                                  staff.attendanceEnabled !== false
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-gray-100 text-gray-500'
+                                }`}>
+                                  {staff.attendanceEnabled !== false ? 'Required' : 'Exempt'}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleAttendance(staff);
+                                }}
+                                disabled={togglingStaffId === staff.id}
+                                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                  staff.attendanceEnabled !== false ? 'bg-emerald-600' : 'bg-gray-300'
+                                } ${togglingStaffId === staff.id ? 'opacity-50' : ''}`}
+                                title={staff.attendanceEnabled !== false ? 'Attendance required (click to exempt)' : 'Attendance exempt (click to require)'}
+                              >
+                                <span
+                                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                                    staff.attendanceEnabled !== false ? 'translate-x-4' : 'translate-x-0'
+                                  }`}
+                                />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ═════════════════════════════════════════════════════════════════
+                  SUB-TAB 2: LIVE FLOOR TASKS & BATCHES
+              ═════════════════════════════════════════════════════════════════ */}
+              {branchSubTab === 'tasks' && (
+                <div className="space-y-4">
+                  {/* Task Filters */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="flex items-center gap-1.5">
+                      {(['ALL', 'COMPLETED', 'PENDING'] as const).map((filter) => (
+                        <button
+                          key={filter}
+                          onClick={() => setTaskStatusFilter(filter)}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                            taskStatusFilter === filter
+                              ? 'bg-brand-forest text-white shadow-sm'
+                              : 'bg-surface-cream text-content-muted hover:text-brand-forest border border-border-subtle'
+                          }`}
+                        >
+                          {filter === 'ALL' ? 'All Tasks' : filter === 'COMPLETED' ? 'Completed' : 'In Progress'}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
+                      <input
+                        type="text"
+                        placeholder="Search order ID or staff..."
+                        value={taskSearchQuery}
+                        onChange={(e) => setTaskSearchQuery(e.target.value)}
+                        className="pl-8 pr-3 py-1.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:outline-none focus:ring-1 focus:ring-brand-forest w-full sm:w-56 font-medium"
+                      />
+                    </div>
+                  </div>
+
+                  {isLoadingBranchTasks ? (
+                    <div className="py-12 text-center text-xs font-semibold text-content-muted">
+                      Loading live tasks for {branchDate}...
+                    </div>
+                  ) : filteredTasks.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-content-muted bg-surface-cream/40 rounded-2xl border border-border-subtle p-6 space-y-1">
+                      <CheckCircle2 className="w-8 h-8 text-content-muted mx-auto" />
+                      <p className="font-bold text-brand-forest">No task assignments found for this date.</p>
+                      <p className="text-[11px]">Tasks assigned by supervisors or managers for this branch will appear here live.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {filteredTasks.map((task) => {
+                        const totalUnits = task.taskUnits.length;
+                        const completedUnits = task.taskUnits.filter((u) => u.status === 'COMPLETED').length;
+                        const pct = totalUnits > 0 ? Math.round((completedUnits / totalUnits) * 100) : 0;
+                        const isExpanded = !!expandedTaskIds[task.id];
+
+                        return (
+                          <div
+                            key={task.id}
+                            className="p-4 rounded-2xl bg-surface-cream/50 border border-border-subtle hover:border-brand-forest/50 transition-all space-y-3"
+                          >
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                              <div className="flex items-center gap-2.5">
+                                <div className="p-2 rounded-xl bg-brand-forest text-brand-lime shadow-clay-sm">
+                                  <Layers className="w-4 h-4" />
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-black text-brand-forest">
+                                      {task.orderId ? `Order #${task.orderId}` : 'Batch Assignment'}
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white border border-border-subtle text-content-muted">
+                                      {task.serviceType?.name || 'Standard Service'}
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-mono text-content-muted">
+                                      {task.workflowProfile?.name || task.workflowProfile?.workflowType || 'Workflow'}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-content-muted mt-0.5 flex items-center gap-1.5">
+                                    <span>Assigned to: <strong className="text-brand-forest">{task.staffMember.fullName}</strong></span>
+                                    {task.staffMember.mobile && <span>({task.staffMember.mobile})</span>}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-3">
+                                <div className="text-right">
+                                  <span className={`px-2 py-0.5 rounded-md text-[11px] font-black ${
+                                    pct === 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                  }`}>
+                                    {completedUnits} / {totalUnits} done ({pct}%)
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={() => toggleTaskExpansion(task.id)}
+                                  className="px-2.5 py-1 text-xs rounded-xl bg-surface-card border border-border-subtle font-bold text-brand-forest hover:bg-surface-hover transition-colors"
+                                >
+                                  {isExpanded ? 'Hide Pieces' : 'View Pieces'}
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Progress bar */}
+                            <div className="w-full h-1.5 rounded-full bg-border-subtle overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-300 ${pct === 100 ? 'bg-emerald-600' : 'bg-brand-forest'}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+
+                            {/* Expandable Unit-by-Unit Checklist */}
+                            {isExpanded && (
+                              <div className="pt-2 border-t border-border-subtle/60 space-y-2 animate-fade-in">
+                                <p className="text-[11px] font-black text-brand-forest uppercase tracking-wider">
+                                  Piece-Level Checklist ({task.taskUnits.length} items)
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                  {task.taskUnits.map((u, idx) => (
+                                    <div
+                                      key={u.id}
+                                      className={`p-2.5 rounded-xl border flex items-center justify-between text-xs ${
+                                        u.status === 'COMPLETED'
+                                          ? 'bg-emerald-50/60 border-emerald-200 text-emerald-950'
+                                          : 'bg-white border-border-subtle text-content-muted'
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <div className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold ${
+                                          u.status === 'COMPLETED' ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-700'
+                                        }`}>
+                                          {u.pieceNumber ?? idx + 1}
+                                        </div>
+                                        <span className="font-bold">
+                                          Piece #{u.pieceNumber ?? idx + 1} {u.activityCode ? `• ${u.activityCode}` : ''}
+                                        </span>
+                                      </div>
+                                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                        u.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'
+                                      }`}>
+                                        {u.status}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ═════════════════════════════════════════════════════════════════
+                  SUB-TAB 3: ATTENDANCE REGISTER
+              ═════════════════════════════════════════════════════════════════ */}
+              {branchSubTab === 'attendance' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* Checked-in sessions */}
+                    <div className="p-4 rounded-2xl bg-surface-cream/50 border border-border-subtle space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-black text-brand-forest uppercase tracking-wider flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          Checked In Present ({branchAttendance.length})
+                        </h4>
+                        <span className="text-[10px] text-content-muted font-bold">
+                          {branchDate}
+                        </span>
+                      </div>
+
+                      {isLoadingBranchAttendance ? (
+                        <div className="py-6 text-center text-xs text-content-muted">Loading attendance...</div>
+                      ) : branchAttendance.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-content-muted">
+                          No check-ins recorded for this branch on {branchDate}.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {branchAttendance.map((session) => (
+                            <div
+                              key={session.id}
+                              className="p-3 rounded-xl bg-white border border-border-subtle flex items-center justify-between text-xs"
+                            >
+                              <div className="space-y-0.5">
+                                <span className="font-extrabold text-brand-forest">
+                                  {session.staffMember.fullName}
+                                </span>
+                                <div className="flex items-center gap-2 text-[11px] text-content-muted">
+                                  <span>In: <strong>{new Date(session.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</strong></span>
+                                  {session.checkOutAt && (
+                                    <span>• Out: <strong>{new Date(session.checkOutAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</strong></span>
+                                  )}
+                                  {session.durationMinutes && (
+                                    <span>• Duration: {Math.round(session.durationMinutes / 60)}h {session.durationMinutes % 60}m</span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                {session.status}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Absent Staff List */}
+                    <div className="p-4 rounded-2xl bg-surface-cream/50 border border-border-subtle space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-black text-brand-forest uppercase tracking-wider flex items-center gap-1.5">
+                          <Clock className="w-4 h-4 text-red-500" />
+                          Not Checked In ({absentStaffList.length})
+                        </h4>
+                        <span className="text-[10px] text-red-700 font-bold">
+                          Attendance Required
+                        </span>
+                      </div>
+
+                      {absentStaffList.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-emerald-800 font-bold">
+                          🎉 100% staff attendance! All required employees are present.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {absentStaffList.map((staff) => (
+                            <div
+                              key={staff.id}
+                              className="p-3 rounded-xl bg-white border border-red-100 flex items-center justify-between text-xs"
+                            >
+                              <div>
+                                <span className="font-extrabold text-brand-forest">
+                                  {staff.staffMember.fullName}
+                                </span>
+                                <p className="text-[11px] text-content-muted">
+                                  {staff.positionCategory?.name || staff.role} • {staff.staffMember.mobile || 'No mobile'}
+                                </p>
+                              </div>
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-100 text-red-700">
+                                ABSENT
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {exemptStaffList.length > 0 && (
+                        <div className="pt-2 border-t border-border-subtle/50 text-xs">
+                          <p className="text-[11px] text-content-muted font-bold mb-1">
+                            Attendance Exempt ({exemptStaffList.length}):
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {exemptStaffList.map((s) => (
+                              <span key={s.id} className="px-2 py-0.5 rounded-md bg-gray-100 text-gray-600 text-[10px] font-semibold">
+                                {s.staffMember.fullName} ({s.positionCategory?.name || s.role})
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ═════════════════════════════════════════════════════════════════
+                  SUB-TAB 4: STAFF PRODUCTIVITY LEADERBOARD
+              ═════════════════════════════════════════════════════════════════ */}
+              {branchSubTab === 'leaderboard' && (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-2xl bg-surface-cream/50 border border-border-subtle space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-black text-brand-forest uppercase tracking-wider flex items-center gap-1.5">
+                        <TrendingUp className="w-4 h-4 text-brand-forest" />
+                        Branch Productivity Rankings on {branchDate}
+                      </h4>
+                      <span className="text-[10px] text-content-muted">
+                        Ranked by completion rate & units handled
+                      </span>
+                    </div>
+
+                    {!branchDashboard?.staffPerformance || branchDashboard.staffPerformance.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-content-muted">
+                        No task data recorded for any staff member on {branchDate}.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {branchDashboard.staffPerformance.map((item, idx) => (
+                          <div
+                            key={item.staffId}
+                            className="p-3.5 rounded-xl bg-white border border-border-subtle flex items-center justify-between text-xs"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={`w-7 h-7 rounded-xl flex items-center justify-center font-black text-xs ${
+                                idx === 0 ? 'bg-amber-100 text-amber-800' : idx === 1 ? 'bg-gray-200 text-gray-800' : idx === 2 ? 'bg-orange-100 text-orange-800' : 'bg-surface-cream text-content-muted'
+                              }`}>
+                                #{idx + 1}
+                              </div>
+                              <div>
+                                <span className="font-extrabold text-brand-forest text-sm">
+                                  {item.fullName}
+                                </span>
+                                <p className="text-[11px] text-content-muted">
+                                  {item.position} • {item.isPresent ? '🟢 Present' : '⚪ Absent'}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-4">
+                              <div className="text-right">
+                                <span className="text-sm font-black text-brand-forest">
+                                  {item.completedUnits} / {item.totalUnits} units
+                                </span>
+                                <div className="w-24 h-1.5 rounded-full bg-border-subtle overflow-hidden mt-1">
+                                  <div
+                                    className="h-full bg-brand-forest rounded-full"
+                                    style={{ width: `${item.percentage}%` }}
+                                  />
+                                </div>
+                              </div>
+                              <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-brand-forest text-brand-lime">
+                                {item.percentage}%
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -2090,85 +2917,134 @@ export default function OwnerPage() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════════
-          ADD SUPERVISOR MODAL (OWNER CREATES SHOP SUPERVISOR)
+          ADD STAFF / SUPERVISOR / MANAGER MODAL (OWNER CREATES ANY ROLE)
       ══════════════════════════════════════════════════════════════════════════ */}
-      {isAddSupervisorOpen && selectedShopObj && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay-lg w-full max-w-md p-6 space-y-4">
+      {isAddStaffOpen && selectedShopObj && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in overflow-y-auto">
+          <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay-lg w-full max-w-lg p-6 space-y-4 my-8">
             <div className="flex items-center justify-between border-b border-border-subtle pb-3">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-brand-forest text-brand-lime">
                   <UserPlus className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-extrabold text-brand-forest">Add Branch Supervisor</h3>
-                  <p className="text-xs text-content-muted">Assign and create credentials for {selectedShopObj.name}</p>
+                  <h3 className="text-base font-extrabold text-brand-forest">Add Branch Staff Member</h3>
+                  <p className="text-xs text-content-muted">Register and create credentials for {selectedShopObj.name}</p>
                 </div>
               </div>
               <button
-                onClick={() => setIsAddSupervisorOpen(false)}
+                onClick={() => setIsAddStaffOpen(false)}
                 className="p-1 rounded-lg text-content-muted hover:bg-surface-hover"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateSupervisor} className="space-y-3.5">
+            <form onSubmit={handleCreateStaff} className="space-y-3.5">
+              {/* Role Selection */}
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1.5">
+                  Designation / Role <span className="text-red-500">*</span>
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['Supervisor', 'Manager', 'Washerman', 'Ironman', 'Delivery Boy', 'Other'] as const).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => {
+                        setNewStaffRole(r);
+                        if (!newStaffUsername) {
+                          const prefix = r.toLowerCase().substring(0, 4);
+                          setNewStaffUsername(`${prefix}_${selectedShopObj.code.toLowerCase()}_${Math.floor(10 + Math.random() * 90)}`);
+                        }
+                      }}
+                      className={`py-2 px-2 rounded-xl text-xs font-bold transition-all text-center ${
+                        newStaffRole === r
+                          ? 'bg-brand-forest text-white shadow-sm ring-2 ring-brand-forest/20'
+                          : 'bg-surface-cream text-content-muted hover:text-brand-forest border border-border-subtle'
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {newStaffRole === 'Other' && (
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">
+                    Custom Role Title <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Master Dry Cleaner, Store Assistant"
+                    value={newStaffCustomRole}
+                    onChange={(e) => setNewStaffCustomRole(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-semibold"
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-brand-forest mb-1">
-                  Supervisor Full Name <span className="text-red-500">*</span>
+                  Full Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. Rajesh Kumar"
-                  value={supFullName}
-                  onChange={(e) => setSupFullName(e.target.value)}
+                  value={newStaffFullName}
+                  onChange={(e) => setNewStaffFullName(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-semibold"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-brand-forest mb-1">
-                  Mobile Number <span className="text-red-500">*</span>
+                  Mobile Number
                 </label>
                 <input
                   type="tel"
-                  required
                   placeholder="e.g. 9876543210"
-                  value={supMobile}
-                  onChange={(e) => setSupMobile(e.target.value)}
+                  value={newStaffMobile}
+                  onChange={(e) => setNewStaffMobile(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-semibold"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">
-                    Login Username <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. supervisor01"
-                    value={supUsername}
-                    onChange={(e) => setSupUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                    className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-mono font-bold"
-                  />
-                </div>
+              {/* Login Credentials */}
+              <div className="p-3.5 rounded-2xl bg-brand-forest/[0.03] border border-brand-forest/10 space-y-2.5">
+                <p className="text-xs font-black text-brand-forest flex items-center gap-1.5">
+                  <KeyRound className="w-3.5 h-3.5 text-brand-forest" />
+                  App Login Credentials (Optional)
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-brand-forest mb-1">
+                      Username
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. staff_td01"
+                      value={newStaffUsername}
+                      onChange={(e) => setNewStaffUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                      className="w-full px-3 py-2 text-xs rounded-xl bg-white border border-border-subtle focus:ring-1 focus:ring-brand-forest font-mono font-bold"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">
-                    Login Password <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. superpass123"
-                    value={supPassword}
-                    onChange={(e) => setSupPassword(e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-mono font-bold"
-                  />
+                  <div>
+                    <label className="block text-[11px] font-bold text-brand-forest mb-1">
+                      Password
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Min. 6 chars"
+                      value={newStaffPassword}
+                      onChange={(e) => setNewStaffPassword(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-xl bg-white border border-border-subtle focus:ring-1 focus:ring-brand-forest font-mono font-bold"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -2179,10 +3055,10 @@ export default function OwnerPage() {
                   </label>
                   <input
                     type="number"
-                    placeholder="e.g. 25000"
-                    value={supSalary}
-                    onChange={(e) => setSupSalary(e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-semibold"
+                    placeholder="e.g. 20000"
+                    value={newStaffSalary}
+                    onChange={(e) => setNewStaffSalary(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-semibold"
                   />
                 </div>
 
@@ -2193,28 +3069,42 @@ export default function OwnerPage() {
                   <input
                     type="text"
                     placeholder="09:00 AM - 06:00 PM"
-                    value={supDutyTiming}
-                    onChange={(e) => setSupDutyTiming(e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-semibold"
+                    value={newStaffDutyTiming}
+                    onChange={(e) => setNewStaffDutyTiming(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-semibold"
                   />
                 </div>
+              </div>
+
+              {/* Attendance Tracking Requirement */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-surface-cream/50 border border-border-subtle">
+                <div>
+                  <p className="text-xs font-bold text-brand-forest">Attendance Tracking</p>
+                  <p className="text-[10px] text-content-muted">Require this employee to check-in/out on app</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={newStaffAttendanceEnabled}
+                  onChange={(e) => setNewStaffAttendanceEnabled(e.target.checked)}
+                  className="w-4 h-4 rounded text-brand-forest focus:ring-brand-forest"
+                />
               </div>
 
               <div className="flex justify-end gap-2.5 pt-3 border-t border-border-subtle">
                 <button
                   type="button"
-                  onClick={() => setIsAddSupervisorOpen(false)}
+                  onClick={() => setIsAddStaffOpen(false)}
                   className="px-4 py-2.5 rounded-xl text-xs font-bold text-content-muted hover:bg-surface-hover"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmittingSupervisor}
+                  disabled={isSubmittingNewStaff}
                   className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay flex items-center gap-1.5"
                 >
                   <UserPlus className="w-4 h-4" />
-                  <span>{isSubmittingSupervisor ? 'Creating Access...' : 'Create Supervisor'}</span>
+                  <span>{isSubmittingNewStaff ? 'Registering Staff...' : 'Register Staff Member'}</span>
                 </button>
               </div>
             </form>
@@ -2223,9 +3113,9 @@ export default function OwnerPage() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════════
-          SUPERVISOR CREATED CREDENTIALS SUCCESS MODAL
+          STAFF CREATED CREDENTIALS SUCCESS MODAL
       ══════════════════════════════════════════════════════════════════════════ */}
-      {createdSupCredentials && (
+      {createdStaffCredentials && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-surface-card rounded-clay border border-emerald-300 shadow-clay-lg w-full max-w-md p-6 space-y-4">
             <div className="flex items-center gap-3">
@@ -2233,30 +3123,34 @@ export default function OwnerPage() {
                 <CheckCircle2 className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-base font-black text-brand-forest">Supervisor Access Created!</h3>
-                <p className="text-xs text-content-muted">Share these branch login credentials with your supervisor</p>
+                <h3 className="text-base font-black text-brand-forest">Staff Account Created!</h3>
+                <p className="text-xs text-content-muted">Share these branch login credentials with your employee</p>
               </div>
             </div>
 
             <div className="p-4 rounded-2xl bg-surface-cream border border-border-subtle space-y-2 text-xs">
               <div className="flex justify-between py-1 border-b border-border-subtle/50">
-                <span className="text-content-muted font-medium">Branch Shop:</span>
-                <span className="font-black text-brand-forest">{createdSupCredentials.shopName}</span>
+                <span className="text-content-muted font-medium">Branch:</span>
+                <span className="font-black text-brand-forest">{createdStaffCredentials.shopName}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-border-subtle/50">
-                <span className="text-content-muted font-medium">Supervisor:</span>
-                <span className="font-black text-brand-forest">{createdSupCredentials.fullName}</span>
+                <span className="text-content-muted font-medium">Employee Name:</span>
+                <span className="font-black text-brand-forest">{createdStaffCredentials.fullName}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-border-subtle/50">
+                <span className="text-content-muted font-medium">Designation:</span>
+                <span className="font-bold text-brand-forest">{createdStaffCredentials.role}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-border-subtle/50">
                 <span className="text-content-muted font-medium">Username:</span>
                 <span className="font-mono font-black text-brand-forest bg-white px-2 py-0.5 rounded border border-border-subtle">
-                  {createdSupCredentials.username}
+                  {createdStaffCredentials.username}
                 </span>
               </div>
               <div className="flex justify-between py-1">
                 <span className="text-content-muted font-medium">Password:</span>
                 <span className="font-mono font-black text-emerald-800 bg-white px-2 py-0.5 rounded border border-border-subtle">
-                  {createdSupCredentials.password}
+                  {createdStaffCredentials.password}
                 </span>
               </div>
             </div>
@@ -2264,7 +3158,7 @@ export default function OwnerPage() {
             <div className="flex gap-2.5 pt-2">
               <button
                 onClick={() => {
-                  const text = `Tumbledry Supervisor Login\nBranch: ${createdSupCredentials.shopName}\nSupervisor: ${createdSupCredentials.fullName}\nUsername: ${createdSupCredentials.username}\nPassword: ${createdSupCredentials.password}\nLogin at: ${window.location.origin}/login`;
+                  const text = `Tumbledry Staff Login\nBranch: ${createdStaffCredentials.shopName}\nRole: ${createdStaffCredentials.role}\nName: ${createdStaffCredentials.fullName}\nUsername: ${createdStaffCredentials.username}\nPassword: ${createdStaffCredentials.password}\nLogin at: ${window.location.origin}/login`;
                   navigator.clipboard.writeText(text);
                   alert('Credentials copied to clipboard!');
                 }}
@@ -2274,7 +3168,7 @@ export default function OwnerPage() {
                 <span>Copy Credentials</span>
               </button>
               <button
-                onClick={() => setCreatedSupCredentials(null)}
+                onClick={() => setCreatedStaffCredentials(null)}
                 className="flex-1 py-2.5 rounded-xl bg-brand-forest text-white text-xs font-black shadow-clay"
               >
                 Done
@@ -2285,7 +3179,7 @@ export default function OwnerPage() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════════
-          RESET STAFF / SUPERVISOR PASSWORD MODAL
+          RESET STAFF PASSWORD MODAL
       ══════════════════════════════════════════════════════════════════════════ */}
       {resetStaffTarget && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
@@ -2341,5 +3235,13 @@ export default function OwnerPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function OwnerPage() {
+  return (
+    <Suspense fallback={<div className="py-12 text-center text-xs text-content-muted">Loading Owner Executive Console...</div>}>
+      <OwnerPageInner />
+    </Suspense>
   );
 }
