@@ -11,6 +11,7 @@ import {
   Eye,
   FileText,
   ShieldCheck,
+  Camera,
 } from 'lucide-react';
 
 export interface DamageIncidentRecord {
@@ -49,8 +50,74 @@ export function DamageIncidentViewerModal({
   const [reviewNotes, setReviewNotes] = useState<string>(incident?.reviewNotes || '');
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [currentPhotoPath, setCurrentPhotoPath] = useState<string | null>(incident?.photoPath || null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+
+  // Sync photo path when incident changes
+  React.useEffect(() => {
+    setCurrentPhotoPath(incident?.photoPath || null);
+  }, [incident]);
 
   if (!isOpen || !incident) return null;
+
+  const handleAttachPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingPhoto(true);
+    setUpdateError(null);
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const img = new Image();
+        img.onload = async () => {
+          const maxDim = 1200;
+          let w = img.width;
+          let h = img.height;
+          if (w > maxDim || h > maxDim) {
+            if (w > h) {
+              h = Math.round((h * maxDim) / w);
+              w = maxDim;
+            } else {
+              w = Math.round((w * maxDim) / h);
+              h = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          let compressed = event.target?.result as string;
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, w, h);
+            compressed = canvas.toDataURL('image/jpeg', 0.82);
+          }
+
+          try {
+            await apiRequest(`/api/shops/${shopId}/damage/${incident.id}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                status: selectedStatus,
+                photoPath: compressed,
+              }),
+            });
+            setCurrentPhotoPath(compressed);
+            if (onUpdated) onUpdated();
+          } catch (patchErr) {
+            setUpdateError(patchErr instanceof Error ? patchErr.message : 'Failed to attach photo evidence.');
+          } finally {
+            setIsUploadingPhoto(false);
+          }
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    } catch {
+      setIsUploadingPhoto(false);
+      setUpdateError('Failed to read image file.');
+    }
+  };
 
   const handleUpdateStatus = async (newStatus: string) => {
     setIsUpdating(true);
@@ -162,23 +229,68 @@ export function DamageIncidentViewerModal({
 
           {/* Photo Evidence */}
           <div className="p-3.5 rounded-2xl bg-white border border-border-subtle shadow-sm space-y-2">
-            <div className="flex items-center gap-1.5 text-brand-forest font-black text-xs">
-              <Eye className="w-3.5 h-3.5 text-brand-forest" />
-              <span>Damage Photo Evidence</span>
+            <div className="flex items-center justify-between text-brand-forest font-black text-xs">
+              <span className="flex items-center gap-1.5">
+                <Eye className="w-3.5 h-3.5 text-brand-forest" />
+                <span>Damage Photo Evidence</span>
+              </span>
+              {canManage && (
+                <label className="text-[11px] font-bold text-brand-forest hover:underline cursor-pointer flex items-center gap-1">
+                  <Camera className="w-3 h-3" />
+                  <span>{currentPhotoPath ? 'Replace Photo' : '+ Attach Photo'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleAttachPhoto}
+                    disabled={isUploadingPhoto}
+                    className="hidden"
+                  />
+                </label>
+              )}
             </div>
 
-            {incident.photoPath ? (
-              <div className="rounded-xl overflow-hidden border border-border-subtle max-h-72 bg-black/5 flex items-center justify-center">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={incident.photoPath}
-                  alt="Incident Evidence"
-                  className="w-full h-auto max-h-72 object-contain"
-                />
+            {isUploadingPhoto ? (
+              <div className="p-6 text-center text-xs font-bold text-brand-forest bg-surface-cream/50 rounded-xl border border-dashed border-border-subtle">
+                Compressing & Attaching Photo Evidence...
+              </div>
+            ) : currentPhotoPath ? (
+              <div className="space-y-2">
+                <div className="rounded-xl overflow-hidden border border-border-subtle max-h-72 bg-black/5 flex items-center justify-center shadow-sm">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={currentPhotoPath}
+                    alt="Incident Evidence"
+                    className="w-full h-auto max-h-72 object-contain"
+                  />
+                </div>
+                <div className="flex items-center justify-end">
+                  <a
+                    href={currentPhotoPath}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[10px] text-brand-forest font-bold hover:underline"
+                  >
+                    View Original Full Size ↗
+                  </a>
+                </div>
               </div>
             ) : (
-              <div className="p-6 text-center text-content-muted bg-surface-cream/50 rounded-xl border border-dashed border-border-subtle">
+              <div className="p-6 text-center text-content-muted bg-surface-cream/50 rounded-xl border border-dashed border-border-subtle space-y-2">
                 <p className="text-xs font-semibold">No photographic evidence attached with this report.</p>
+                {canManage && (
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-brand-forest text-white text-xs font-bold shadow-sm cursor-pointer hover:bg-brand-forest/90">
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Upload or Take Photo Now</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleAttachPhoto}
+                      className="hidden"
+                    />
+                  </label>
+                )}
               </div>
             )}
           </div>

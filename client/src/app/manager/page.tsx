@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../lib/api';
@@ -139,9 +139,14 @@ interface StaffAssignment {
   createdAt: string;
 }
 
-export default function ManagerPage() {
+function ManagerPageInner() {
   const router = useRouter();
   const { user, activeShopId, logout } = useAuth();
+
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Navigation State (5 Main Screens via Bottom Nav)
   const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'reports' | 'profile'>('dashboard');
@@ -471,6 +476,14 @@ export default function ManagerPage() {
   const ironCount = dashboardData?.departmentBreakdown?.iron?.total ?? 0;
   const deliveryCount = dashboardData?.departmentBreakdown?.packaging?.total ?? 0;
   const pickupCount = dashboardData?.departmentBreakdown?.dryClean?.total ?? 0;
+
+  if (!isMounted) {
+    return (
+      <div className="min-h-screen bg-surface-cream flex items-center justify-center p-4">
+        <div className="w-8 h-8 rounded-full border-2 border-brand-forest border-t-transparent animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-md mx-auto min-h-screen pb-24 bg-[#F8F9FA] text-[#1E293B] antialiased">
@@ -1238,16 +1251,18 @@ export default function ManagerPage() {
                                           className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${
                                             isUnitDone
                                               ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                                              : 'bg-white text-content-muted border border-border-subtle'
+                                              : 'bg-amber-50 text-amber-800 border border-amber-200'
                                           }`}
+                                          title={`${u.activityCode || 'Task'}: ${isUnitDone ? 'Completed' : 'Pending'}`}
                                         >
                                           {isUnitDone ? <CheckCircle2 className="w-3 h-3 text-emerald-700" /> : <Clock className="w-3 h-3 text-amber-500" />}
                                           <span>{u.activityCode || 'Done'}</span>
                                         </span>
                                       );
                                     })}
-                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isPieceDone ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                                      {isPieceDone ? 'Done' : `${completedInPiece}/${units.length}`}
+                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${isPieceDone ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                                      {isPieceDone ? <CheckCircle2 className="w-2.5 h-2.5 text-emerald-700" /> : null}
+                                      <span>{isPieceDone ? 'Done' : `${completedInPiece}/${units.length}`}</span>
                                     </span>
                                   </div>
                                 </div>
@@ -2084,5 +2099,17 @@ export default function ManagerPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function ManagerPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-surface-cream flex items-center justify-center p-4">
+        <div className="w-8 h-8 rounded-full border-2 border-brand-forest border-t-transparent animate-spin" />
+      </div>
+    }>
+      <ManagerPageInner />
+    </Suspense>
   );
 }

@@ -170,6 +170,7 @@ interface StaffTaskDaySummary {
     damageIncidents?: DamageIncidentRecord[];
     taskUnits: Array<{
       id: string;
+      pieceNumber?: number | null;
       status: string;
       activityCode?: string;
       unitType: string;
@@ -1748,6 +1749,23 @@ function OwnerPageInner() {
                               </div>
                             </div>
 
+                            {/* Damage Alert Banner if incident reported */}
+                            {task.damageIncidents && task.damageIncidents.length > 0 && (
+                              <div className="flex items-center justify-between p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs animate-fade-in">
+                                <div className="flex items-center gap-2 text-red-950 font-extrabold">
+                                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                                  <span>{task.damageIncidents.length} Damage Incident(s) reported</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setViewingDamageIncident(task.damageIncidents![0])}
+                                  className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] shadow-sm flex items-center gap-1"
+                                >
+                                  <span>Inspect Evidence</span>
+                                </button>
+                              </div>
+                            )}
+
                             {/* Progress bar */}
                             <div className="w-full h-1.5 rounded-full bg-border-subtle overflow-hidden">
                               <div
@@ -1756,42 +1774,97 @@ function OwnerPageInner() {
                               />
                             </div>
 
-                            {/* Expandable Unit-by-Unit Checklist */}
-                            {isExpanded && (
-                              <div className="pt-2 border-t border-border-subtle/60 space-y-2 animate-fade-in">
-                                <p className="text-[11px] font-black text-brand-forest uppercase tracking-wider">
-                                  Piece-Level Checklist ({task.taskUnits.length} items)
-                                </p>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                                  {task.taskUnits.map((u, idx) => (
-                                    <div
-                                      key={u.id}
-                                      className={`p-2.5 rounded-xl border flex items-center justify-between text-xs ${
-                                        u.status === 'COMPLETED'
-                                          ? 'bg-emerald-50/60 border-emerald-200 text-emerald-950'
-                                          : 'bg-white border-border-subtle text-content-muted'
-                                      }`}
-                                    >
-                                      <div className="flex items-center gap-2">
-                                        <div className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold ${
-                                          u.status === 'COMPLETED' ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-700'
-                                        }`}>
-                                          {u.pieceNumber ?? idx + 1}
-                                        </div>
-                                        <span className="font-bold">
-                                          Piece #{u.pieceNumber ?? idx + 1} {u.activityCode ? `• ${u.activityCode}` : ''}
-                                        </span>
-                                      </div>
-                                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                        u.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'
-                                      }`}>
-                                        {u.status}
-                                      </span>
-                                    </div>
-                                  ))}
+                            {/* Expandable Piece-Level Checklist matching Supervisor station */}
+                            {isExpanded && (() => {
+                              const pieceMap = new Map<number, typeof task.taskUnits>();
+                              task.taskUnits.forEach((unit) => {
+                                const pNum = unit.pieceNumber || 1;
+                                if (!pieceMap.has(pNum)) pieceMap.set(pNum, []);
+                                pieceMap.get(pNum)!.push(unit);
+                              });
+
+                              return (
+                                <div className="pt-2 border-t border-border-subtle/60 space-y-2 animate-fade-in">
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-xs text-left">
+                                      <thead>
+                                        <tr className="border-b border-border-subtle text-content-muted text-[11px] font-bold">
+                                          <th className="py-2 px-2">#</th>
+                                          <th className="py-2 px-2">Piece</th>
+                                          <th className="py-2 px-2">Operations Progress</th>
+                                          <th className="py-2 px-2 text-right">Status</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-border-subtle/50">
+                                        {Array.from(pieceMap.entries()).map(([pieceNum, units]) => {
+                                          const completedInPiece = units.filter((u) => u.status === 'COMPLETED').length;
+                                          const isPieceDone = units.length > 0 && completedInPiece === units.length;
+                                          const pieceDamage =
+                                            task.damageIncidents?.find((d) => d.pieceNumber === pieceNum) ||
+                                            units.flatMap((u) => u.damageIncidents || []).find(Boolean);
+
+                                          return (
+                                            <tr key={pieceNum} className="hover:bg-surface-cream/40 transition-colors">
+                                              <td className="py-2.5 px-2 font-mono text-content-muted font-bold">{pieceNum}</td>
+                                              <td className="py-2.5 px-2">
+                                                <span className="font-extrabold text-brand-forest block">Piece #{pieceNum}</span>
+                                                {pieceDamage && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => setViewingDamageIncident(pieceDamage)}
+                                                    className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md bg-red-100 hover:bg-red-200 text-red-900 text-[10px] font-extrabold border border-red-300 shadow-sm"
+                                                  >
+                                                    <AlertTriangle className="w-3 h-3 text-red-600" />
+                                                    <span>Damage ({pieceDamage.status})</span>
+                                                  </button>
+                                                )}
+                                              </td>
+                                              <td className="py-2.5 px-2">
+                                                <div className="flex flex-wrap items-center gap-1.5">
+                                                  {units.map((u) => {
+                                                    const isUnitDone = u.status === 'COMPLETED';
+                                                    return (
+                                                      <span
+                                                        key={u.id}
+                                                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-black transition-all ${
+                                                          isUnitDone
+                                                            ? 'bg-emerald-100 text-emerald-950 border border-emerald-300 shadow-sm'
+                                                            : 'bg-amber-50 text-amber-800 border border-amber-200'
+                                                        }`}
+                                                        title={`${u.activityCode || 'Task'}: ${isUnitDone ? 'Completed' : 'Pending'}`}
+                                                      >
+                                                        {isUnitDone ? (
+                                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                                                        ) : (
+                                                          <Clock className="w-3.5 h-3.5 text-amber-500" />
+                                                        )}
+                                                        <span>{u.activityCode || 'Done'}</span>
+                                                      </span>
+                                                    );
+                                                  })}
+                                                </div>
+                                              </td>
+                                              <td className="py-2.5 px-2 text-right">
+                                                <span
+                                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black ${
+                                                    isPieceDone
+                                                      ? 'bg-emerald-100 text-emerald-800'
+                                                      : 'bg-amber-100 text-amber-800'
+                                                  }`}
+                                                >
+                                                  {isPieceDone ? <CheckCircle2 className="w-3 h-3 text-emerald-700" /> : null}
+                                                  <span>{isPieceDone ? 'Done' : `${completedInPiece}/${units.length}`}</span>
+                                                </span>
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              );
+                            })()}
                           </div>
                         );
                       })}
@@ -2150,25 +2223,109 @@ function OwnerPageInner() {
                         <h4 className="text-xs font-black text-brand-forest uppercase tracking-wider">
                           Assignment Orders
                         </h4>
-                        <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                          {staffDaySummary.assignments.map((asg) => (
-                            <div
-                              key={asg.id}
-                              className="p-2.5 rounded-xl bg-white border border-border-subtle flex items-center justify-between text-xs"
-                            >
-                              <div>
-                                <span className="font-extrabold text-brand-forest">
-                                  {asg.orderId ? `Order #${asg.orderId}` : 'Daily Batch'}
-                                </span>
-                                <p className="text-[11px] text-content-muted">
-                                  {asg.workflowProfile?.name || 'Task'} • {asg.pieceCount ?? asg.pickupCount ?? asg.taskUnits?.length} units
-                                </p>
+                        <div className="space-y-2">
+                          {staffDaySummary.assignments.map((asg) => {
+                            const isAsgExpanded = !!expandedTaskIds[asg.id];
+                            const asgTotal = asg.taskUnits.length;
+                            const asgDone = asg.taskUnits.filter((u) => u.status === 'COMPLETED').length;
+
+                            // Group units by pieceNumber
+                            const pieceMap = new Map<number, typeof asg.taskUnits>();
+                            asg.taskUnits.forEach((unit) => {
+                              const pNum = unit.pieceNumber || 1;
+                              if (!pieceMap.has(pNum)) pieceMap.set(pNum, []);
+                              pieceMap.get(pNum)!.push(unit);
+                            });
+
+                            return (
+                              <div
+                                key={asg.id}
+                                className="p-3 rounded-xl bg-white border border-border-subtle shadow-sm space-y-2 text-xs"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-extrabold text-brand-forest">
+                                        {asg.orderId ? `Order #${asg.orderId}` : 'Daily Batch'}
+                                      </span>
+                                      <span className="text-[10px] text-content-muted font-bold">
+                                        • {asg.pieceCount ?? asg.pickupCount ?? asg.taskUnits?.length} pieces
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-content-muted">
+                                      {asg.workflowProfile?.name || 'Task Batch'}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                      {asgDone} / {asgTotal} done
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleTaskExpansion(asg.id)}
+                                      className="px-2 py-0.5 rounded-lg bg-surface-cream text-brand-forest font-bold text-[10px] border border-border-subtle hover:bg-surface-hover"
+                                    >
+                                      {isAsgExpanded ? 'Hide' : 'Pieces'}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {isAsgExpanded && (
+                                  <div className="pt-2 border-t border-border-subtle/50 space-y-1.5">
+                                    {Array.from(pieceMap.entries()).map(([pieceNum, units]) => {
+                                      const pieceDone = units.filter((u) => u.status === 'COMPLETED').length;
+                                      const isPieceAllDone = units.length > 0 && pieceDone === units.length;
+                                      const pieceDmg = asg.damageIncidents?.find((d) => d.pieceNumber === pieceNum);
+
+                                      return (
+                                        <div
+                                          key={pieceNum}
+                                          className="flex items-center justify-between p-2 rounded-xl bg-surface-cream/50 border border-border-subtle/60 text-xs"
+                                        >
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-extrabold text-brand-forest">Piece #{pieceNum}</span>
+                                            {pieceDmg && (
+                                              <button
+                                                type="button"
+                                                onClick={() => setViewingDamageIncident(pieceDmg)}
+                                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 text-red-900 text-[10px] font-bold border border-red-300"
+                                              >
+                                                <AlertTriangle className="w-3 h-3 text-red-600" />
+                                                <span>Damage ({pieceDmg.status})</span>
+                                              </button>
+                                            )}
+                                          </div>
+                                          <div className="flex items-center gap-1.5">
+                                            {units.map((u) => {
+                                              const isUnitDone = u.status === 'COMPLETED';
+                                              return (
+                                                <span
+                                                  key={u.id}
+                                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                                                    isUnitDone
+                                                      ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                                                      : 'bg-amber-50 text-amber-800 border border-amber-200'
+                                                  }`}
+                                                  title={`${u.activityCode || 'Task'}: ${isUnitDone ? 'Completed' : 'Pending'}`}
+                                                >
+                                                  {isUnitDone ? <CheckCircle2 className="w-3 h-3 text-emerald-700" /> : <Clock className="w-3 h-3 text-amber-500" />}
+                                                  <span>{u.activityCode || 'Done'}</span>
+                                                </span>
+                                              );
+                                            })}
+                                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${isPieceAllDone ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                                              {isPieceAllDone ? <CheckCircle2 className="w-2.5 h-2.5 text-emerald-700" /> : null}
+                                              <span>{isPieceAllDone ? 'Done' : `${pieceDone}/${units.length}`}</span>
+                                            </span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
                               </div>
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                                {asg.taskUnits.filter((u) => u.status === 'COMPLETED').length} / {asg.taskUnits.length} done
-                              </span>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}

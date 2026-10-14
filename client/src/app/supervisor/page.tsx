@@ -1454,9 +1454,10 @@ export default function SupervisorPage() {
                                                 key={u.id}
                                                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-black transition-all ${
                                                   isUnitDone
-                                                    ? 'bg-emerald-100 text-emerald-950 border border-emerald-300 shadow-clay-sm'
-                                                    : 'bg-surface-cream text-content-muted border border-border-subtle'
+                                                    ? 'bg-emerald-100 text-emerald-950 border border-emerald-300 shadow-sm'
+                                                    : 'bg-amber-50 text-amber-800 border border-amber-200'
                                                 }`}
+                                                title={`${u.activityCode || 'Task'}: ${isUnitDone ? 'Completed' : 'Pending'}`}
                                               >
                                                 {isUnitDone ? (
                                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
@@ -1464,13 +1465,6 @@ export default function SupervisorPage() {
                                                   <Clock className="w-3.5 h-3.5 text-amber-500" />
                                                 )}
                                                 <span>{u.activityCode || 'Done'}</span>
-                                                <span
-                                                  className={`text-[9px] uppercase font-bold px-1 rounded ${
-                                                    isUnitDone ? 'text-emerald-800' : 'text-amber-700'
-                                                  }`}
-                                                >
-                                                  {isUnitDone ? 'Done' : 'Pending'}
-                                                </span>
                                               </span>
                                             );
                                           })}
@@ -1478,13 +1472,14 @@ export default function SupervisorPage() {
                                       </td>
                                       <td className="py-2.5 px-2 text-right">
                                         <span
-                                          className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
+                                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black ${
                                             isPieceDone
                                               ? 'bg-emerald-100 text-emerald-800'
                                               : 'bg-amber-100 text-amber-800'
                                           }`}
                                         >
-                                          {isPieceDone ? '100% Done' : `${completedInPiece}/${units.length} Done`}
+                                          {isPieceDone ? <CheckCircle2 className="w-3 h-3 text-emerald-700" /> : null}
+                                          <span>{isPieceDone ? 'Done' : `${completedInPiece}/${units.length}`}</span>
                                         </span>
                                       </td>
                                     </tr>
