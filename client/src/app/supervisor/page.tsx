@@ -102,6 +102,12 @@ interface SupervisorDashboardData {
     completedUnits: number;
     isPresent: boolean;
   }>;
+  departmentBreakdown?: {
+    wash: { name: string; total: number; completed: number; percentage: number };
+    iron: { name: string; total: number; completed: number; percentage: number };
+    dryClean: { name: string; total: number; completed: number; percentage: number };
+    packaging: { name: string; total: number; completed: number; percentage: number };
+  };
 }
 
 interface StaffTaskDayResponse {
@@ -2164,28 +2170,65 @@ export default function SupervisorPage() {
             </div>
           </div>
 
-          {/* Department Breakdown */}
+          {/* Department Breakdown (100% Database-Driven) */}
           <div className="bg-white p-4 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
-            <h3 className="text-xs font-black text-brand-forest uppercase tracking-wider">
-              Departmental Floor Progress
-            </h3>
-            <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-black text-brand-forest uppercase tracking-wider">
+                Departmental Floor Progress
+              </h3>
+              <span className="text-[10px] font-bold text-content-muted">Live DB Metrics</span>
+            </div>
+            <div className="space-y-3">
               {[
-                { dept: 'Washing & Cleaning', pct: 85, color: 'bg-blue-600' },
-                { dept: 'Steam Press & Ironing', pct: 72, color: 'bg-amber-600' },
-                { dept: 'Dry Clean & Delicate', pct: 90, color: 'bg-purple-600' },
-                { dept: 'Packaging & Dispatch', pct: 60, color: 'bg-emerald-600' },
-              ].map((item) => (
-                <div key={item.dept} className="space-y-1">
-                  <div className="flex justify-between text-xs font-bold">
-                    <span className="text-brand-forest">{item.dept}</span>
-                    <span className="text-content-muted">{item.pct}%</span>
+                {
+                  key: 'wash',
+                  dept: 'Washing & Cleaning',
+                  color: 'bg-blue-600',
+                  data: dashboardData?.departmentBreakdown?.wash,
+                },
+                {
+                  key: 'iron',
+                  dept: 'Steam Press & Ironing',
+                  color: 'bg-amber-600',
+                  data: dashboardData?.departmentBreakdown?.iron,
+                },
+                {
+                  key: 'dryClean',
+                  dept: 'Dry Clean & Delicate',
+                  color: 'bg-purple-600',
+                  data: dashboardData?.departmentBreakdown?.dryClean,
+                },
+                {
+                  key: 'packaging',
+                  dept: 'Packaging & Dispatch',
+                  color: 'bg-emerald-600',
+                  data: dashboardData?.departmentBreakdown?.packaging,
+                },
+              ].map((item) => {
+                const total = item.data?.total ?? 0;
+                const completed = item.data?.completed ?? 0;
+                const pct = item.data?.percentage ?? 0;
+
+                return (
+                  <div key={item.key} className="space-y-1">
+                    <div className="flex justify-between text-xs font-bold">
+                      <span className="text-brand-forest">{item.dept}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-content-muted font-normal text-[10px]">
+                          {completed}/{total} pcs
+                        </span>
+                        <span className="text-brand-forest font-black">{pct}%</span>
+                      </div>
+                    </div>
+                    <div className="w-full h-2 rounded-full bg-border-subtle overflow-hidden">
+                      <div
+                        className={`h-full ${item.color} rounded-full transition-all duration-300`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="w-full h-2 rounded-full bg-border-subtle overflow-hidden">
-                    <div className={`h-full ${item.color} rounded-full`} style={{ width: `${item.pct}%` }} />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
