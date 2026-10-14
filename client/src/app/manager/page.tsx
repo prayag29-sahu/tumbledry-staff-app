@@ -38,6 +38,8 @@ import {
   DamageIncidentViewerModal,
   DamageIncidentRecord,
 } from '../../components/DamageIncidentViewerModal';
+import { LiveCameraModal } from '../../components/LiveCameraModal';
+import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
 
 interface StaffTaskMonthlySummary {
   total: number;
@@ -65,6 +67,8 @@ interface StaffAttendance {
   checkInAt: string | null;
   checkOutAt: string | null;
   status: string;
+  checkInPhotoPath?: string | null;
+  checkOutPhotoPath?: string | null;
 }
 
 interface ManagerStaffItem {
@@ -113,6 +117,10 @@ interface DashboardMetrics {
     totalUnits: number;
     completedUnits: number;
     isPresent: boolean;
+    checkInAt?: string | null;
+    checkInPhotoPath?: string | null;
+    checkOutAt?: string | null;
+    checkOutPhotoPath?: string | null;
   }>;
 }
 
@@ -197,11 +205,25 @@ function ManagerPageInner() {
   const [isSubmittingTask, setIsSubmittingTask] = useState(false);
   const [taskFeedback, setTaskFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Manager Self Attendance State (Screen 10)
-  const [managerSession, setManagerSession] = useState<{ id: string; checkInAt: string; checkOutAt: string | null; status: string; checkInPhotoPath?: string | null } | null>(null);
-  const [managerPhotoPreview, setManagerPhotoPreview] = useState<string | null>(null);
+  // Manager Self Attendance State & Live Camera Selfie Verification
+  const [managerSession, setManagerSession] = useState<{ id: string; checkInAt: string; checkOutAt: string | null; status: string; checkInPhotoPath?: string | null; checkOutPhotoPath?: string | null } | null>(null);
   const [isProcessingAttendance, setIsProcessingAttendance] = useState(false);
   const [attendanceMessage, setAttendanceMessage] = useState<string | null>(null);
+  const [isLiveCameraOpen, setIsLiveCameraOpen] = useState(false);
+  const [cameraAction, setCameraAction] = useState<'check-in' | 'check-out'>('check-in');
+  const [viewingAttendancePhoto, setViewingAttendancePhoto] = useState<{
+    staffName: string;
+    role: string;
+    photoUrl?: string;
+    checkInPhotoPath?: string;
+    checkOutPhotoUrl?: string;
+    timestamp?: string;
+    checkInAt?: string;
+    checkOutTimestamp?: string;
+    checkOutAt?: string;
+    status?: string;
+  } | null>(null);
+  const [attendanceSuccessToast, setAttendanceSuccessToast] = useState<string | null>(null);
 
   // Fetch Core Dashboard & Staff Data
   const fetchData = useCallback(async () => {
@@ -387,45 +409,37 @@ function ManagerPageInner() {
     );
   };
 
-  // Handle Photo File Selection for Manager Self-Attendance (Screen 10)
-  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setManagerPhotoPreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // Handle Manager Self Attendance Check-In / Check-Out
-  const handleSelfAttendance = async (action: 'check-in' | 'check-out') => {
+  // Handle Direct Live Camera Selfie Capture for Manager Check-In / Check-Out
+  const handleCameraPhotoCapture = async (photoBase64: string) => {
     if (!activeShopId) return;
-    if (!managerPhotoPreview && action === 'check-in') {
-      alert('Please snap or upload a photo to verify your check-in.');
-      return;
-    }
-
     setIsProcessingAttendance(true);
     setAttendanceMessage(null);
 
     try {
-      const endpoint = `/api/shops/${activeShopId}/attendance/${action}`;
+      const endpoint = `/api/shops/${activeShopId}/attendance/${cameraAction}`;
       const res = await apiRequest<{ message: string; checkInAt?: string; checkOutAt?: string }>(endpoint, {
         method: 'POST',
         body: JSON.stringify({
-          photoPath: managerPhotoPreview || 'selfie_captured_verified.jpg',
+          photoPath: photoBase64,
         }),
       });
 
-      setAttendanceMessage(res.message || (action === 'check-in' ? 'Checked in successfully!' : 'Checked out successfully!'));
-      setManagerPhotoPreview(null);
+      const msg = res.message || (cameraAction === 'check-in' ? 'Checked in successfully with live selfie!' : 'Checked out successfully with live selfie!');
+      setAttendanceSuccessToast(msg);
+      setTimeout(() => setAttendanceSuccessToast(null), 4000);
+      setIsLiveCameraOpen(false);
       fetchData();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Attendance operation failed.');
     } finally {
       setIsProcessingAttendance(false);
     }
+  };
+
+  // Handle Manager Self Attendance Check-In / Check-Out (Fallback/Profile subtab)
+  const handleSelfAttendance = async (action: 'check-in' | 'check-out') => {
+    setCameraAction(action);
+    setIsLiveCameraOpen(true);
   };
 
   // Filter staff list by search query and role filter chips (Screen 3)
@@ -1196,20 +1210,56 @@ function ManagerPageInner() {
                           </div>
                         </div>
 
-                        {/* Damage Alert Banner if incident reported */}
+                        {/* Damage Alert Section with All Incident Evidence Cards */}
                         {assignment.damageIncidents && assignment.damageIncidents.length > 0 && (
-                          <div className="flex items-center justify-between p-2 rounded-xl bg-red-50 border border-red-200 text-xs">
-                            <div className="flex items-center gap-1.5 text-red-950 font-bold">
-                              <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
-                              <span>{assignment.damageIncidents.length} Damage Incident(s) reported</span>
+                          <div className="space-y-2 animate-fade-in">
+                            <div className="flex items-center gap-1.5 text-xs font-black text-status-danger uppercase tracking-wider">
+                              <AlertTriangle className="w-4 h-4 text-status-danger" />
+                              <span>Reported Damage / Issue Incidents ({assignment.damageIncidents.length})</span>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => setViewingDamageIncident(assignment.damageIncidents![0])}
-                              className="px-2 py-0.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[10px]"
-                            >
-                              View Photo
-                            </button>
+                            <div className="space-y-1.5">
+                              {assignment.damageIncidents.map((dmg) => (
+                                <div
+                                  key={dmg.id}
+                                  onClick={() => setViewingDamageIncident(dmg)}
+                                  className="cursor-pointer p-2.5 rounded-xl bg-red-50/80 hover:bg-red-100/80 border border-red-200 flex items-center justify-between gap-3 transition-colors shadow-sm"
+                                >
+                                  <div className="flex items-center gap-2.5">
+                                    {dmg.photoPath ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img
+                                        src={dmg.photoPath}
+                                        alt="Damage Evidence"
+                                        className="w-10 h-10 rounded-lg object-cover border border-red-300 shadow-sm shrink-0"
+                                      />
+                                    ) : (
+                                      <div className="w-10 h-10 rounded-lg bg-red-200 flex items-center justify-center text-red-700 shrink-0">
+                                        <AlertTriangle className="w-4 h-4" />
+                                      </div>
+                                    )}
+                                    <div>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-extrabold text-red-950 text-xs">
+                                          {dmg.pieceNumber ? `Piece #${dmg.pieceNumber}` : 'Incident'}
+                                        </span>
+                                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-red-200 text-red-900 uppercase">
+                                          {dmg.status}
+                                        </span>
+                                      </div>
+                                      <p className="text-[11px] text-red-900 font-medium line-clamp-1">
+                                        {dmg.notes || 'Damage reported'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="px-2.5 py-1 rounded-lg bg-white border border-red-300 text-red-900 text-[11px] font-bold shadow-sm whitespace-nowrap"
+                                  >
+                                    View Photo
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         )}
 
@@ -1743,18 +1793,138 @@ function ManagerPageInner() {
             </div>
           </div>
 
+          {/* Manager Self Attendance Card (Direct Live Camera Biometric Verification) */}
+          <div className="bg-gradient-to-br from-brand-forest to-[#1A3F24] p-4 rounded-2xl text-white shadow-clay space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center font-black text-sm text-brand-lime shadow-inner">
+                  {user?.username?.charAt(0).toUpperCase() || 'M'}
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-brand-lime uppercase tracking-wider block">Branch Manager</span>
+                  <h3 className="text-sm font-black">{user?.username || 'Store Manager'}</h3>
+                </div>
+              </div>
+              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                managerSession?.status === 'OPEN'
+                  ? 'bg-emerald-400 text-emerald-950'
+                  : managerSession?.checkOutAt
+                  ? 'bg-blue-300 text-blue-950'
+                  : 'bg-amber-400 text-amber-950'
+              }`}>
+                {managerSession?.status === 'OPEN' ? 'Checked In' : managerSession?.checkOutAt ? 'Completed Shift' : 'Not Marked'}
+              </span>
+            </div>
+
+            {/* Time & Selfie Status details */}
+            <div className="bg-white/10 rounded-xl p-3 flex items-center justify-between text-xs backdrop-blur-sm">
+              <div className="space-y-0.5">
+                {managerSession?.checkInAt ? (
+                  <div className="text-[11px] text-white">
+                    <span>In: <strong>{new Date(managerSession.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</strong></span>
+                    {managerSession.checkOutAt && (
+                      <span className="ml-2">• Out: <strong>{new Date(managerSession.checkOutAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</strong></span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-[11px] text-emerald-100/90 font-medium">Direct live front-camera selfie required</span>
+                )}
+              </div>
+
+              {managerSession?.checkInPhotoPath && (
+                <button
+                  type="button"
+                  onClick={() => setViewingAttendancePhoto({
+                    staffName: user?.username || 'Branch Manager',
+                    role: 'Store Manager',
+                    photoUrl: managerSession.checkInPhotoPath!,
+                    checkOutPhotoUrl: managerSession.checkOutPhotoPath || undefined,
+                    timestamp: managerSession.checkInAt,
+                    checkOutTimestamp: managerSession.checkOutAt || undefined,
+                    status: managerSession.status,
+                  })}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[10px] font-bold transition-colors shadow-sm"
+                >
+                  <Camera className="w-3.5 h-3.5 text-brand-lime" />
+                  <span>View My Selfie</span>
+                </button>
+              )}
+            </div>
+
+            {/* Action Buttons for Manager Self-Attendance with Live Camera */}
+            <div className="flex gap-2">
+              {managerSession?.status === 'OPEN' ? (
+                <button
+                  type="button"
+                  disabled={isProcessingAttendance}
+                  onClick={() => {
+                    setCameraAction('check-out');
+                    setIsLiveCameraOpen(true);
+                  }}
+                  className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-700 active:scale-[0.99] text-white text-xs font-black shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>{isProcessingAttendance ? 'Processing...' : 'Check Out with Live Camera'}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={isProcessingAttendance}
+                  onClick={() => {
+                    setCameraAction('check-in');
+                    setIsLiveCameraOpen(true);
+                  }}
+                  className="w-full py-2.5 rounded-xl bg-brand-lime hover:bg-[#8fd033] active:scale-[0.99] text-brand-forest text-xs font-black shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                >
+                  <Camera className="w-4 h-4 text-brand-forest" />
+                  <span>{isProcessingAttendance ? 'Verifying...' : 'Check In with Live Camera'}</span>
+                </button>
+              )}
+            </div>
+          </div>
+
           <div className="bg-white p-4 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
             <h3 className="text-xs font-black text-brand-forest">Staff Shift Roster</h3>
             <div className="space-y-2">
               {staffList.map((staff) => (
-                <div key={staff.id} className="flex items-center justify-between p-2.5 rounded-xl bg-surface-cream/50 border border-border-subtle text-xs">
-                  <div>
+                <div key={staff.id} className="flex items-center justify-between p-3 rounded-xl bg-surface-cream/50 border border-border-subtle text-xs hover:border-brand-forest/30 transition-colors">
+                  <div className="space-y-0.5">
                     <span className="font-extrabold text-brand-forest block">{staff.staffMember.fullName}</span>
-                    <span className="text-[10px] text-content-muted">{staff.positionCategory?.name || staff.role}</span>
+                    <div className="flex items-center gap-2 text-[10px] text-content-muted">
+                      <span>{staff.positionCategory?.name || staff.role}</span>
+                      {staff.attendanceToday.checkInAt && (
+                        <span>• In: <strong>{new Date(staff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</strong></span>
+                      )}
+                      {staff.attendanceToday.checkOutAt && (
+                        <span>• Out: <strong>{new Date(staff.attendanceToday.checkOutAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</strong></span>
+                      )}
+                    </div>
                   </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${staff.attendanceToday.isPresent ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
-                    {staff.attendanceToday.isPresent ? 'Present' : 'Absent'}
-                  </span>
+
+                  <div className="flex items-center gap-2">
+                    {staff.attendanceToday.checkInPhotoPath && (
+                      <button
+                        type="button"
+                        onClick={() => setViewingAttendancePhoto({
+                          staffName: staff.staffMember.fullName,
+                          role: staff.positionCategory?.name || staff.role,
+                          photoUrl: staff.attendanceToday.checkInPhotoPath!,
+                          checkOutPhotoUrl: staff.attendanceToday.checkOutPhotoPath || undefined,
+                          timestamp: staff.attendanceToday.checkInAt || undefined,
+                          checkOutTimestamp: staff.attendanceToday.checkOutAt || undefined,
+                          status: staff.attendanceToday.status,
+                        })}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-[10px] font-bold shadow-sm transition-colors"
+                        title="View Attendance Check-in Selfie"
+                      >
+                        <Camera className="w-3.5 h-3.5 text-emerald-700" />
+                        <span>Selfie</span>
+                      </button>
+                    )}
+                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${staff.attendanceToday.isPresent ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
+                      {staff.attendanceToday.isPresent ? 'Present' : 'Absent'}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1934,18 +2104,26 @@ function ManagerPageInner() {
                 </div>
               )}
 
-              {/* Photo Upload Area */}
+              {/* Photo Verification Area (Live Camera Only) */}
               <div className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-border-subtle rounded-2xl bg-surface-cream/40 space-y-2">
-                {managerPhotoPreview ? (
+                {managerSession?.checkInPhotoPath ? (
                   <div className="relative w-32 h-32 rounded-xl overflow-hidden border border-border-subtle shadow-sm">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={managerPhotoPreview} alt="Selfie preview" className="w-full h-full object-cover" />
+                    <img src={managerSession.checkInPhotoPath} alt="Selfie preview" className="w-full h-full object-cover" />
                     <button
                       type="button"
-                      onClick={() => setManagerPhotoPreview(null)}
-                      className="absolute top-1 right-1 p-1 rounded-full bg-red-600 text-white text-[10px]"
+                      onClick={() => setViewingAttendancePhoto({
+                        staffName: user?.username || 'Branch Manager',
+                        role: 'Store Manager',
+                        photoUrl: managerSession.checkInPhotoPath!,
+                        checkOutPhotoUrl: managerSession.checkOutPhotoPath || undefined,
+                        timestamp: managerSession.checkInAt,
+                        checkOutTimestamp: managerSession.checkOutAt || undefined,
+                        status: managerSession.status,
+                      })}
+                      className="absolute inset-0 bg-black/25 flex items-center justify-center text-white text-[11px] font-bold opacity-0 hover:opacity-100 transition-opacity"
                     >
-                      ✕
+                      Enlarge
                     </button>
                   </div>
                 ) : (
@@ -1953,15 +2131,10 @@ function ManagerPageInner() {
                     <div className="w-12 h-12 rounded-full bg-[#EAF5E9] text-brand-forest flex items-center justify-center shadow-sm">
                       <Camera className="w-6 h-6" />
                     </div>
-                    <span className="text-xs font-bold text-brand-forest">Snap / Upload Photo</span>
-                    <span className="text-[10px] text-content-muted">Required for manager biometric roll verification</span>
+                    <span className="text-xs font-bold text-brand-forest">Direct Live Camera Selfie</span>
+                    <span className="text-[10px] text-content-muted">Live face verification required for store manager</span>
                   </div>
                 )}
-
-                <label className="cursor-pointer px-4 py-1.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-bold text-brand-forest hover:bg-surface-hover">
-                  <span>{managerPhotoPreview ? 'Change Photo' : 'Select Photo'}</span>
-                  <input type="file" accept="image/*" capture="user" onChange={handlePhotoSelect} className="hidden" />
-                </label>
               </div>
 
               {/* Check-In / Check-Out Actions */}
@@ -1969,19 +2142,27 @@ function ManagerPageInner() {
                 <button
                   type="button"
                   disabled={isProcessingAttendance}
-                  onClick={() => handleSelfAttendance('check-out')}
-                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-red-600 to-red-700 text-white text-xs font-black shadow-clay hover:opacity-95 transition-opacity"
+                  onClick={() => {
+                    setCameraAction('check-out');
+                    setIsLiveCameraOpen(true);
+                  }}
+                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-red-600 to-red-700 text-white text-xs font-black shadow-clay hover:opacity-95 transition-opacity flex items-center justify-center gap-2"
                 >
-                  {isProcessingAttendance ? 'Processing...' : 'Check Out Now'}
+                  <Camera className="w-4 h-4" />
+                  <span>{isProcessingAttendance ? 'Processing...' : 'Check Out with Live Camera'}</span>
                 </button>
               ) : (
                 <button
                   type="button"
                   disabled={isProcessingAttendance}
-                  onClick={() => handleSelfAttendance('check-in')}
-                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay hover:opacity-95 transition-opacity"
+                  onClick={() => {
+                    setCameraAction('check-in');
+                    setIsLiveCameraOpen(true);
+                  }}
+                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay hover:opacity-95 transition-opacity flex items-center justify-center gap-2"
                 >
-                  {isProcessingAttendance ? 'Verifying...' : 'Check In with Photo'}
+                  <Camera className="w-4 h-4" />
+                  <span>{isProcessingAttendance ? 'Verifying...' : 'Check In with Live Camera'}</span>
                 </button>
               )}
             </div>
@@ -2096,6 +2277,39 @@ function ManagerPageInner() {
               fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate);
             }
           }}
+        />
+      )}
+
+      {/* Toast Alert */}
+      {attendanceSuccessToast && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-brand-forest text-white px-5 py-3 rounded-2xl shadow-clay flex items-center gap-3 animate-fade-in text-xs font-bold border border-brand-lime">
+          <CheckCircle2 className="w-5 h-5 text-brand-lime shrink-0" />
+          <span>{attendanceSuccessToast}</span>
+        </div>
+      )}
+
+      {/* Live Front Camera Biometric Modal */}
+      {isLiveCameraOpen && (
+        <LiveCameraModal
+          isOpen={isLiveCameraOpen}
+          onClose={() => setIsLiveCameraOpen(false)}
+          onCapture={handleCameraPhotoCapture}
+          title={cameraAction === 'check-in' ? 'Manager Check-In Selfie' : 'Manager Check-Out Selfie'}
+        />
+      )}
+
+      {/* Staff Attendance Selfie Viewer Modal */}
+      {viewingAttendancePhoto && (
+        <AttendancePhotoViewerModal
+          isOpen={!!viewingAttendancePhoto}
+          onClose={() => setViewingAttendancePhoto(null)}
+          staffName={viewingAttendancePhoto.staffName}
+          role={viewingAttendancePhoto.role}
+          photoUrl={viewingAttendancePhoto.photoUrl || viewingAttendancePhoto.checkInPhotoPath}
+          checkOutPhotoUrl={viewingAttendancePhoto.checkOutPhotoUrl}
+          timestamp={viewingAttendancePhoto.timestamp || viewingAttendancePhoto.checkInAt}
+          checkOutTimestamp={viewingAttendancePhoto.checkOutTimestamp || viewingAttendancePhoto.checkOutAt}
+          status={viewingAttendancePhoto.status}
         />
       )}
     </div>

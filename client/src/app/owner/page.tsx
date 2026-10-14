@@ -46,11 +46,13 @@ import {
   CalendarCheck2,
   Layers,
   AlertTriangle,
+  Camera,
 } from 'lucide-react';
 import {
   DamageIncidentViewerModal,
   DamageIncidentRecord,
 } from '../../components/DamageIncidentViewerModal';
+import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
 
 interface BranchDashboardData {
   date: string;
@@ -114,6 +116,8 @@ interface BranchAttendanceSession {
   staffMemberId: string;
   checkInAt: string;
   checkOutAt?: string | null;
+  checkInPhotoPath?: string | null;
+  checkOutPhotoPath?: string | null;
   durationMinutes?: number | null;
   status: string;
   staffMember: {
@@ -247,6 +251,18 @@ function OwnerPageInner() {
   const [monthlyYear, setMonthlyYear] = useState<number>(new Date().getFullYear());
   const [monthlyMonth, setMonthlyMonth] = useState<number>(new Date().getMonth() + 1);
   const [viewingDamageIncident, setViewingDamageIncident] = useState<DamageIncidentRecord | null>(null);
+  const [viewingAttendancePhoto, setViewingAttendancePhoto] = useState<{
+    staffName: string;
+    role: string;
+    photoUrl?: string;
+    checkInPhotoPath?: string;
+    checkOutPhotoUrl?: string;
+    timestamp?: string;
+    checkInAt?: string;
+    checkOutTimestamp?: string;
+    checkOutAt?: string;
+    status?: string;
+  } | null>(null);
 
   // Custom Fields Builder state
   const [customFieldsShopId, setCustomFieldsShopId] = useState<string>('');
@@ -1902,7 +1918,7 @@ function OwnerPageInner() {
                           {branchAttendance.map((session) => (
                             <div
                               key={session.id}
-                              className="p-3 rounded-xl bg-white border border-border-subtle flex items-center justify-between text-xs"
+                              className="p-3 rounded-xl bg-white border border-border-subtle flex items-center justify-between text-xs hover:border-brand-forest/30 transition-colors"
                             >
                               <div className="space-y-0.5">
                                 <span className="font-extrabold text-brand-forest">
@@ -1919,9 +1935,30 @@ function OwnerPageInner() {
                                 </div>
                               </div>
 
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                                {session.status}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                {session.checkInPhotoPath && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setViewingAttendancePhoto({
+                                      staffName: session.staffMember.fullName,
+                                      role: 'Staff Employee',
+                                      photoUrl: session.checkInPhotoPath!,
+                                      checkOutPhotoUrl: session.checkOutPhotoPath || undefined,
+                                      timestamp: session.checkInAt,
+                                      checkOutTimestamp: session.checkOutAt || undefined,
+                                      status: session.status,
+                                    })}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-[10px] font-bold shadow-sm transition-colors"
+                                    title="View Attendance Check-in Selfie"
+                                  >
+                                    <Camera className="w-3.5 h-3.5 text-emerald-700" />
+                                    <span>View Selfie</span>
+                                  </button>
+                                )}
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                  {session.status}
+                                </span>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -3489,6 +3526,21 @@ function OwnerPageInner() {
               }
             }
           }}
+        />
+      )}
+
+      {/* Staff Attendance Selfie Viewer Modal */}
+      {viewingAttendancePhoto && (
+        <AttendancePhotoViewerModal
+          isOpen={!!viewingAttendancePhoto}
+          onClose={() => setViewingAttendancePhoto(null)}
+          staffName={viewingAttendancePhoto.staffName}
+          role={viewingAttendancePhoto.role}
+          photoUrl={viewingAttendancePhoto.photoUrl || viewingAttendancePhoto.checkInPhotoPath}
+          checkOutPhotoUrl={viewingAttendancePhoto.checkOutPhotoUrl}
+          timestamp={viewingAttendancePhoto.timestamp || viewingAttendancePhoto.checkInAt}
+          checkOutTimestamp={viewingAttendancePhoto.checkOutTimestamp || viewingAttendancePhoto.checkOutAt}
+          status={viewingAttendancePhoto.status}
         />
       )}
     </div>

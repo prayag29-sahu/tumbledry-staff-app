@@ -50,6 +50,7 @@ import {
   DamageIncidentViewerModal,
   DamageIncidentRecord,
 } from '../../components/DamageIncidentViewerModal';
+import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
 
 interface EnrichedStaffItem {
   id: string; // membership id
@@ -87,6 +88,8 @@ interface EnrichedStaffItem {
     isPresent: boolean;
     checkInAt: string | null;
     checkOutAt: string | null;
+    checkInPhotoPath?: string | null;
+    checkOutPhotoPath?: string | null;
     status: string;
   };
   attendanceEnabled?: boolean;
@@ -271,6 +274,14 @@ export default function SupervisorPage() {
 
   // Damage Incident Viewer
   const [viewingDamageIncident, setViewingDamageIncident] = useState<DamageIncidentRecord | null>(null);
+  const [viewingAttendancePhoto, setViewingAttendancePhoto] = useState<{
+    staffName: string;
+    role?: string;
+    checkInAt?: string | null;
+    checkInPhotoPath?: string | null;
+    checkOutAt?: string | null;
+    checkOutPhotoPath?: string | null;
+  } | null>(null);
 
   // ─── Assign Task Modal State ───────────────────────────────────────────────
   const [isAssignTaskModalOpen, setIsAssignTaskModalOpen] = useState(false);
@@ -1392,20 +1403,56 @@ export default function SupervisorPage() {
                             </span>
                           </div>
 
-                          {/* Damage Alert Banner if incident reported */}
+                          {/* Damage Alert Section with All Incident Evidence Cards */}
                           {assignment.damageIncidents && assignment.damageIncidents.length > 0 && (
-                            <div className="flex items-center justify-between p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs animate-fade-in">
-                              <div className="flex items-center gap-2 text-red-950 font-extrabold">
-                                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-                                <span>{assignment.damageIncidents.length} Damage Incident(s) reported</span>
+                            <div className="space-y-2 animate-fade-in">
+                              <div className="flex items-center gap-1.5 text-xs font-black text-status-danger uppercase tracking-wider">
+                                <AlertTriangle className="w-4 h-4 text-status-danger" />
+                                <span>Reported Damage / Issue Incidents ({assignment.damageIncidents.length})</span>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => setViewingDamageIncident(assignment.damageIncidents![0])}
-                                className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] shadow-sm flex items-center gap-1"
-                              >
-                                <span>Inspect Evidence</span>
-                              </button>
+                              <div className="space-y-1.5">
+                                {assignment.damageIncidents.map((dmg) => (
+                                  <div
+                                    key={dmg.id}
+                                    onClick={() => setViewingDamageIncident(dmg)}
+                                    className="cursor-pointer p-2.5 rounded-xl bg-red-50/80 hover:bg-red-100/80 border border-red-200 flex items-center justify-between gap-3 transition-colors shadow-sm"
+                                  >
+                                    <div className="flex items-center gap-2.5">
+                                      {dmg.photoPath ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img
+                                          src={dmg.photoPath}
+                                          alt="Damage Evidence"
+                                          className="w-10 h-10 rounded-lg object-cover border border-red-300 shadow-sm shrink-0"
+                                        />
+                                      ) : (
+                                        <div className="w-10 h-10 rounded-lg bg-red-200 flex items-center justify-center text-red-700 shrink-0">
+                                          <AlertTriangle className="w-4 h-4" />
+                                        </div>
+                                      )}
+                                      <div>
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="font-extrabold text-red-950 text-xs">
+                                            {dmg.pieceNumber ? `Piece #${dmg.pieceNumber}` : 'Incident'}
+                                          </span>
+                                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-red-200 text-red-900 uppercase">
+                                            {dmg.status}
+                                          </span>
+                                        </div>
+                                        <p className="text-[11px] text-red-900 font-medium line-clamp-1">
+                                          {dmg.notes || 'Damage reported'}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="px-2.5 py-1 rounded-lg bg-white border border-red-300 text-red-900 text-[11px] font-bold shadow-sm whitespace-nowrap"
+                                    >
+                                      View Photo
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           )}
 
@@ -2700,6 +2747,23 @@ export default function SupervisorPage() {
                             Out: {new Date(staff.attendanceToday.checkOutAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         )}
+                        {staff.attendanceToday?.checkInPhotoPath && (
+                          <button
+                            type="button"
+                            onClick={() => setViewingAttendancePhoto({
+                              staffName: staff.staffMember.fullName,
+                              role: staff.positionCategory?.name || staff.role,
+                              checkInAt: staff.attendanceToday?.checkInAt,
+                              checkInPhotoPath: staff.attendanceToday?.checkInPhotoPath,
+                              checkOutAt: staff.attendanceToday?.checkOutAt,
+                              checkOutPhotoPath: staff.attendanceToday?.checkOutPhotoPath,
+                            })}
+                            className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-bold shadow-sm"
+                          >
+                            <Camera className="w-3 h-3 text-emerald-700" />
+                            <span>View Selfie</span>
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -3060,6 +3124,20 @@ export default function SupervisorPage() {
               fetchStaffDayTasks(selectedStaff.staffMember.id, staffTaskDate);
             }
           }}
+        />
+      )}
+
+      {/* Attendance Photo Viewer Modal */}
+      {viewingAttendancePhoto && (
+        <AttendancePhotoViewerModal
+          isOpen={true}
+          onClose={() => setViewingAttendancePhoto(null)}
+          staffName={viewingAttendancePhoto.staffName}
+          role={viewingAttendancePhoto.role}
+          checkInAt={viewingAttendancePhoto.checkInAt}
+          checkInPhotoPath={viewingAttendancePhoto.checkInPhotoPath}
+          checkOutAt={viewingAttendancePhoto.checkOutAt}
+          checkOutPhotoPath={viewingAttendancePhoto.checkOutPhotoPath}
         />
       )}
     </div>

@@ -14,6 +14,8 @@ import {
   RotateCcw,
   Sparkles,
   Flame,
+  Check,
+  X,
 } from 'lucide-react';
 
 export default function IronmanPage() {
@@ -25,6 +27,7 @@ export default function IronmanPage() {
   const [summary, setSummary] = useState<TaskSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [completingUnitId, setCompletingUnitId] = useState<string | null>(null);
+  const [successToast, setSuccessToast] = useState<string | null>(null);
 
   // Damage modal state
   const [damageTarget, setDamageTarget] = useState<{
@@ -303,10 +306,24 @@ export default function IronmanPage() {
           pieceNumber={damageTarget.pieceNumber}
           orderId={damageTarget.orderId}
           onSuccess={() => {
-            alert('Damage incident reported to Supervisor.');
+            setSuccessToast('Damage incident reported to Supervisor.');
+            setTimeout(() => setSuccessToast(null), 4000);
             fetchTasks();
           }}
         />
+      )}
+
+      {/* Floating In-App Success Toast */}
+      {successToast && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 px-4 py-3 bg-[#1E4327] text-white rounded-2xl shadow-clay-lg flex items-center gap-2.5 text-xs font-bold animate-fade-in border border-emerald-500/30">
+          <div className="w-5 h-5 rounded-full bg-brand-lime text-brand-forest flex items-center justify-center shrink-0">
+            <Check className="w-3.5 h-3.5 stroke-[3]" />
+          </div>
+          <span>{successToast}</span>
+          <button onClick={() => setSuccessToast(null)} className="ml-2 text-white/70 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       )}
     </div>
   );
