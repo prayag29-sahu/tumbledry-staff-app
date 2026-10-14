@@ -45,7 +45,12 @@ import {
   Copy,
   CalendarCheck2,
   Layers,
+  AlertTriangle,
 } from 'lucide-react';
+import {
+  DamageIncidentViewerModal,
+  DamageIncidentRecord,
+} from '../../components/DamageIncidentViewerModal';
 
 interface BranchDashboardData {
   date: string;
@@ -92,6 +97,7 @@ interface BranchTaskAssignment {
   };
   serviceType?: { name: string; code: string } | null;
   workflowProfile?: { workflowType: string; name: string } | null;
+  damageIncidents?: DamageIncidentRecord[];
   taskUnits: Array<{
     id: string;
     pieceNumber?: number | null;
@@ -99,6 +105,7 @@ interface BranchTaskAssignment {
     status: string;
     unitType: string;
     completedAt?: string | null;
+    damageIncidents?: DamageIncidentRecord[];
   }>;
 }
 
@@ -128,6 +135,7 @@ interface StaffMembershipItem {
     employmentStatus: string;
   };
   positionCategory?: { id: string; name: string } | null;
+  workflowProfile?: { id: string; name: string; allowedActivities: string[] } | null;
   account?: { id: string; username: string; status: string } | null;
   attendanceEnabled?: boolean;
   attendanceToday?: {
@@ -159,7 +167,14 @@ interface StaffTaskDaySummary {
     pickupCount?: number | null;
     workflowProfile?: { workflowType: string; name: string };
     serviceType?: { name: string; code: string };
-    taskUnits: Array<{ id: string; status: string; activityCode?: string; unitType: string }>;
+    damageIncidents?: DamageIncidentRecord[];
+    taskUnits: Array<{
+      id: string;
+      status: string;
+      activityCode?: string;
+      unitType: string;
+      damageIncidents?: DamageIncidentRecord[];
+    }>;
   }>;
 }
 
@@ -230,6 +245,7 @@ function OwnerPageInner() {
   const [isLoadingStaffPerf, setIsLoadingStaffPerf] = useState(false);
   const [monthlyYear, setMonthlyYear] = useState<number>(new Date().getFullYear());
   const [monthlyMonth, setMonthlyMonth] = useState<number>(new Date().getMonth() + 1);
+  const [viewingDamageIncident, setViewingDamageIncident] = useState<DamageIncidentRecord | null>(null);
 
   // Custom Fields Builder state
   const [customFieldsShopId, setCustomFieldsShopId] = useState<string>('');
@@ -1180,6 +1196,9 @@ function OwnerPageInner() {
                     >
                       Today
                     </button>
+                    {isLoadingBranchDashboard && (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-brand-forest shrink-0" />
+                    )}
                   </div>
 
                   <button
@@ -2079,44 +2098,51 @@ function OwnerPageInner() {
                       </div>
                     </div>
 
-                    {/* Activity Breakdown */}
-                    {staffDaySummary.breakdown && (
-                      <div className="space-y-2 pt-1">
-                        <h4 className="text-xs font-black text-brand-forest uppercase tracking-wider">
-                          Operations Performed
-                        </h4>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                          <div className="p-2 rounded-lg bg-blue-50 border border-blue-200">
-                            <span className="text-blue-800 font-semibold block text-[11px]">Washed</span>
-                            <span className="text-sm font-black text-blue-950">{staffDaySummary.breakdown.wash} pcs</span>
+                    {/* Activity Breakdown - Filtered by role so Washerman only sees Wash/Dry, etc. */}
+                    {staffDaySummary.breakdown && (() => {
+                      const roleNameLower = (selectedStaff?.positionCategory?.name || selectedStaff?.role || selectedStaff?.staffMember?.fullName || '').toLowerCase();
+                      const allowedActs = (selectedStaff?.workflowProfile?.allowedActivities || []).map((a) => a.toUpperCase());
+
+                      const opsList = [
+                        { key: 'wash', label: 'Washed', unit: 'pcs', count: staffDaySummary.breakdown.wash, bg: 'bg-blue-50 border-blue-200 text-blue-800 text-blue-950', isMatch: allowedActs.includes('WASH') || roleNameLower.includes('wash') },
+                        { key: 'dry', label: 'Dried', unit: 'pcs', count: staffDaySummary.breakdown.dry, bg: 'bg-cyan-50 border-cyan-200 text-cyan-800 text-cyan-950', isMatch: allowedActs.includes('DRY') || roleNameLower.includes('wash') },
+                        { key: 'iron', label: 'Ironed', unit: 'pcs', count: staffDaySummary.breakdown.iron, bg: 'bg-orange-50 border-orange-200 text-orange-800 text-orange-950', isMatch: allowedActs.includes('IRON') || roleNameLower.includes('iron') },
+                        { key: 'fold', label: 'Folded', unit: 'pcs', count: staffDaySummary.breakdown.fold, bg: 'bg-teal-50 border-teal-200 text-teal-800 text-teal-950', isMatch: allowedActs.includes('FOLD') || roleNameLower.includes('iron') },
+                        { key: 'pack', label: 'Packed', unit: 'pcs', count: staffDaySummary.breakdown.pack, bg: 'bg-indigo-50 border-indigo-200 text-indigo-800 text-indigo-950', isMatch: allowedActs.includes('PACK') || roleNameLower.includes('iron') },
+                        { key: 'delivery', label: 'Delivered', unit: 'orders', count: staffDaySummary.breakdown.delivery, bg: 'bg-emerald-50 border-emerald-200 text-emerald-800 text-emerald-950', isMatch: allowedActs.includes('DELIVERY') || roleNameLower.includes('delivery') },
+                        { key: 'pickup', label: 'Pickups', unit: 'pcs', count: staffDaySummary.breakdown.pickup, bg: 'bg-purple-50 border-purple-200 text-purple-800 text-purple-950', isMatch: allowedActs.includes('PICKUP') || roleNameLower.includes('delivery') || roleNameLower.includes('pickup') },
+                      ];
+
+                      // Show operations assigned to this role OR where units were actually processed
+                      const visibleOps = opsList.filter((op) => op.isMatch || op.count > 0);
+                      const displayOps = visibleOps.length > 0 ? visibleOps : opsList.filter((op) => op.count > 0);
+
+                      if (displayOps.length === 0) return null;
+
+                      return (
+                        <div className="space-y-2 pt-1">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-black text-brand-forest uppercase tracking-wider">
+                              Operations Performed
+                            </h4>
+                            <span className="text-[10px] text-content-muted font-bold">
+                              Role: {selectedStaff?.positionCategory?.name || selectedStaff?.role || 'Staff Operator'}
+                            </span>
                           </div>
-                          <div className="p-2 rounded-lg bg-orange-50 border border-orange-200">
-                            <span className="text-orange-800 font-semibold block text-[11px]">Ironed</span>
-                            <span className="text-sm font-black text-orange-950">{staffDaySummary.breakdown.iron} pcs</span>
-                          </div>
-                          <div className="p-2 rounded-lg bg-cyan-50 border border-cyan-200">
-                            <span className="text-cyan-800 font-semibold block text-[11px]">Dried</span>
-                            <span className="text-sm font-black text-cyan-950">{staffDaySummary.breakdown.dry} pcs</span>
-                          </div>
-                          <div className="p-2 rounded-lg bg-teal-50 border border-teal-200">
-                            <span className="text-teal-800 font-semibold block text-[11px]">Folded</span>
-                            <span className="text-sm font-black text-teal-950">{staffDaySummary.breakdown.fold} pcs</span>
-                          </div>
-                          <div className="p-2 rounded-lg bg-indigo-50 border border-indigo-200">
-                            <span className="text-indigo-800 font-semibold block text-[11px]">Packed</span>
-                            <span className="text-sm font-black text-indigo-950">{staffDaySummary.breakdown.pack} pcs</span>
-                          </div>
-                          <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200">
-                            <span className="text-emerald-800 font-semibold block text-[11px]">Delivered</span>
-                            <span className="text-sm font-black text-emerald-950">{staffDaySummary.breakdown.delivery} orders</span>
-                          </div>
-                          <div className="p-2 rounded-lg bg-purple-50 border border-purple-200">
-                            <span className="text-purple-800 font-semibold block text-[11px]">Pickups</span>
-                            <span className="text-sm font-black text-purple-950">{staffDaySummary.breakdown.pickup} pcs</span>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                            {displayOps.map((op) => {
+                              const [bgCls, borderCls, textLblCls, textValCls] = op.bg.split(' ');
+                              return (
+                                <div key={op.key} className={`p-2 rounded-xl ${bgCls} border ${borderCls} shadow-clay-sm`}>
+                                  <span className={`${textLblCls} font-semibold block text-[11px]`}>{op.label}</span>
+                                  <span className={`text-sm font-black ${textValCls}`}>{op.count} {op.unit}</span>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     {/* Specific Assignment Orders */}
                     {staffDaySummary.assignments && staffDaySummary.assignments.length > 0 && (
@@ -2146,6 +2172,61 @@ function OwnerPageInner() {
                         </div>
                       </div>
                     )}
+
+                    {/* Reported Damage Incidents for this Staff Member */}
+                    {(() => {
+                      const staffDamages = (staffDaySummary.assignments || []).flatMap((asg) => asg.damageIncidents || []);
+                      if (staffDamages.length === 0) return null;
+
+                      return (
+                        <div className="space-y-2 pt-2 border-t border-border-subtle">
+                          <div className="flex items-center gap-1.5 text-xs font-black text-status-danger uppercase tracking-wider">
+                            <AlertTriangle className="w-4 h-4 text-status-danger" />
+                            <span>Reported Damage / Issue Incidents ({staffDamages.length})</span>
+                          </div>
+                          <div className="space-y-2">
+                            {staffDamages.map((dmg) => (
+                              <div
+                                key={dmg.id}
+                                onClick={() => setViewingDamageIncident(dmg)}
+                                className="cursor-pointer p-3 rounded-xl bg-red-50/80 hover:bg-red-100/80 border border-red-200 flex items-center justify-between gap-3 transition-colors shadow-sm"
+                              >
+                                <div className="flex items-center gap-2.5">
+                                  {dmg.photoPath ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={dmg.photoPath}
+                                      alt="Damage Evidence"
+                                      className="w-10 h-10 rounded-lg object-cover border border-red-300 shadow-sm"
+                                    />
+                                  ) : (
+                                    <div className="w-10 h-10 rounded-lg bg-red-200 flex items-center justify-center text-red-700">
+                                      <AlertTriangle className="w-5 h-5" />
+                                    </div>
+                                  )}
+                                  <div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-extrabold text-red-950 text-xs">
+                                        {dmg.pieceNumber ? `Piece #${dmg.pieceNumber}` : 'Incident'}
+                                      </span>
+                                      <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-red-200 text-red-900 uppercase">
+                                        {dmg.status}
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-red-900 font-medium line-clamp-1">
+                                      {dmg.notes || 'Damage reported'}
+                                    </p>
+                                  </div>
+                                </div>
+                                <button className="px-2.5 py-1 rounded-lg bg-white border border-red-300 text-red-900 text-[11px] font-bold shadow-sm whitespace-nowrap">
+                                  View Photo
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -3233,6 +3314,25 @@ function OwnerPageInner() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Damage Incident Evidence Viewer Modal */}
+      {viewingDamageIncident && (
+        <DamageIncidentViewerModal
+          isOpen={true}
+          onClose={() => setViewingDamageIncident(null)}
+          incident={viewingDamageIncident}
+          shopId={selectedShopId || ''}
+          canManage={true}
+          onUpdated={() => {
+            if (selectedShopId) {
+              fetchBranchData(selectedShopId, branchDate);
+              if (selectedStaff) {
+                fetchStaffPerformance(selectedStaff.staffMember.id, selectedShopId, staffTaskDate, monthlyYear, monthlyMonth);
+              }
+            }
+          }}
+        />
       )}
     </div>
   );

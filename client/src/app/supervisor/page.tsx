@@ -44,7 +44,12 @@ import {
   Pencil,
   X,
   Send,
+  AlertTriangle,
 } from 'lucide-react';
+import {
+  DamageIncidentViewerModal,
+  DamageIncidentRecord,
+} from '../../components/DamageIncidentViewerModal';
 
 interface EnrichedStaffItem {
   id: string; // membership id
@@ -122,12 +127,14 @@ interface StaffTaskDayResponse {
     pieceCount?: number | null;
     workflowProfile?: { workflowType: string; name: string };
     serviceType?: { name: string; code: string };
+    damageIncidents?: DamageIncidentRecord[];
     taskUnits: Array<{
       id: string;
       pieceNumber?: number | null;
       activityCode?: string | null;
       status: string;
       unitType: string;
+      damageIncidents?: DamageIncidentRecord[];
     }>;
   }>;
   summary: {
@@ -258,8 +265,12 @@ export default function SupervisorPage() {
   const [editSecurityDeposit, setEditSecurityDeposit] = useState('');
   const [editDutyTiming, setEditDutyTiming] = useState('');
   const [editIncentive, setEditIncentive] = useState('');
+  const [editWorkflowProfileId, setEditWorkflowProfileId] = useState('');
   const [isSavingEditStaff, setIsSavingEditStaff] = useState(false);
   const [editStaffError, setEditStaffError] = useState<string | null>(null);
+
+  // Damage Incident Viewer
+  const [viewingDamageIncident, setViewingDamageIncident] = useState<DamageIncidentRecord | null>(null);
 
   // ─── Assign Task Modal State ───────────────────────────────────────────────
   const [isAssignTaskModalOpen, setIsAssignTaskModalOpen] = useState(false);
@@ -512,6 +523,7 @@ export default function SupervisorPage() {
     setEditMobile(staff.staffMember.mobile || '');
     setEditAddress(staff.staffMember.address || '');
     setEditPositionCategoryId(staff.positionCategory?.id || '');
+    setEditWorkflowProfileId((staff as unknown as { workflowProfileId?: string }).workflowProfileId || (staff as unknown as { workflowProfile?: { id?: string } }).workflowProfile?.id || '');
     setEditJoiningDate(staff.joiningDate ? staff.joiningDate.split('T')[0] : '');
     setEditMonthlySalary(staff.monthlySalary != null ? String(staff.monthlySalary) : '');
     setEditSecurityDeposit(staff.securityDeposit != null ? String(staff.securityDeposit) : '');
@@ -539,6 +551,7 @@ export default function SupervisorPage() {
         mobile: editMobile.trim() || null,
         address: editAddress.trim() || null,
         positionCategoryId: editPositionCategoryId || null,
+        workflowProfileId: editWorkflowProfileId || null,
         joiningDate: editJoiningDate || null,
         monthlySalary: editMonthlySalary ? parseFloat(editMonthlySalary) : null,
         securityDeposit: editSecurityDeposit ? parseFloat(editSecurityDeposit) : null,
@@ -1379,28 +1392,99 @@ export default function SupervisorPage() {
                             </span>
                           </div>
 
-                          {/* Table matching Screen 7 */}
+                          {/* Damage Alert Banner if incident reported */}
+                          {assignment.damageIncidents && assignment.damageIncidents.length > 0 && (
+                            <div className="flex items-center justify-between p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs animate-fade-in">
+                              <div className="flex items-center gap-2 text-red-950 font-extrabold">
+                                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                                <span>{assignment.damageIncidents.length} Damage Incident(s) reported</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setViewingDamageIncident(assignment.damageIncidents![0])}
+                                className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] shadow-sm flex items-center gap-1"
+                              >
+                                <span>Inspect Evidence</span>
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Table with piece-by-piece operation breakdown matching Washerman station */}
                           <div className="overflow-x-auto pt-1">
                             <table className="w-full text-xs text-left">
                               <thead>
                                 <tr className="border-b border-border-subtle text-content-muted text-[11px] font-bold">
                                   <th className="py-2 px-2">#</th>
                                   <th className="py-2 px-2">Piece</th>
-                                  <th className="py-2 px-2 text-center">Status</th>
+                                  <th className="py-2 px-2">Operations Progress</th>
+                                  <th className="py-2 px-2 text-right">Status</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-border-subtle/50">
                                 {Array.from(pieceMap.entries()).map(([pieceNum, units]) => {
-                                  const isPieceDone = units.every((u) => u.status === 'COMPLETED');
+                                  const completedInPiece = units.filter((u) => u.status === 'COMPLETED').length;
+                                  const isPieceDone = units.length > 0 && completedInPiece === units.length;
+
+                                  const pieceDamage =
+                                    assignment.damageIncidents?.find((d) => d.pieceNumber === pieceNum) ||
+                                    units.flatMap((u) => u.damageIncidents || []).find(Boolean);
+
                                   return (
-                                    <tr key={pieceNum} className="hover:bg-surface-cream/40">
-                                      <td className="py-2.5 px-2 font-mono text-content-muted">{pieceNum}</td>
-                                      <td className="py-2.5 px-2 font-bold text-brand-forest">Piece {pieceNum}</td>
-                                      <td className="py-2.5 px-2 text-center">
-                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                          isPieceDone ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                                        }`}>
-                                          {isPieceDone ? 'Completed' : 'Pending'}
+                                    <tr key={pieceNum} className="hover:bg-surface-cream/40 transition-colors">
+                                      <td className="py-2.5 px-2 font-mono text-content-muted font-bold">{pieceNum}</td>
+                                      <td className="py-2.5 px-2">
+                                        <span className="font-extrabold text-brand-forest block">Piece #{pieceNum}</span>
+                                        {pieceDamage && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setViewingDamageIncident(pieceDamage)}
+                                            className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md bg-red-100 hover:bg-red-200 text-red-900 text-[10px] font-extrabold border border-red-300 shadow-sm"
+                                          >
+                                            <AlertTriangle className="w-3 h-3 text-red-600" />
+                                            <span>Damage ({pieceDamage.status})</span>
+                                          </button>
+                                        )}
+                                      </td>
+                                      <td className="py-2.5 px-2">
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                          {units.map((u) => {
+                                            const isUnitDone = u.status === 'COMPLETED';
+                                            return (
+                                              <span
+                                                key={u.id}
+                                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-black transition-all ${
+                                                  isUnitDone
+                                                    ? 'bg-emerald-100 text-emerald-950 border border-emerald-300 shadow-clay-sm'
+                                                    : 'bg-surface-cream text-content-muted border border-border-subtle'
+                                                }`}
+                                              >
+                                                {isUnitDone ? (
+                                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                                                ) : (
+                                                  <Clock className="w-3.5 h-3.5 text-amber-500" />
+                                                )}
+                                                <span>{u.activityCode || 'Done'}</span>
+                                                <span
+                                                  className={`text-[9px] uppercase font-bold px-1 rounded ${
+                                                    isUnitDone ? 'text-emerald-800' : 'text-amber-700'
+                                                  }`}
+                                                >
+                                                  {isUnitDone ? 'Done' : 'Pending'}
+                                                </span>
+                                              </span>
+                                            );
+                                          })}
+                                        </div>
+                                      </td>
+                                      <td className="py-2.5 px-2 text-right">
+                                        <span
+                                          className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
+                                            isPieceDone
+                                              ? 'bg-emerald-100 text-emerald-800'
+                                              : 'bg-amber-100 text-amber-800'
+                                          }`}
+                                        >
+                                          {isPieceDone ? '100% Done' : `${completedInPiece}/${units.length} Done`}
                                         </span>
                                       </td>
                                     </tr>
@@ -1701,6 +1785,28 @@ export default function SupervisorPage() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              {/* Operational Responsibilities / Workflow Profile */}
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1">
+                  Operational Responsibilities (Workflow Profile)
+                </label>
+                <select
+                  value={editWorkflowProfileId}
+                  onChange={(e) => setEditWorkflowProfileId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                >
+                  <option value="">Inherit From Position</option>
+                  {workflowProfiles.map((wf) => (
+                    <option key={wf.id} value={wf.id}>
+                      {wf.name} ({wf.allowedActivities.join(', ')})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-content-muted mt-0.5">
+                  Controls allowed operations (e.g. Washerman = WASH, DRY; Ironman = IRON, FOLD, PACK)
+                </p>
               </div>
 
               {/* Mobile */}
@@ -2945,6 +3051,22 @@ export default function SupervisorPage() {
           </button>
         </div>
       </nav>
+
+      {/* Damage Incident Evidence Viewer Modal */}
+      {viewingDamageIncident && (
+        <DamageIncidentViewerModal
+          isOpen={true}
+          onClose={() => setViewingDamageIncident(null)}
+          incident={viewingDamageIncident}
+          shopId={activeShopId || ''}
+          canManage={true}
+          onUpdated={() => {
+            if (selectedStaff) {
+              fetchStaffDayTasks(selectedStaff.staffMember.id, staffTaskDate);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

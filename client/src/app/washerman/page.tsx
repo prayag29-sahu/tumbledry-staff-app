@@ -36,9 +36,9 @@ export default function WashermanPage() {
 
   const staffMemberId = user?.staffMember?.id;
 
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = useCallback(async (showLoading = true) => {
     if (!activeShopId || !staffMemberId) return;
-    setIsLoading(true);
+    if (showLoading) setIsLoading(true);
     try {
       const data = await apiRequest<{
         assignments: TaskAssignment[];
@@ -53,31 +53,73 @@ export default function WashermanPage() {
       setAssignments([]);
       setSummary(null);
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   }, [activeShopId, staffMemberId, selectedDate]);
 
   useEffect(() => {
-    fetchTasks();
+    fetchTasks(true);
   }, [fetchTasks]);
 
   const handleCompleteUnit = async (unit: TaskUnit) => {
     if (!activeShopId || unit.status === 'COMPLETED' || completingUnitId) return;
     setCompletingUnitId(unit.id);
 
+    // 1. Instantaneous Optimistic Update in UI
+    setAssignments((prev) =>
+      prev.map((asg) => {
+        if (asg.id !== unit.taskAssignmentId) return asg;
+        return {
+          ...asg,
+          taskUnits: asg.taskUnits.map((u) =>
+            u.id === unit.id
+              ? { ...u, status: 'COMPLETED' as const, completedAt: new Date().toISOString() }
+              : u
+          ),
+        };
+      })
+    );
+
+    setSummary((prev) => {
+      if (!prev) return prev;
+      const anyPrev = prev as unknown as Record<string, number>;
+      const currentCompleted = prev.completedUnits ?? anyPrev.completed ?? 0;
+      const currentTotal = prev.totalUnits ?? anyPrev.total ?? 1;
+      const nextCompleted = currentCompleted + 1;
+      const nextPending = Math.max(0, currentTotal - nextCompleted);
+      const nextPct = Math.min(100, Math.round((nextCompleted / currentTotal) * 100));
+
+      return {
+        ...prev,
+        completedUnits: nextCompleted,
+        completed: nextCompleted,
+        pendingUnits: nextPending,
+        pending: nextPending,
+        percentage: nextPct,
+        percentageComplete: nextPct,
+      };
+    });
+
     try {
       await apiRequest(
         `/api/shops/${activeShopId}/task-units/${unit.id}/complete`,
         { method: 'PATCH' }
       );
-      // Refresh tasks & metrics
-      await fetchTasks();
+      // Quiet background refresh to keep in sync with server without reloading DOM
+      fetchTasks(false);
     } catch (err) {
+      // Revert if API fails
+      fetchTasks(false);
       alert(err instanceof Error ? err.message : 'Failed to complete unit.');
     } finally {
       setCompletingUnitId(null);
     }
   };
+
+  // Robust calculation for progress ring
+  const totalUnits = summary?.totalUnits ?? (summary as unknown as Record<string, number>)?.total ?? 0;
+  const completedUnits = summary?.completedUnits ?? (summary as unknown as Record<string, number>)?.completed ?? 0;
+  const ringPercentage = summary?.percentage ?? (summary as unknown as Record<string, number>)?.percentageComplete ?? (totalUnits > 0 ? Math.round((completedUnits / totalUnits) * 100) : null);
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -105,11 +147,11 @@ export default function WashermanPage() {
 
       {/* Daily Progress Card */}
       <ProgressRing
-        percentage={summary?.percentage ?? null}
+        percentage={ringPercentage}
         label="Today's Wash Progress"
         sublabel={
-          summary
-            ? `${summary.completedUnits} of ${summary.totalUnits} units completed`
+          totalUnits > 0
+            ? `${completedUnits} of ${totalUnits} units completed`
             : 'No tasks assigned for this date'
         }
       />
@@ -121,7 +163,7 @@ export default function WashermanPage() {
             Assigned Orders ({assignments.length})
           </h3>
           <button
-            onClick={fetchTasks}
+            onClick={() => fetchTasks(true)}
             className="p-1 rounded-lg text-content-muted hover:text-brand-forest"
             title="Refresh Tasks"
           >

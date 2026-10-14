@@ -49,6 +49,7 @@ export interface TaskUnit {
   orderRef?: string | null;
   status: UnitStatus;
   completedAt?: string | null;
+  damageIncidents?: DamageIncident[];
 }
 
 export interface TaskAssignment {
@@ -73,15 +74,29 @@ export interface TaskAssignment {
   notes?: string | null;
   status: 'ACTIVE' | 'CANCELLED' | 'REASSIGNED';
   taskUnits: TaskUnit[];
+  damageIncidents?: DamageIncident[];
   createdAt: string;
 }
 
 export interface TaskSummary {
-  totalUnits: number;
-  completedUnits: number;
-  pendingUnits: number;
-  percentage: number | null;
-  byActivity: Record<string, { total: number; completed: number }>;
+  totalUnits?: number;
+  completedUnits?: number;
+  pendingUnits?: number;
+  percentage?: number | null;
+  total?: number;
+  completed?: number;
+  pending?: number;
+  percentageComplete?: number | null;
+  breakdown?: {
+    wash: number;
+    dry: number;
+    iron: number;
+    fold: number;
+    pack: number;
+    delivery: number;
+    pickup: number;
+  };
+  byActivity?: Record<string, { total: number; completed: number }>;
 }
 
 export interface AttendanceSession {

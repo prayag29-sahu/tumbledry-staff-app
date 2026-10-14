@@ -59,7 +59,7 @@ export function DamageModal({
           taskUnitId: taskUnitId || undefined,
           pieceNumber: pieceNumber || undefined,
           notes: notes.trim() || undefined,
-          photoPath: photoPreview ? 'uploads/damage-evidence.jpg' : undefined,
+          photoPath: photoPreview || undefined,
         }),
       });
 

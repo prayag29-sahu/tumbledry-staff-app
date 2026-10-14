@@ -32,7 +32,12 @@ import {
   LogOut,
   Check,
   Send,
+  AlertTriangle,
 } from 'lucide-react';
+import {
+  DamageIncidentViewerModal,
+  DamageIncidentRecord,
+} from '../../components/DamageIncidentViewerModal';
 
 interface StaffTaskMonthlySummary {
   total: number;
@@ -118,6 +123,7 @@ interface StaffTaskUnit {
   activityCode?: string | null;
   pieceNumber?: number | null;
   completedAt?: string | null;
+  damageIncidents?: DamageIncidentRecord[];
 }
 
 interface StaffAssignment {
@@ -129,6 +135,7 @@ interface StaffAssignment {
   workflowProfile: { workflowType: string; name: string };
   serviceType?: { name: string; code: string } | null;
   taskUnits: StaffTaskUnit[];
+  damageIncidents?: DamageIncidentRecord[];
   createdAt: string;
 }
 
@@ -138,6 +145,10 @@ export default function ManagerPage() {
 
   // Navigation State (5 Main Screens via Bottom Nav)
   const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'reports' | 'profile'>('dashboard');
+
+  // Damage Incident Viewer
+  const [viewingDamageIncident, setViewingDamageIncident] = useState<DamageIncidentRecord | null>(null);
+  const [expandedAssignmentIds, setExpandedAssignmentIds] = useState<Record<string, boolean>>({});
 
   // Drilldown States
   // 'staff_details' | 'create_task' | null
@@ -1109,48 +1120,141 @@ export default function ManagerPage() {
                     const completedCount = assignment.taskUnits.filter((u) => u.status === 'COMPLETED').length;
                     const isAllCompleted = assignment.taskUnits.length > 0 && completedCount === assignment.taskUnits.length;
                     const lastCompletedAt = assignment.taskUnits.find((u) => u.completedAt)?.completedAt;
+                    const isExpanded = !!expandedAssignmentIds[assignment.id];
+
+                    // Group task units by pieceNumber
+                    const pieceMap = new Map<number, typeof assignment.taskUnits>();
+                    assignment.taskUnits.forEach((unit) => {
+                      const pNum = unit.pieceNumber || 1;
+                      if (!pieceMap.has(pNum)) pieceMap.set(pNum, []);
+                      pieceMap.get(pNum)!.push(unit);
+                    });
 
                     return (
                       <div
                         key={assignment.id}
-                        className="bg-white p-3.5 rounded-2xl border border-border-subtle shadow-sm flex items-center justify-between gap-3 text-xs"
+                        className="bg-white p-3.5 rounded-2xl border border-border-subtle shadow-sm space-y-2.5 text-xs"
                       >
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`w-7 h-7 rounded-full flex items-center justify-center ${
-                              isAllCompleted ? 'bg-emerald-100 text-emerald-800' : 'bg-surface-cream text-content-muted'
-                            }`}
-                          >
-                            <CheckCircle2 className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-black text-brand-forest">
-                                {assignment.orderId ? assignment.orderId : 'Pickup'}
-                              </span>
-                              <span className="text-[11px] text-content-muted font-bold">
-                                {assignment.pieceCount ? `${assignment.pieceCount} pcs` : assignment.pickupCount ? `${assignment.pickupCount} pcs` : ''}
-                              </span>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`w-7 h-7 rounded-full flex items-center justify-center ${
+                                isAllCompleted ? 'bg-emerald-100 text-emerald-800' : 'bg-surface-cream text-content-muted'
+                              }`}
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
                             </div>
-                            <p className="text-[11px] text-content-muted font-medium truncate max-w-[180px]">
-                              {assignment.notes || label}
-                            </p>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-black text-brand-forest">
+                                  {assignment.orderId ? assignment.orderId : 'Pickup'}
+                                </span>
+                                <span className="text-[11px] text-content-muted font-bold">
+                                  {assignment.pieceCount ? `${assignment.pieceCount} pcs` : assignment.pickupCount ? `${assignment.pickupCount} pcs` : ''}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-content-muted font-medium truncate max-w-[180px]">
+                                {assignment.notes || label}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                                isAllCompleted ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {isAllCompleted
+                                ? lastCompletedAt
+                                  ? `Completed ${new Date(lastCompletedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+                                  : 'Completed'
+                                : `${completedCount}/${assignment.taskUnits.length} Done`}
+                            </span>
+                            {assignment.taskUnits.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setExpandedAssignmentIds((prev) => ({ ...prev, [assignment.id]: !prev[assignment.id] }))}
+                                className="px-2 py-0.5 rounded-lg bg-surface-cream text-brand-forest font-bold text-[10px] border border-border-subtle hover:bg-surface-hover"
+                              >
+                                {isExpanded ? 'Hide' : 'Pieces'}
+                              </button>
+                            )}
                           </div>
                         </div>
 
-                        <div className="text-right">
-                          <span
-                            className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                              isAllCompleted ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                            }`}
-                          >
-                            {isAllCompleted
-                              ? lastCompletedAt
-                                ? `Completed ${new Date(lastCompletedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
-                                : 'Completed'
-                              : 'Pending'}
-                          </span>
-                        </div>
+                        {/* Damage Alert Banner if incident reported */}
+                        {assignment.damageIncidents && assignment.damageIncidents.length > 0 && (
+                          <div className="flex items-center justify-between p-2 rounded-xl bg-red-50 border border-red-200 text-xs">
+                            <div className="flex items-center gap-1.5 text-red-950 font-bold">
+                              <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                              <span>{assignment.damageIncidents.length} Damage Incident(s) reported</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setViewingDamageIncident(assignment.damageIncidents![0])}
+                              className="px-2 py-0.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-[10px]"
+                            >
+                              View Photo
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Expandable Piece-Level Checklist */}
+                        {isExpanded && (
+                          <div className="pt-2 border-t border-border-subtle/50 space-y-1.5">
+                            {Array.from(pieceMap.entries()).map(([pieceNum, units]) => {
+                              const completedInPiece = units.filter((u) => u.status === 'COMPLETED').length;
+                              const isPieceDone = units.length > 0 && completedInPiece === units.length;
+                              const pieceDamage =
+                                assignment.damageIncidents?.find((d) => d.pieceNumber === pieceNum) ||
+                                units.flatMap((u) => u.damageIncidents || []).find(Boolean);
+
+                              return (
+                                <div
+                                  key={pieceNum}
+                                  className="flex items-center justify-between p-2 rounded-xl bg-surface-cream/50 border border-border-subtle/60 text-xs"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-extrabold text-brand-forest">Piece #{pieceNum}</span>
+                                    {pieceDamage && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setViewingDamageIncident(pieceDamage)}
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 text-red-900 text-[10px] font-bold border border-red-300"
+                                      >
+                                        <AlertTriangle className="w-3 h-3 text-red-600" />
+                                        <span>Damage</span>
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5">
+                                    {units.map((u) => {
+                                      const isUnitDone = u.status === 'COMPLETED';
+                                      return (
+                                        <span
+                                          key={u.id}
+                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                                            isUnitDone
+                                              ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                                              : 'bg-white text-content-muted border border-border-subtle'
+                                          }`}
+                                        >
+                                          {isUnitDone ? <CheckCircle2 className="w-3 h-3 text-emerald-700" /> : <Clock className="w-3 h-3 text-amber-500" />}
+                                          <span>{u.activityCode || 'Done'}</span>
+                                        </span>
+                                      );
+                                    })}
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isPieceDone ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                                      {isPieceDone ? 'Done' : `${completedInPiece}/${units.length}`}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })
@@ -1963,6 +2067,22 @@ export default function ManagerPage() {
           </button>
         </div>
       </nav>
+
+      {/* Damage Incident Evidence Viewer Modal */}
+      {viewingDamageIncident && (
+        <DamageIncidentViewerModal
+          isOpen={true}
+          onClose={() => setViewingDamageIncident(null)}
+          incident={viewingDamageIncident}
+          shopId={activeShopId || ''}
+          canManage={true}
+          onUpdated={() => {
+            if (selectedStaff) {
+              fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
