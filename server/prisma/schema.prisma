@@ -123,7 +123,8 @@ model ShopMembership {
   id                   String   @id @default(uuid())
   shopId               String   @map("shop_id")
   staffMemberId        String   @map("staff_member_id")
-  accountId            String   @map("account_id")
+  // nullable — staff who don't log into the app have no Account record
+  accountId            String?  @map("account_id")
   permissionProfileId  String   @map("permission_profile_id")
   positionCategoryId   String?  @map("position_category_id")
   workflowProfileId    String?  @map("workflow_profile_id")
@@ -139,7 +140,7 @@ model ShopMembership {
 
   shop              Shop              @relation(fields: [shopId], references: [id])
   staffMember       StaffMember       @relation(fields: [staffMemberId], references: [id])
-  account           Account           @relation(fields: [accountId], references: [id])
+  account           Account?          @relation(fields: [accountId], references: [id])
   permissionProfile PermissionProfile @relation(fields: [permissionProfileId], references: [id])
   positionCategory  PositionCategory? @relation(fields: [positionCategoryId], references: [id])
   workflowProfile   WorkflowProfile?  @relation(fields: [workflowProfileId], references: [id])

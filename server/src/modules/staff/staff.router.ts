@@ -220,7 +220,10 @@ staffRouter.post(
         data: {
           shopId,
           staffMemberId: staffMember.id,
-          accountId: account?.id ?? auth.accountId,
+          // Only link account when we actually created one for this staff member.
+          // Do NOT fall back to auth.accountId (the supervisor's account) — that
+          // would incorrectly tie the new staff record to the supervisor's session.
+          accountId: account?.id,           // undefined when no login account created — Prisma accepts string | undefined
           permissionProfileId: resolvedPermissionProfileId!,
           positionCategoryId: resolvedPositionCategoryId ?? null,
           workflowProfileId: body.workflowProfileId ?? null,

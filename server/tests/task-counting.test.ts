@@ -1,3 +1,4 @@
+/// <reference types="jest" />
 /**
  * Unit tests for task unit counting rules (server-authoritative business logic).
  * These tests verify the exact counting formulas from the specification:

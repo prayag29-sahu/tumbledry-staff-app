@@ -10,13 +10,36 @@ configRouter.use(authenticate as unknown as (req: Request, res: Response, next: 
 
 // ─── PERMISSION PROFILES ──────────────────────────────────────────────────────
 
-// GET /api/config/permission-profiles
+// GET /api/config/permission-profiles — Owner only (all profiles + capabilities)
 configRouter.get('/permission-profiles', requireOwner as unknown as (req: Request, res: Response, next: NextFunction) => void, async (_req, res) => {
   const profiles = await prisma.permissionProfile.findMany({
     include: { capabilities: true },
     orderBy: { name: 'asc' },
   });
   res.json({ profiles });
+});
+
+// GET /api/config/shops/:shopId/permission-profiles
+// Accessible to Supervisors — returns assignable (non-owner) permission profiles
+configRouter.get('/shops/:shopId/permission-profiles', async (req: Request, res: Response, next: NextFunction) => {
+  const auth = (req as AuthenticatedRequest).auth;
+  const { shopId } = req.params as { shopId: string };
+  const hasAccess = auth.isOwner || auth.shopMemberships.some(
+    (m) => m.shopId === shopId && m.capabilities.includes('staff.create')
+  );
+  if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
+
+  // Return all system permission profiles except the owner-level ones
+  // Supervisor can assign: Manager, Washerman, Ironman, Delivery Boy, etc.
+  const profiles = await prisma.permissionProfile.findMany({
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  });
+
+  // Filter out internal system roles that cannot be delegated
+  const UNDELEGATABLE = ['sys-owner'];
+  const assignable = profiles.filter((p) => !UNDELEGATABLE.includes(p.id));
+  res.json({ profiles: assignable });
 });
 
 // POST /api/config/permission-profiles

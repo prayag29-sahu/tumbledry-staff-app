@@ -1,3 +1,4 @@
+/// <reference types="jest" />
 /**
  * Unit tests for authentication service logic.
  * Tests password hashing and token operations without real DB.
