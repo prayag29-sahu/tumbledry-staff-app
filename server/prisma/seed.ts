@@ -99,7 +99,7 @@ async function main() {
   await upsertPermissionProfile('Manager', true, [
     'staff.read',
     'tasks.read_team', 'tasks.assign',
-    'attendance.self',
+    'attendance.read_team', 'attendance.self',
     'damage.read',
     'reports.read',
   ]);
