@@ -147,6 +147,7 @@ damageRouter.patch(
       status: z.enum(['OPEN', 'UNDER_REVIEW', 'CLOSED', 'DISPUTED']),
       resolutionNotes: z.string().max(1000).optional(),
       reviewNotes: z.string().max(1000).optional(),
+      photoPath: z.string().optional(),
     });
     const body = schema.parse(req.body);
 
@@ -157,6 +158,7 @@ damageRouter.patch(
       data: {
         status: body.status,
         ...(reviewNotes !== null ? { reviewNotes } : {}),
+        ...(body.photoPath !== undefined ? { photoPath: body.photoPath } : {}),
         reviewedByAccountId: auth.accountId,
         reviewedAt: new Date(),
       },
