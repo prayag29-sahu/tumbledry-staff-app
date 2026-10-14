@@ -18,7 +18,8 @@ damageRouter.post(
       taskAssignmentId: z.string().uuid(),
       taskUnitId: z.string().uuid().optional(),
       pieceNumber: z.number().int().positive().optional(),
-      notes: z.string().max(500).optional(),
+      notes: z.string().max(2000).optional(),
+      photoPath: z.string().optional(),
     });
 
     const body = schema.parse(req.body);
@@ -28,28 +29,58 @@ damageRouter.post(
       where: { accountId: auth.accountId, shopId, isActive: true },
       select: { staffMemberId: true },
     });
-    if (!membership) return next(new AppError(403, 'FORBIDDEN', 'No active membership.'));
+    if (!membership && !auth.isOwner) return next(new AppError(403, 'FORBIDDEN', 'No active membership.'));
+
+    const staffMemberId = membership?.staffMemberId;
 
     const assignment = await prisma.taskAssignment.findFirst({
-      where: { id: body.taskAssignmentId, shopId, staffMemberId: membership.staffMemberId },
+      where: {
+        id: body.taskAssignmentId,
+        shopId,
+        ...(staffMemberId ? { staffMemberId } : {}),
+      },
     });
     if (!assignment) return next(new AppError(404, 'NOT_FOUND', 'Assignment not found.'));
+
+    let targetUnitId = body.taskUnitId;
+    if (!targetUnitId && body.pieceNumber) {
+      const unit = await prisma.taskUnit.findFirst({
+        where: {
+          taskAssignmentId: body.taskAssignmentId,
+          pieceNumber: body.pieceNumber,
+        },
+        select: { id: true },
+      });
+      if (unit) targetUnitId = unit.id;
+    }
 
     const incident = await prisma.damageIncident.create({
       data: {
         shopId,
-        staffMemberId: membership.staffMemberId,
+        staffMemberId: assignment.staffMemberId,
         taskAssignmentId: body.taskAssignmentId,
-        taskUnitId: body.taskUnitId ?? null,
+        taskUnitId: targetUnitId ?? null,
         pieceNumber: body.pieceNumber ?? null,
         reportedByAccountId: auth.accountId,
         notes: body.notes ?? null,
-        // photoPath set after upload middleware (future)
+        photoPath: body.photoPath ?? null,
+      },
+      include: {
+        staffMember: { select: { id: true, fullName: true } },
+        taskAssignment: {
+          select: {
+            id: true,
+            orderId: true,
+            assignmentDate: true,
+            serviceType: { select: { name: true } },
+          },
+        },
       },
     });
 
     res.status(201).json({
       incidentId: incident.id,
+      incident,
       message: 'Damage incident recorded.',
     });
   }
@@ -63,7 +94,7 @@ damageRouter.get(
     const { shopId } = req.params as { shopId: string };
 
     const hasAccess = auth.isOwner || auth.shopMemberships.some(
-      (m) => m.shopId === shopId && m.capabilities.includes('damage.read')
+      (m) => m.shopId === shopId && (m.capabilities.includes('damage.read') || m.capabilities.includes('tasks.read_team'))
     );
     if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
 
@@ -83,7 +114,14 @@ damageRouter.get(
       },
       include: {
         staffMember: { select: { id: true, fullName: true } },
-        taskAssignment: { select: { id: true, orderId: true, assignmentDate: true } },
+        taskAssignment: {
+          select: {
+            id: true,
+            orderId: true,
+            assignmentDate: true,
+            serviceType: { select: { name: true } },
+          },
+        },
       },
       orderBy: { reportedAt: 'desc' },
       take: 100,
@@ -101,21 +139,26 @@ damageRouter.patch(
     const { shopId, incidentId } = req.params as { shopId: string; incidentId: string };
 
     const hasAccess = auth.isOwner || auth.shopMemberships.some(
-      (m) => m.shopId === shopId && m.capabilities.includes('damage.manage')
+      (m) => m.shopId === shopId && (m.capabilities.includes('damage.read') || m.capabilities.includes('tasks.assign') || m.capabilities.includes('damage.manage'))
     );
     if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Permission denied.'));
 
     const schema = z.object({
       status: z.enum(['OPEN', 'UNDER_REVIEW', 'CLOSED', 'DISPUTED']),
-      resolutionNotes: z.string().max(500).optional(),
+      resolutionNotes: z.string().max(1000).optional(),
+      reviewNotes: z.string().max(1000).optional(),
     });
     const body = schema.parse(req.body);
+
+    const reviewNotes = body.reviewNotes ?? body.resolutionNotes ?? null;
 
     const updated = await prisma.damageIncident.update({
       where: { id: incidentId },
       data: {
         status: body.status,
-        ...(body.resolutionNotes ? { resolutionNotes: body.resolutionNotes } : {}),
+        ...(reviewNotes !== null ? { reviewNotes } : {}),
+        reviewedByAccountId: auth.accountId,
+        reviewedAt: new Date(),
       },
     });
 

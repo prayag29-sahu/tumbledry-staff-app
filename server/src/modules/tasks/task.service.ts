@@ -23,6 +23,10 @@ export interface TaskUnitSummary {
   completed: number;
   pending: number;
   percentageComplete: number | null;
+  totalUnits?: number;
+  completedUnits?: number;
+  pendingUnits?: number;
+  percentage?: number | null;
   breakdown?: {
     wash: number;
     dry: number;
@@ -335,6 +339,10 @@ export async function getTaskSummary(
     completed: completedCount,
     pending: totalCount - completedCount,
     percentageComplete,
+    totalUnits: totalCount,
+    completedUnits: completedCount,
+    pendingUnits: totalCount - completedCount,
+    percentage: percentageComplete,
     breakdown,
   };
 }
@@ -425,6 +433,10 @@ export async function getMonthlyTaskSummary(
     completed: completedCount,
     pending: totalCount - completedCount,
     percentageComplete,
+    totalUnits: totalCount,
+    completedUnits: completedCount,
+    pendingUnits: totalCount - completedCount,
+    percentage: percentageComplete,
     breakdown,
     dailyProgress,
   };

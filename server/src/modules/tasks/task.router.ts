@@ -60,8 +60,32 @@ taskRouter.get(
       include: {
         workflowProfile: { select: { workflowType: true, name: true } },
         serviceType: { select: { name: true, code: true } },
+        damageIncidents: {
+          select: {
+            id: true,
+            pieceNumber: true,
+            status: true,
+            notes: true,
+            photoPath: true,
+            reportedAt: true,
+            taskUnitId: true,
+            staffMember: { select: { id: true, fullName: true } },
+          },
+        },
         taskUnits: {
           where: { status: { not: 'CANCELLED' } },
+          include: {
+            damageIncidents: {
+              select: {
+                id: true,
+                pieceNumber: true,
+                status: true,
+                notes: true,
+                photoPath: true,
+                reportedAt: true,
+              },
+            },
+          },
           orderBy: [{ pieceNumber: 'asc' }, { sequenceNumber: 'asc' }],
         },
       },
@@ -107,8 +131,32 @@ taskRouter.get(
         staffMember: { select: { id: true, fullName: true, mobile: true } },
         workflowProfile: { select: { workflowType: true, name: true } },
         serviceType: { select: { name: true, code: true } },
+        damageIncidents: {
+          select: {
+            id: true,
+            pieceNumber: true,
+            status: true,
+            notes: true,
+            photoPath: true,
+            reportedAt: true,
+            taskUnitId: true,
+            staffMember: { select: { id: true, fullName: true } },
+          },
+        },
         taskUnits: {
           where: { status: { not: 'CANCELLED' } },
+          include: {
+            damageIncidents: {
+              select: {
+                id: true,
+                pieceNumber: true,
+                status: true,
+                notes: true,
+                photoPath: true,
+                reportedAt: true,
+              },
+            },
+          },
           orderBy: [{ pieceNumber: 'asc' }, { sequenceNumber: 'asc' }],
         },
       },
