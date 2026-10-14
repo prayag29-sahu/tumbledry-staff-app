@@ -7,6 +7,11 @@ import {
   PositionCategory,
   CustomFieldDefinition,
 } from '../../types';
+
+interface PermissionProfileItem {
+  id: string;
+  name: string;
+}
 import {
   Users,
   Clock,
@@ -179,6 +184,7 @@ export default function SupervisorPage() {
   const [dashboardData, setDashboardData] = useState<SupervisorDashboardData | null>(null);
   const [staffList, setStaffList] = useState<EnrichedStaffItem[]>([]);
   const [positionCategories, setPositionCategories] = useState<PositionCategory[]>([]);
+  const [permissionProfiles, setPermissionProfiles] = useState<PermissionProfileItem[]>([]);
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -198,20 +204,27 @@ export default function SupervisorPage() {
   const [staffMonthlyPerf, setStaffMonthlyPerf] = useState<StaffMonthlyPerfResponse | null>(null);
   const [isLoadingPerf, setIsLoadingPerf] = useState(false);
 
-  // Add Staff Wizard State (Screens 3 & 4)
+  // ─── Add Staff Wizard State (Screens 3 & 4) ────────────────────────────────
   const [addStaffStep, setAddStaffStep] = useState<1 | 2>(1);
+  // Step 1 — Basic
   const [addFullName, setAddFullName] = useState('');
-  const [addPositionId, setAddPositionId] = useState('');
+  const [addPermissionProfileId, setAddPermissionProfileId] = useState('');  // from DB
+  const [addPositionId, setAddPositionId] = useState('');                    // existing DB category
+  const [addCustomPosition, setAddCustomPosition] = useState('');            // if supervisor types a new one
   const [addMobile, setAddMobile] = useState('');
   const [addAddress, setAddAddress] = useState('');
+  // Step 2 — Employment & Login
+  const [addUsername, setAddUsername] = useState('');
+  const [addPassword, setAddPassword] = useState('');
   const [addAadhaar, setAddAadhaar] = useState('');
   const [addBankAccount, setAddBankAccount] = useState('');
   const [addJoiningDate, setAddJoiningDate] = useState(new Date().toISOString().split('T')[0]);
   const [addSalary, setAddSalary] = useState('');
   const [addSecurityDeposit, setAddSecurityDeposit] = useState('');
-  const [addDutyTiming, setAddDutyTiming] = useState('09:00 AM - 06:00 PM');
+  const [addDutyTiming, setAddDutyTiming] = useState('');
   const [addIncentive, setAddIncentive] = useState('');
   const [isSubmittingStaff, setIsSubmittingStaff] = useState(false);
+  const [addStaffSuccess, setAddStaffSuccess] = useState<{ name: string; username: string; password: string } | null>(null);
 
   // Custom Fields Builder Modal State (Screen 5)
   const [isAddingField, setIsAddingField] = useState(false);
@@ -225,16 +238,18 @@ export default function SupervisorPage() {
     if (!activeShopId) return;
     setIsLoading(true);
     try {
-      const [dashRes, staffRes, posRes, fieldsRes] = await Promise.all([
+      const [dashRes, staffRes, posRes, permRes, fieldsRes] = await Promise.all([
         apiRequest<SupervisorDashboardData>(`/api/shops/${activeShopId}/supervisor/dashboard?date=${dashboardDate}`).catch(() => null),
         apiRequest<{ staff: EnrichedStaffItem[] }>(`/api/shops/${activeShopId}/staff`).catch(() => ({ staff: [] })),
         apiRequest<{ categories: PositionCategory[] }>(`/api/config/shops/${activeShopId}/position-categories`).catch(() => ({ categories: [] })),
+        apiRequest<{ profiles: PermissionProfileItem[] }>(`/api/config/shops/${activeShopId}/permission-profiles`).catch(() => ({ profiles: [] })),
         apiRequest<{ fields: CustomFieldDefinition[] }>(`/api/config/shops/${activeShopId}/custom-fields`).catch(() => ({ fields: [] })),
       ]);
 
       if (dashRes) setDashboardData(dashRes);
       setStaffList(staffRes.staff || []);
       setPositionCategories(posRes.categories || []);
+      setPermissionProfiles(permRes.profiles || []);
       setCustomFields(fieldsRes.fields || []);
     } catch {
       // Ignored
@@ -311,47 +326,82 @@ export default function SupervisorPage() {
     fetchStaffPerformance(staff.staffMember.id, now.getFullYear(), now.getMonth() + 1);
   };
 
+  // Reset all Add Staff form fields
+  const resetAddStaffForm = () => {
+    setAddStaffStep(1);
+    setAddFullName('');
+    setAddPermissionProfileId('');
+    setAddPositionId('');
+    setAddCustomPosition('');
+    setAddMobile('');
+    setAddAddress('');
+    setAddUsername('');
+    setAddPassword('');
+    setAddAadhaar('');
+    setAddBankAccount('');
+    setAddJoiningDate(new Date().toISOString().split('T')[0]);
+    setAddSalary('');
+    setAddSecurityDeposit('');
+    setAddDutyTiming('');
+    setAddIncentive('');
+    setAddStaffSuccess(null);
+  };
+
   // Add Staff Wizard: Submit (Screens 3 & 4)
   const handleSaveStaff = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeShopId || !addFullName.trim()) return;
+    if (!activeShopId || !addFullName.trim() || !addPermissionProfileId) return;
 
     setIsSubmittingStaff(true);
     try {
-      // Find a default permission profile or the first one
-      const permRes = await apiRequest<{ profiles: Array<{ id: string }> }>('/api/config/permission-profiles').catch(() => ({ profiles: [] }));
-      const defaultPermId = permRes.profiles[0]?.id;
+      // If supervisor typed a custom position name that doesn't match any existing category,
+      // the server will auto-create it via the role-resolution logic.
+      // We send positionCategoryId when an existing DB category is selected,
+      // otherwise send role name so server resolves/creates the position.
+      const payload: Record<string, unknown> = {
+        fullName: addFullName.trim(),
+        mobile: addMobile.trim() || undefined,
+        address: addAddress.trim() || undefined,
+        permissionProfileId: addPermissionProfileId,
+        joiningDate: addJoiningDate || undefined,
+        monthlySalary: addSalary ? parseFloat(addSalary) : undefined,
+        securityDeposit: addSecurityDeposit ? parseFloat(addSecurityDeposit) : undefined,
+        dutyTimingNotes: addDutyTiming.trim() || undefined,
+        incentiveAmount: addIncentive ? parseFloat(addIncentive) : undefined,
+      };
+
+      if (addPositionId) {
+        // Existing DB position category selected
+        payload.positionCategoryId = addPositionId;
+      } else if (addCustomPosition.trim()) {
+        // New position name — server will auto-create PositionCategory
+        payload.role = addCustomPosition.trim();
+      } else {
+        // Fallback: use the permission profile name as the role label
+        const selectedProfile = permissionProfiles.find((p) => p.id === addPermissionProfileId);
+        if (selectedProfile) payload.role = selectedProfile.name;
+      }
+
+      // Credentials — only attach when supervisor fills username+password
+      if (addUsername.trim() && addPassword) {
+        payload.username = addUsername.trim().toLowerCase();
+        payload.password = addPassword;
+      }
 
       await apiRequest(`/api/shops/${activeShopId}/staff`, {
         method: 'POST',
-        body: JSON.stringify({
-          fullName: addFullName.trim(),
-          mobile: addMobile.trim() || undefined,
-          address: addAddress.trim() || undefined,
-          positionCategoryId: addPositionId || undefined,
-          permissionProfileId: defaultPermId,
-          joiningDate: addJoiningDate || undefined,
-          monthlySalary: addSalary ? parseFloat(addSalary) : undefined,
-          securityDeposit: addSecurityDeposit ? parseFloat(addSecurityDeposit) : undefined,
-          dutyTimingNotes: addDutyTiming.trim() || undefined,
-          incentiveAmount: addIncentive ? parseFloat(addIncentive) : undefined,
-        }),
+        body: JSON.stringify(payload),
       });
 
-      alert('Staff employee added successfully!');
-      setActiveDrilldown(null);
-      setAddStaffStep(1);
-      setAddFullName('');
-      setAddMobile('');
-      setAddAddress('');
-      setAddAadhaar('');
-      setAddBankAccount('');
-      setAddSalary('');
-      setAddSecurityDeposit('');
-      setAddIncentive('');
+      // Show success panel with credentials (if provided)
+      setAddStaffSuccess({
+        name: addFullName.trim(),
+        username: addUsername.trim().toLowerCase() || '(no login account)',
+        password: addPassword || '(no login account)',
+      });
       fetchAllData();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to add staff employee.');
+      alert(err instanceof Error ? err.message : 'Failed to add staff member.');
     } finally {
       setIsSubmittingStaff(false);
     }
@@ -428,12 +478,13 @@ export default function SupervisorPage() {
       ══════════════════════════════════════════════════════════════════════════ */}
       {activeDrilldown === 'add_staff' && (
         <div className="p-4 space-y-4 animate-fade-in">
-          {/* Header with Back button */}
+          {/* Header */}
           <div className="flex items-center gap-3">
             <button
               onClick={() => {
-                if (addStaffStep === 2) setAddStaffStep(1);
-                else setActiveDrilldown(null);
+                if (addStaffSuccess) { resetAddStaffForm(); setActiveDrilldown(null); }
+                else if (addStaffStep === 2) setAddStaffStep(1);
+                else { resetAddStaffForm(); setActiveDrilldown(null); }
               }}
               className="p-2 rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-hover"
             >
@@ -442,209 +493,326 @@ export default function SupervisorPage() {
             <h2 className="text-lg font-black text-brand-forest">Add New Staff</h2>
           </div>
 
-          {/* Sub-navigation tabs: Basic Details / More Details vs Custom Fields */}
-          <div className="flex items-center gap-2 p-1 bg-surface-cream rounded-xl border border-border-subtle">
-            <button
-              onClick={() => setAddStaffStep(1)}
-              className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all text-center ${
-                addStaffStep === 1
-                  ? 'bg-brand-forest text-white shadow-sm'
-                  : 'bg-transparent text-content-muted'
-              }`}
-            >
-              Basic Details
-            </button>
-            <button
-              onClick={() => setAddStaffStep(2)}
-              className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all text-center ${
-                addStaffStep === 2
-                  ? 'bg-brand-forest text-white shadow-sm'
-                  : 'bg-transparent text-content-muted'
-              }`}
-            >
-              More Details
-            </button>
-          </div>
-
-          <form onSubmit={addStaffStep === 1 ? (e) => { e.preventDefault(); setAddStaffStep(2); } : handleSaveStaff} className="space-y-4">
-            {/* Step 1: Basic Details (Screen 3) */}
-            {addStaffStep === 1 && (
-              <div className="space-y-3.5 bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm">
-                {/* Upload Photo Container */}
-                <div className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-brand-forest/20 rounded-2xl bg-surface-cream/50 cursor-pointer">
-                  <div className="w-16 h-16 rounded-full bg-[#EAF5E9] text-brand-forest flex items-center justify-center mb-2 shadow-sm">
-                    <Camera className="w-7 h-7 text-brand-forest" />
+          {/* ── SUCCESS PANEL ── */}
+          {addStaffSuccess && (
+            <div className="bg-white rounded-2xl border border-emerald-200 shadow-clay-sm p-5 space-y-4">
+              <div className="flex flex-col items-center text-center gap-2">
+                <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center">
+                  <span className="text-2xl">✅</span>
+                </div>
+                <h3 className="font-black text-brand-forest text-base">Staff Added!</h3>
+                <p className="text-xs text-content-muted">Share these credentials with <strong>{addStaffSuccess.name}</strong></p>
+              </div>
+              {addStaffSuccess.username !== '(no login account)' && (
+                <div className="bg-surface-cream rounded-xl p-4 space-y-2 border border-border-subtle">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-content-muted font-medium">Username</span>
+                    <span className="font-black text-brand-forest">{addStaffSuccess.username}</span>
                   </div>
-                  <span className="text-xs font-bold text-brand-forest">Upload Photo</span>
-                  <span className="text-[10px] text-content-muted">PNG, JPG up to 5MB</span>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-content-muted font-medium">Password</span>
+                    <span className="font-black text-brand-forest">{addStaffSuccess.password}</span>
+                  </div>
                 </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">
-                    Full Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Ramesh Kumar"
-                    value={addFullName}
-                    onChange={(e) => setAddFullName(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">
-                    Position / Role <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    required
-                    value={addPositionId}
-                    onChange={(e) => setAddPositionId(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
-                  >
-                    <option value="">Select a role</option>
-                    {positionCategories.map((pos) => (
-                      <option key={pos.id} value={pos.id}>
-                        {pos.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">
-                    Mobile Number <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="9876543210"
-                    value={addMobile}
-                    onChange={(e) => setAddMobile(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">Address</label>
-                  <input
-                    type="text"
-                    placeholder="Guwahati, Assam"
-                    value={addAddress}
-                    onChange={(e) => setAddAddress(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">Aadhaar Number</label>
-                  <input
-                    type="text"
-                    placeholder="1234 5678 9012"
-                    value={addAadhaar}
-                    onChange={(e) => setAddAadhaar(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
-                  />
-                </div>
-
+              )}
+              <div className="flex gap-2">
                 <button
-                  type="submit"
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay flex items-center justify-center gap-1.5 mt-2"
+                  onClick={() => { resetAddStaffForm(); }}
+                  className="flex-1 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-bold text-brand-forest"
                 >
-                  <span>Next</span>
-                  <ChevronRight className="w-4 h-4" />
+                  Add Another
+                </button>
+                <button
+                  onClick={() => { resetAddStaffForm(); setActiveDrilldown(null); }}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay"
+                >
+                  Done
                 </button>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Step 2: More Details (Screen 4) */}
-            {addStaffStep === 2 && (
-              <div className="space-y-3.5 bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm">
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">Bank Account Number</label>
-                  <input
-                    type="text"
-                    placeholder="50100012345678"
-                    value={addBankAccount}
-                    onChange={(e) => setAddBankAccount(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">Joining Date</label>
-                  <input
-                    type="date"
-                    value={addJoiningDate}
-                    onChange={(e) => setAddJoiningDate(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">Monthly Salary (₹)</label>
-                  <input
-                    type="number"
-                    placeholder="15000"
-                    value={addSalary}
-                    onChange={(e) => setAddSalary(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">Security Deposit (₹)</label>
-                  <input
-                    type="number"
-                    placeholder="5000"
-                    value={addSecurityDeposit}
-                    onChange={(e) => setAddSecurityDeposit(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">Duty Timing</label>
-                  <input
-                    type="text"
-                    placeholder="09:00 AM - 06:00 PM"
-                    value={addDutyTiming}
-                    onChange={(e) => setAddDutyTiming(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">Incentive Amount (₹)</label>
-                  <input
-                    type="number"
-                    placeholder="2000"
-                    value={addIncentive}
-                    onChange={(e) => setAddIncentive(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
-                  />
-                </div>
-
-                <div className="flex items-center gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setAddStaffStep(1)}
-                    className="flex-1 py-3 rounded-xl bg-surface-cream border border-border-subtle text-xs font-bold text-brand-forest"
-                  >
-                    Back
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmittingStaff}
-                    className="flex-1 py-3 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay flex items-center justify-center gap-1.5"
-                  >
-                    <span>{isSubmittingStaff ? 'Saving...' : 'Save Staff'}</span>
-                  </button>
-                </div>
+          {/* ── WIZARD FORM ── */}
+          {!addStaffSuccess && (
+            <>
+              {/* Step tabs */}
+              <div className="flex items-center gap-2 p-1 bg-surface-cream rounded-xl border border-border-subtle">
+                <button
+                  type="button"
+                  onClick={() => setAddStaffStep(1)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all text-center ${
+                    addStaffStep === 1 ? 'bg-brand-forest text-white shadow-sm' : 'bg-transparent text-content-muted'
+                  }`}
+                >
+                  Basic Details
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { if (addFullName.trim() && addPermissionProfileId) setAddStaffStep(2); }}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all text-center ${
+                    addStaffStep === 2 ? 'bg-brand-forest text-white shadow-sm' : 'bg-transparent text-content-muted'
+                  }`}
+                >
+                  Employment & Login
+                </button>
               </div>
-            )}
-          </form>
+
+              <form
+                onSubmit={addStaffStep === 1
+                  ? (e) => { e.preventDefault(); if (addFullName.trim() && addPermissionProfileId) setAddStaffStep(2); }
+                  : handleSaveStaff
+                }
+                className="space-y-4"
+              >
+                {/* STEP 1: Basic Details */}
+                {addStaffStep === 1 && (
+                  <div className="space-y-3.5 bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm">
+                    {/* Photo upload placeholder */}
+                    <div className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-brand-forest/20 rounded-2xl bg-surface-cream/50">
+                      <div className="w-14 h-14 rounded-full bg-[#EAF5E9] flex items-center justify-center mb-2">
+                        <Camera className="w-6 h-6 text-brand-forest" />
+                      </div>
+                      <span className="text-xs font-bold text-brand-forest">Upload Photo</span>
+                      <span className="text-[10px] text-content-muted">PNG, JPG up to 5MB</span>
+                    </div>
+
+                    {/* Full Name */}
+                    <div>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">
+                        Full Name <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text" required
+                        placeholder="e.g. Ramesh Kumar"
+                        value={addFullName}
+                        onChange={(e) => setAddFullName(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                      />
+                    </div>
+
+                    {/* Permission Profile / Access Role — from DB */}
+                    <div>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">
+                        Access Role <span className="text-red-500">*</span>
+                        <span className="ml-1 text-[10px] font-medium text-content-muted">(what this person can do in the app)</span>
+                      </label>
+                      <select
+                        required
+                        value={addPermissionProfileId}
+                        onChange={(e) => setAddPermissionProfileId(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                      >
+                        <option value="">Select access role…</option>
+                        {permissionProfiles.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                      {permissionProfiles.length === 0 && (
+                        <p className="mt-1 text-[10px] text-amber-600">No roles loaded — check connection.</p>
+                      )}
+                    </div>
+
+                    {/* Position / Job Title — existing DB categories OR custom */}
+                    <div>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">
+                        Job Title / Position
+                        <span className="ml-1 text-[10px] font-medium text-content-muted">(displayed label)</span>
+                      </label>
+                      <select
+                        value={addPositionId}
+                        onChange={(e) => { setAddPositionId(e.target.value); if (e.target.value) setAddCustomPosition(''); }}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                      >
+                        <option value="">Select existing…</option>
+                        {positionCategories.map((pos) => (
+                          <option key={pos.id} value={pos.id}>{pos.name}</option>
+                        ))}
+                        <option value="__new__">+ Create new position…</option>
+                      </select>
+
+                      {/* Custom position input */}
+                      {(addPositionId === '__new__' || (!addPositionId && addCustomPosition)) && (
+                        <input
+                          type="text"
+                          placeholder="e.g. Pressman, Helper, Counter Staff…"
+                          value={addCustomPosition}
+                          onChange={(e) => { setAddCustomPosition(e.target.value); setAddPositionId(''); }}
+                          className="mt-2 w-full px-3.5 py-2.5 rounded-xl bg-white border-2 border-brand-forest/30 text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                          autoFocus
+                        />
+                      )}
+                    </div>
+
+                    {/* Mobile */}
+                    <div>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">Mobile Number</label>
+                      <input
+                        type="tel"
+                        placeholder="9876543210"
+                        value={addMobile}
+                        onChange={(e) => setAddMobile(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                      />
+                    </div>
+
+                    {/* Address */}
+                    <div>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">Address</label>
+                      <input
+                        type="text"
+                        placeholder="City, State"
+                        value={addAddress}
+                        onChange={(e) => setAddAddress(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={!addFullName.trim() || !addPermissionProfileId}
+                      className="w-full py-3 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay flex items-center justify-center gap-1.5 mt-2 disabled:opacity-50"
+                    >
+                      <span>Next</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+                {/* STEP 2: Employment & Login */}
+                {addStaffStep === 2 && (
+                  <div className="space-y-3.5 bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm">
+                    {/* Login credentials section */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-3.5 space-y-3">
+                      <p className="text-[11px] font-bold text-blue-800">
+                        🔐 App Login Credentials <span className="font-normal text-blue-600">(optional — leave blank if this person won&apos;t log in)</span>
+                      </p>
+
+                      <div>
+                        <label className="block text-xs font-bold text-brand-forest mb-1">Username</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. ramesh_wash"
+                          value={addUsername}
+                          onChange={(e) => setAddUsername(e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-border-subtle text-xs focus:ring-2 focus:ring-blue-500 font-semibold"
+                          autoComplete="off"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-brand-forest mb-1">
+                          Password {addUsername.trim() && <span className="text-red-500">*</span>}
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Min 6 characters"
+                          value={addPassword}
+                          onChange={(e) => setAddPassword(e.target.value)}
+                          required={!!addUsername.trim()}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-border-subtle text-xs focus:ring-2 focus:ring-blue-500 font-semibold tracking-widest"
+                          autoComplete="new-password"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Employment details */}
+                    <div>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">Joining Date</label>
+                      <input
+                        type="date"
+                        value={addJoiningDate}
+                        onChange={(e) => setAddJoiningDate(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">Monthly Salary (₹)</label>
+                      <input
+                        type="number" min="0"
+                        placeholder="15000"
+                        value={addSalary}
+                        onChange={(e) => setAddSalary(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">Security Deposit (₹)</label>
+                      <input
+                        type="number" min="0"
+                        placeholder="5000"
+                        value={addSecurityDeposit}
+                        onChange={(e) => setAddSecurityDeposit(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">Duty Timing</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 09:00 AM – 06:00 PM"
+                        value={addDutyTiming}
+                        onChange={(e) => setAddDutyTiming(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">Incentive Amount (₹)</label>
+                      <input
+                        type="number" min="0"
+                        placeholder="2000"
+                        value={addIncentive}
+                        onChange={(e) => setAddIncentive(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">Aadhaar Number</label>
+                      <input
+                        type="text"
+                        placeholder="1234 5678 9012"
+                        value={addAadhaar}
+                        onChange={(e) => setAddAadhaar(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">Bank Account Number</label>
+                      <input
+                        type="text"
+                        placeholder="50100012345678"
+                        value={addBankAccount}
+                        onChange={(e) => setAddBankAccount(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setAddStaffStep(1)}
+                        className="flex-1 py-3 rounded-xl bg-surface-cream border border-border-subtle text-xs font-bold text-brand-forest"
+                      >
+                        Back
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSubmittingStaff}
+                        className="flex-1 py-3 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay flex items-center justify-center gap-1.5"
+                      >
+                        <span>{isSubmittingStaff ? 'Saving…' : 'Save Staff'}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </form>
+            </>
+          )}
         </div>
       )}
 
