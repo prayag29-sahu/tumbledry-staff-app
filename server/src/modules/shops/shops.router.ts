@@ -279,9 +279,10 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
     select: {
       id: true,
       staffMemberId: true,
+      serviceType: { select: { code: true, name: true } },
       taskUnits: {
         where: { status: { not: 'CANCELLED' } },
-        select: { status: true },
+        select: { status: true, activityCode: true, unitType: true },
       },
     },
   });
@@ -290,19 +291,57 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
   let todayCompletedUnits = 0;
   const staffTaskMap: Record<string, { total: number; completed: number }> = {};
 
+  const departmentBreakdown = {
+    wash: { name: 'Washing & Cleaning', total: 0, completed: 0, percentage: 0 },
+    iron: { name: 'Steam Press & Ironing', total: 0, completed: 0, percentage: 0 },
+    dryClean: { name: 'Dry Clean & Delicate', total: 0, completed: 0, percentage: 0 },
+    packaging: { name: 'Packaging & Dispatch', total: 0, completed: 0, percentage: 0 },
+  };
+
   for (const a of assignments) {
+    const isDryClean = a.serviceType?.code === 'CL' || (a.serviceType?.name || '').toLowerCase().includes('dry clean');
+
     if (!staffTaskMap[a.staffMemberId]) {
       staffTaskMap[a.staffMemberId] = { total: 0, completed: 0 };
     }
     for (const u of a.taskUnits) {
       todayTotalUnits++;
       staffTaskMap[a.staffMemberId].total++;
-      if (u.status === 'COMPLETED') {
+      const isDone = u.status === 'COMPLETED';
+      if (isDone) {
         todayCompletedUnits++;
         staffTaskMap[a.staffMemberId].completed++;
       }
+
+      const code = (u.activityCode || '').toUpperCase();
+      if (code.includes('WASH') || code.includes('WET')) {
+        departmentBreakdown.wash.total++;
+        if (isDone) departmentBreakdown.wash.completed++;
+      } else if (code.includes('IRON') || code.includes('PRESS')) {
+        departmentBreakdown.iron.total++;
+        if (isDone) departmentBreakdown.iron.completed++;
+      } else if (code.includes('DRY') || isDryClean) {
+        departmentBreakdown.dryClean.total++;
+        if (isDone) departmentBreakdown.dryClean.completed++;
+      } else if (code.includes('PACK') || code.includes('FOLD') || code.includes('DELIVER') || u.unitType === 'PER_ORDER' || u.unitType === 'COUNT_BASED') {
+        departmentBreakdown.packaging.total++;
+        if (isDone) departmentBreakdown.packaging.completed++;
+      } else {
+        departmentBreakdown.wash.total++;
+        if (isDone) departmentBreakdown.wash.completed++;
+      }
     }
   }
+
+  // Calculate percentages dynamically from DB
+  departmentBreakdown.wash.percentage = departmentBreakdown.wash.total > 0
+    ? Math.round((departmentBreakdown.wash.completed / departmentBreakdown.wash.total) * 100) : 0;
+  departmentBreakdown.iron.percentage = departmentBreakdown.iron.total > 0
+    ? Math.round((departmentBreakdown.iron.completed / departmentBreakdown.iron.total) * 100) : 0;
+  departmentBreakdown.dryClean.percentage = departmentBreakdown.dryClean.total > 0
+    ? Math.round((departmentBreakdown.dryClean.completed / departmentBreakdown.dryClean.total) * 100) : 0;
+  departmentBreakdown.packaging.percentage = departmentBreakdown.packaging.total > 0
+    ? Math.round((departmentBreakdown.packaging.completed / departmentBreakdown.packaging.total) * 100) : 0;
 
   const todayPendingUnits = todayTotalUnits - todayCompletedUnits;
   const completionPercentage = todayTotalUnits > 0
@@ -314,7 +353,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
     const taskData = staffTaskMap[m.staffMemberId] || { total: 0, completed: 0 };
     const pct = taskData.total > 0
       ? Math.round((taskData.completed / taskData.total) * 100)
-      : (presentSet.has(m.staffMemberId) ? 88 : 0);
+      : 0;
 
     return {
       staffId: m.staffMemberId,
@@ -341,6 +380,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
       percentage: completionPercentage,
     },
     staffPerformance,
+    departmentBreakdown,
   });
 });
 
