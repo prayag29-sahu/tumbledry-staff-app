@@ -74,6 +74,51 @@ taskRouter.get(
   }
 );
 
+// GET /api/shops/:shopId/tasks?date=YYYY-MM-DD — All task assignments in the shop on date (Owner / Supervisor / Manager)
+taskRouter.get(
+  '/shops/:shopId/tasks',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
+    const { shopId } = req.params as { shopId: string };
+    const dateStr = req.query['date'] as string;
+
+    const date = dateStr ? new Date(dateStr) : new Date();
+    if (isNaN(date.getTime())) {
+      return next(new AppError(422, 'VALIDATION_ERROR', 'Invalid date format. Use YYYY-MM-DD.'));
+    }
+
+    const hasAccess = auth.isOwner || auth.shopMemberships.some(
+      (m) => m.shopId === shopId && (m.capabilities.includes('tasks.read_team') || m.capabilities.includes('staff.read'))
+    );
+    if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
+
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const assignments = await prisma.taskAssignment.findMany({
+      where: {
+        shopId,
+        assignmentDate: { gte: startOfDay, lte: endOfDay },
+        status: 'ACTIVE',
+      },
+      include: {
+        staffMember: { select: { id: true, fullName: true, mobile: true } },
+        workflowProfile: { select: { workflowType: true, name: true } },
+        serviceType: { select: { name: true, code: true } },
+        taskUnits: {
+          where: { status: { not: 'CANCELLED' } },
+          orderBy: [{ pieceNumber: 'asc' }, { sequenceNumber: 'asc' }],
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json({ assignments, date: date.toISOString().split('T')[0] });
+  }
+);
+
 // POST /api/shops/:shopId/staff/:staffId/tasks — Manager creates an assignment
 taskRouter.post(
   '/shops/:shopId/staff/:staffId/tasks',

@@ -174,13 +174,17 @@ attendanceRouter.get(
     );
     if (!hasTeamView) return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const dateStr = req.query['date'] as string;
+    const targetDate = dateStr ? new Date(dateStr) : new Date();
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
 
     const sessions = await prisma.attendanceSession.findMany({
       where: {
         shopId,
-        checkInAt: { gte: today },
+        checkInAt: { gte: startOfDay, lte: endOfDay },
       },
       include: {
         staffMember: { select: { id: true, fullName: true, mobile: true } },
