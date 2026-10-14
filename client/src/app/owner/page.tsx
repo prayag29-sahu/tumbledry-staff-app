@@ -41,6 +41,7 @@ import {
   UserPlus,
   KeyRound,
   Copy,
+  CalendarCheck2,
 } from 'lucide-react';
 
 interface StaffMembershipItem {
@@ -56,6 +57,7 @@ interface StaffMembershipItem {
   };
   positionCategory?: { id: string; name: string } | null;
   account?: { id: string; username: string; status: string } | null;
+  attendanceEnabled?: boolean;
 }
 
 interface StaffTaskDaySummary {
@@ -190,6 +192,9 @@ export default function OwnerPage() {
   const [resetNewPassword, setResetNewPassword] = useState('');
   const [isSubmittingReset, setIsSubmittingReset] = useState(false);
 
+  // Attendance Toggle State
+  const [togglingStaffId, setTogglingStaffId] = useState<string | null>(null);
+
   // Position Modal
   const [isAddPosOpen, setIsAddPosOpen] = useState(false);
   const [posName, setPosName] = useState('');
@@ -250,6 +255,25 @@ export default function OwnerPage() {
       alert(err instanceof Error ? err.message : 'Failed to create supervisor.');
     } finally {
       setIsSubmittingSupervisor(false);
+    }
+  };
+
+  const handleToggleAttendance = async (staff: StaffMembershipItem) => {
+    if (!selectedShopId) return;
+    const nextVal = staff.attendanceEnabled === false ? true : false;
+    setTogglingStaffId(staff.id);
+    try {
+      await apiRequest(`/api/shops/${selectedShopId}/staff/${staff.staffMember.id}/attendance-toggle`, {
+        method: 'PATCH',
+        body: JSON.stringify({ attendanceEnabled: nextVal }),
+      });
+      setShopStaff((prev) =>
+        prev.map((s) => (s.id === staff.id ? { ...s, attendanceEnabled: nextVal } : s))
+      );
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to update attendance tracking.');
+    } finally {
+      setTogglingStaffId(null);
     }
   };
 
@@ -1018,6 +1042,41 @@ export default function OwnerPage() {
                             </button>
                           </div>
                         )}
+
+                        {/* Attendance Tracking Toggle */}
+                        <div className="pt-2 border-t border-border-subtle/60 flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <CalendarCheck2 className={`w-3.5 h-3.5 ${staff.attendanceEnabled !== false ? 'text-emerald-700' : 'text-content-muted'}`} />
+                            <span className="text-[11px] font-bold text-brand-forest">
+                              Attendance Tracking:
+                            </span>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                              staff.attendanceEnabled !== false
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {staff.attendanceEnabled !== false ? 'Required' : 'Exempt'}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleAttendance(staff);
+                            }}
+                            disabled={togglingStaffId === staff.id}
+                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                              staff.attendanceEnabled !== false ? 'bg-emerald-600' : 'bg-gray-300'
+                            } ${togglingStaffId === staff.id ? 'opacity-50' : ''}`}
+                            title={staff.attendanceEnabled !== false ? 'Attendance required (click to exempt)' : 'Attendance exempt (click to require)'}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                                staff.attendanceEnabled !== false ? 'translate-x-4' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
 
                         <div className="pt-1 flex items-center justify-between text-xs font-bold text-brand-forest">
                           <span className="text-[11px] text-content-muted group-hover:text-brand-forest">

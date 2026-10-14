@@ -10,6 +10,7 @@ import {
   LogOut,
   AlertCircle,
   CheckCircle2,
+  ArrowLeft,
 } from 'lucide-react';
 
 export default function ProfilePage() {
@@ -77,7 +78,22 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="space-y-5 animate-fade-in max-w-md mx-auto">
+    <div className="space-y-4 animate-fade-in max-w-md mx-auto">
+      {/* Back Button */}
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => {
+            if (activeRole === 'Supervisor') router.push('/supervisor');
+            else if (user?.isOwner) router.push('/owner');
+            else router.back();
+          }}
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-forest hover:text-brand-lime transition-colors py-1.5 px-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-sm"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back to {activeRole === 'Supervisor' ? 'Supervisor Portal' : user?.isOwner ? 'Owner Portal' : 'Home'}</span>
+        </button>
+      </div>
+
       {/* Title */}
       <div>
         <h2 className="text-xl font-black text-brand-forest tracking-tight">
@@ -112,6 +128,15 @@ export default function ProfilePage() {
             </div>
           </div>
         </div>
+
+        {activeRole === 'Supervisor' && (
+          <div className="pt-3 border-t border-border-subtle/60 flex items-center justify-between text-xs">
+            <span className="text-[11px] font-bold text-content-muted">Attendance Tracking:</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+              Exempt from Floor Roll (Set by Owner)
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Change Password Card */}
