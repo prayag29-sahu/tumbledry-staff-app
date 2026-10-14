@@ -6,6 +6,8 @@ import { apiRequest } from '../../lib/api';
 import {
   PositionCategory,
   CustomFieldDefinition,
+  ServiceType,
+  WorkflowProfile,
 } from '../../types';
 
 interface PermissionProfileItem {
@@ -39,6 +41,9 @@ import {
   RefreshCw,
   Copy,
   KeyRound,
+  Pencil,
+  X,
+  Send,
 } from 'lucide-react';
 
 interface EnrichedStaffItem {
@@ -241,6 +246,33 @@ export default function SupervisorPage() {
   const [isSubmittingStaff, setIsSubmittingStaff] = useState(false);
   const [addStaffSuccess, setAddStaffSuccess] = useState<{ name: string; username: string; password: string } | null>(null);
 
+  // ─── Edit Staff Modal State (Non-Self, Non-Owner) ──────────────────────────
+  const [isEditStaffModalOpen, setIsEditStaffModalOpen] = useState(false);
+  const [editStaffTarget, setEditStaffTarget] = useState<EnrichedStaffItem | null>(null);
+  const [editFullName, setEditFullName] = useState('');
+  const [editMobile, setEditMobile] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editPositionCategoryId, setEditPositionCategoryId] = useState('');
+  const [editJoiningDate, setEditJoiningDate] = useState('');
+  const [editMonthlySalary, setEditMonthlySalary] = useState('');
+  const [editSecurityDeposit, setEditSecurityDeposit] = useState('');
+  const [editDutyTiming, setEditDutyTiming] = useState('');
+  const [editIncentive, setEditIncentive] = useState('');
+  const [isSavingEditStaff, setIsSavingEditStaff] = useState(false);
+  const [editStaffError, setEditStaffError] = useState<string | null>(null);
+
+  // ─── Assign Task Modal State ───────────────────────────────────────────────
+  const [isAssignTaskModalOpen, setIsAssignTaskModalOpen] = useState(false);
+  const [taskOrderId, setTaskOrderId] = useState('');
+  const [taskPieces, setTaskPieces] = useState('');
+  const [taskServiceTypeId, setTaskServiceTypeId] = useState('');
+  const [taskSelectedActivities, setTaskSelectedActivities] = useState<string[]>(['WASH', 'DRY']);
+  const [taskNotes, setTaskNotes] = useState('');
+  const [isSubmittingTask, setIsSubmittingTask] = useState(false);
+  const [taskFeedback, setTaskFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [services, setServices] = useState<ServiceType[]>([]);
+  const [workflowProfiles, setWorkflowProfiles] = useState<WorkflowProfile[]>([]);
+
   // Custom Fields Builder Modal State (Screen 5)
   const [isAddingField, setIsAddingField] = useState(false);
   const [newFieldName, setNewFieldName] = useState('');
@@ -295,12 +327,14 @@ export default function SupervisorPage() {
     if (!activeShopId) return;
     setIsLoading(true);
     try {
-      const [dashRes, staffRes, posRes, permRes, fieldsRes] = await Promise.all([
+      const [dashRes, staffRes, posRes, permRes, fieldsRes, svcRes, wfRes] = await Promise.all([
         apiRequest<SupervisorDashboardData>(`/api/shops/${activeShopId}/supervisor/dashboard?date=${dashboardDate}`).catch(() => null),
         apiRequest<{ staff: EnrichedStaffItem[] }>(`/api/shops/${activeShopId}/staff`).catch(() => ({ staff: [] })),
         apiRequest<{ categories: PositionCategory[] }>(`/api/config/shops/${activeShopId}/position-categories`).catch(() => ({ categories: [] })),
         apiRequest<{ profiles: PermissionProfileItem[] }>(`/api/config/shops/${activeShopId}/permission-profiles`).catch(() => ({ profiles: [] })),
         apiRequest<{ fields: CustomFieldDefinition[] }>(`/api/config/shops/${activeShopId}/custom-fields`).catch(() => ({ fields: [] })),
+        apiRequest<{ serviceTypes: ServiceType[] }>(`/api/config/service-types`).catch(() => ({ serviceTypes: [] })),
+        apiRequest<{ profiles: WorkflowProfile[] }>(`/api/config/workflow-profiles`).catch(() => ({ profiles: [] })),
       ]);
 
       if (dashRes) setDashboardData(dashRes);
@@ -308,12 +342,19 @@ export default function SupervisorPage() {
       setPositionCategories(posRes.categories || []);
       setPermissionProfiles(permRes.profiles || []);
       setCustomFields(fieldsRes.fields || []);
+      if (svcRes?.serviceTypes) {
+        setServices(svcRes.serviceTypes);
+        if (svcRes.serviceTypes.length > 0 && !taskServiceTypeId) {
+          setTaskServiceTypeId(svcRes.serviceTypes[0].id);
+        }
+      }
+      if (wfRes?.profiles) setWorkflowProfiles(wfRes.profiles);
     } catch {
       // Ignored
     } finally {
       setIsLoading(false);
     }
-  }, [activeShopId, dashboardDate]);
+  }, [activeShopId, dashboardDate, taskServiceTypeId]);
 
   useEffect(() => {
     fetchAllData();
@@ -461,6 +502,160 @@ export default function SupervisorPage() {
       alert(err instanceof Error ? err.message : 'Failed to add staff member.');
     } finally {
       setIsSubmittingStaff(false);
+    }
+  };
+
+  // ─── Edit Staff Handlers ──────────────────────────────────────────────────
+  const handleOpenEditStaff = (staff: EnrichedStaffItem) => {
+    setEditStaffTarget(staff);
+    setEditFullName(staff.staffMember.fullName || '');
+    setEditMobile(staff.staffMember.mobile || '');
+    setEditAddress(staff.staffMember.address || '');
+    setEditPositionCategoryId(staff.positionCategory?.id || '');
+    setEditJoiningDate(staff.joiningDate ? staff.joiningDate.split('T')[0] : '');
+    setEditMonthlySalary(staff.monthlySalary != null ? String(staff.monthlySalary) : '');
+    setEditSecurityDeposit(staff.securityDeposit != null ? String(staff.securityDeposit) : '');
+    setEditDutyTiming(staff.dutyTimingNotes || '');
+    setEditIncentive(staff.incentiveAmount != null ? String(staff.incentiveAmount) : '');
+    setEditStaffError(null);
+    setIsEditStaffModalOpen(true);
+  };
+
+  const handleSaveEditStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeShopId || !editStaffTarget) return;
+
+    if (!editFullName.trim()) {
+      setEditStaffError('Full name is required.');
+      return;
+    }
+
+    setIsSavingEditStaff(true);
+    setEditStaffError(null);
+
+    try {
+      const payload = {
+        fullName: editFullName.trim(),
+        mobile: editMobile.trim() || null,
+        address: editAddress.trim() || null,
+        positionCategoryId: editPositionCategoryId || null,
+        joiningDate: editJoiningDate || null,
+        monthlySalary: editMonthlySalary ? parseFloat(editMonthlySalary) : null,
+        securityDeposit: editSecurityDeposit ? parseFloat(editSecurityDeposit) : null,
+        dutyTimingNotes: editDutyTiming.trim() || null,
+        incentiveAmount: editIncentive ? parseFloat(editIncentive) : null,
+      };
+
+      await apiRequest(`/api/shops/${activeShopId}/staff/${editStaffTarget.staffMember.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+
+      const matchedPos = positionCategories.find((p) => p.id === editPositionCategoryId);
+      const updatedStaff: EnrichedStaffItem = {
+        ...editStaffTarget,
+        staffMember: {
+          ...editStaffTarget.staffMember,
+          fullName: editFullName.trim(),
+          mobile: editMobile.trim() || null,
+          address: editAddress.trim() || null,
+        },
+        positionCategory: matchedPos ? { id: matchedPos.id, name: matchedPos.name } : editStaffTarget.positionCategory,
+        joiningDate: editJoiningDate || null,
+        monthlySalary: editMonthlySalary ? parseFloat(editMonthlySalary) : null,
+        securityDeposit: editSecurityDeposit ? parseFloat(editSecurityDeposit) : null,
+        dutyTimingNotes: editDutyTiming.trim() || null,
+        incentiveAmount: editIncentive ? parseFloat(editIncentive) : null,
+      };
+
+      setSelectedStaff(updatedStaff);
+      setStaffList((prev) => prev.map((s) => (s.id === updatedStaff.id ? updatedStaff : s)));
+      setIsEditStaffModalOpen(false);
+      fetchAllData();
+    } catch (err: unknown) {
+      setEditStaffError(err instanceof Error ? err.message : 'Failed to update staff member.');
+    } finally {
+      setIsSavingEditStaff(false);
+    }
+  };
+
+  // ─── Assign Task Handlers ──────────────────────────────────────────────────
+  const handleOpenAssignTask = (staff: EnrichedStaffItem) => {
+    setTaskFeedback(null);
+    setTaskOrderId('');
+    setTaskPieces('');
+    setTaskNotes('');
+    const roleName = (staff.positionCategory?.name || staff.role || '').toLowerCase();
+    if (roleName.includes('iron')) {
+      setTaskSelectedActivities(['IRON', 'FOLD', 'PACK']);
+    } else if (roleName.includes('deliver')) {
+      setTaskSelectedActivities(['DELIVERY']);
+    } else {
+      setTaskSelectedActivities(['WASH', 'DRY']);
+    }
+    if (services.length > 0 && !taskServiceTypeId) {
+      setTaskServiceTypeId(services[0].id);
+    }
+    setIsAssignTaskModalOpen(true);
+  };
+
+  const handleCreateTaskSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeShopId || !selectedStaff) return;
+
+    setIsSubmittingTask(true);
+    setTaskFeedback(null);
+
+    try {
+      const roleName = (selectedStaff.positionCategory?.name || selectedStaff.role || '').toLowerCase();
+      let workflowProfileId = '';
+
+      if (roleName.includes('deliver')) {
+        const wf = workflowProfiles.find((w) => w.workflowType === 'PER_ORDER');
+        workflowProfileId = wf?.id || 'wfp-per-order';
+      } else {
+        const wf = workflowProfiles.find((w) => w.workflowType === 'PIECE_ACTIVITY');
+        workflowProfileId = wf?.id || 'wfp-piece-activity';
+      }
+
+      if (!taskOrderId.trim()) throw new Error('Order ID is required.');
+      if (!taskPieces || Number(taskPieces) < 1) throw new Error('Piece count must be at least 1.');
+      if (taskSelectedActivities.length === 0) throw new Error('Select at least one activity.');
+
+      const idempotencyKey = `sup-task-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+      const payload = {
+        assignmentDate: staffTaskDate,
+        workflowProfileId,
+        orderId: taskOrderId.trim(),
+        pieceCount: Number(taskPieces),
+        serviceTypeId: taskServiceTypeId || undefined,
+        selectedActivities: taskSelectedActivities,
+        notes: taskNotes.trim() || undefined,
+        idempotencyKey,
+      };
+
+      await apiRequest(`/api/shops/${activeShopId}/staff/${selectedStaff.staffMember.id}/tasks`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      setTaskFeedback({ type: 'success', message: 'Task assigned successfully!' });
+      setTaskOrderId('');
+      setTaskPieces('');
+      setTaskNotes('');
+
+      fetchStaffDayTasks(selectedStaff.staffMember.id, staffTaskDate);
+      fetchAllData();
+      setTimeout(() => {
+        setIsAssignTaskModalOpen(false);
+      }, 1200);
+    } catch (err: unknown) {
+      setTaskFeedback({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to assign task.',
+      });
+    } finally {
+      setIsSubmittingTask(false);
     }
   };
 
@@ -876,40 +1071,62 @@ export default function SupervisorPage() {
       {/* ══════════════════════════════════════════════════════════════════════════
           DRILLDOWN VIEW 2: STAFF PROFILE WITH 4 TABS (SCREENS 6, 7, 8, 9)
       ══════════════════════════════════════════════════════════════════════════ */}
-      {activeDrilldown === 'staff_profile' && selectedStaff && (
-        <div className="p-4 space-y-4 animate-fade-in">
-          {/* Header with Back, Avatar, Name, Role & Status badge */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setActiveDrilldown(null)}
-                className="p-2 rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-hover"
-              >
-                <ChevronLeft className="w-5 h-5 text-brand-forest" />
-              </button>
-              <div className="w-10 h-10 rounded-full bg-[#EAF5E9] text-brand-forest font-black flex items-center justify-center shadow-sm">
-                {selectedStaff.staffMember.fullName.charAt(0)}
+      {activeDrilldown === 'staff_profile' && selectedStaff && (() => {
+        const isStaffSelf = selectedStaff.staffMember.id === user?.staffMember?.id ||
+          (selectedStaff.account && selectedStaff.account.id === user?.id) ||
+          (selectedStaff.account && selectedStaff.account.username === user?.username);
+        const isStaffOwner = (selectedStaff.role || '').toLowerCase().includes('owner') ||
+          (selectedStaff.positionCategory?.name || '').toLowerCase().includes('owner') ||
+          (selectedStaff.account?.username || '').toLowerCase().includes('owner');
+        const canEditStaff = !isStaffSelf && !isStaffOwner;
+
+        return (
+          <div className="p-4 space-y-4 animate-fade-in">
+            {/* Header with Back, Avatar, Name, Role & Status badge */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setActiveDrilldown(null)}
+                  className="p-2 rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-hover"
+                >
+                  <ChevronLeft className="w-5 h-5 text-brand-forest" />
+                </button>
+                <div className="w-10 h-10 rounded-full bg-[#EAF5E9] text-brand-forest font-black flex items-center justify-center shadow-sm">
+                  {selectedStaff.staffMember.fullName.charAt(0)}
+                </div>
+                <div>
+                  <h2 className="text-base font-black text-brand-forest">
+                    {selectedStaff.staffMember.fullName}
+                  </h2>
+                  <p className="text-xs text-content-muted font-medium">
+                    {selectedStaff.positionCategory?.name || 'Staff Employee'}
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-base font-black text-brand-forest">
-                  {selectedStaff.staffMember.fullName}
-                </h2>
-                <p className="text-xs text-content-muted font-medium">
-                  {selectedStaff.positionCategory?.name || 'Staff Employee'}
-                </p>
+
+              <div className="flex items-center gap-2">
+                {canEditStaff && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEditStaff(selectedStaff)}
+                    className="px-3 py-1.5 rounded-xl bg-[#245431] hover:bg-[#1E4327] text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all"
+                    title="Edit staff details"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    <span>Edit</span>
+                  </button>
+                )}
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-bold ${
+                    selectedStaff.attendanceToday.isPresent
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-red-100 text-red-700'
+                  }`}
+                >
+                  {selectedStaff.attendanceToday.isPresent ? 'Present' : 'Absent'}
+                </span>
               </div>
             </div>
-
-            <span
-              className={`px-3 py-1 rounded-full text-xs font-bold ${
-                selectedStaff.attendanceToday.isPresent
-                  ? 'bg-emerald-100 text-emerald-800'
-                  : 'bg-red-100 text-red-700'
-              }`}
-            >
-              {selectedStaff.attendanceToday.isPresent ? 'Present' : 'Absent'}
-            </span>
-          </div>
 
           {/* 4 Profile Tabs (Screens 6, 7, 8, 9) */}
           <div className="flex items-center gap-1 p-1 bg-surface-cream rounded-xl border border-border-subtle overflow-x-auto">
@@ -1030,41 +1247,63 @@ export default function SupervisorPage() {
                   <p className="text-[11px] text-content-muted font-medium italic">No custom fields assigned to this staff member.</p>
                 )}
               </div>
+
+              {canEditStaff && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenEditStaff(selectedStaff)}
+                  className="w-full py-2.5 rounded-xl bg-[#245431] hover:bg-[#1E4327] text-white text-xs font-black flex items-center justify-center gap-2 shadow-clay-sm transition-all"
+                >
+                  <Pencil className="w-4 h-4" />
+                  <span>Edit Staff Information</span>
+                </button>
+              )}
             </div>
           )}
 
           {/* TAB 2: TASKS (Screen 7 - Piece-Level Checklist) */}
           {profileTab === 'tasks' && (
             <div className="space-y-4">
-              {/* Date Navigator */}
-              <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-border-subtle shadow-sm">
-                <button
-                  onClick={() => {
-                    const prev = new Date(staffTaskDate);
-                    prev.setDate(prev.getDate() - 1);
-                    const str = prev.toISOString().split('T')[0];
-                    setStaffTaskDate(str);
-                    fetchStaffDayTasks(selectedStaff.staffMember.id, str);
-                  }}
-                  className="p-1.5 rounded-lg hover:bg-surface-cream text-brand-forest"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <div className="flex items-center gap-2 font-bold text-xs text-brand-forest">
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span>{new Date(staffTaskDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+              {/* Date Navigator & Assign Task Button */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center justify-between flex-1 p-2 bg-white rounded-xl border border-border-subtle shadow-sm">
+                  <button
+                    onClick={() => {
+                      const prev = new Date(staffTaskDate);
+                      prev.setDate(prev.getDate() - 1);
+                      const str = prev.toISOString().split('T')[0];
+                      setStaffTaskDate(str);
+                      fetchStaffDayTasks(selectedStaff.staffMember.id, str);
+                    }}
+                    className="p-1.5 rounded-lg hover:bg-surface-cream text-brand-forest"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <div className="flex items-center gap-1.5 font-bold text-xs text-brand-forest">
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>{new Date(staffTaskDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const next = new Date(staffTaskDate);
+                      next.setDate(next.getDate() + 1);
+                      const str = next.toISOString().split('T')[0];
+                      setStaffTaskDate(str);
+                      fetchStaffDayTasks(selectedStaff.staffMember.id, str);
+                    }}
+                    className="p-1.5 rounded-lg hover:bg-surface-cream text-brand-forest"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
                 </div>
+
                 <button
-                  onClick={() => {
-                    const next = new Date(staffTaskDate);
-                    next.setDate(next.getDate() + 1);
-                    const str = next.toISOString().split('T')[0];
-                    setStaffTaskDate(str);
-                    fetchStaffDayTasks(selectedStaff.staffMember.id, str);
-                  }}
-                  className="p-1.5 rounded-lg hover:bg-surface-cream text-brand-forest"
+                  type="button"
+                  onClick={() => handleOpenAssignTask(selectedStaff)}
+                  className="px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black flex items-center gap-1.5 shadow-clay hover:opacity-95 transition-all whitespace-nowrap"
                 >
-                  <ChevronRight className="w-4 h-4" />
+                  <Plus className="w-4 h-4" />
+                  <span>Assign Task</span>
                 </button>
               </div>
 
@@ -1386,6 +1625,317 @@ export default function SupervisorPage() {
               )}
             </div>
           )}
+        </div>
+      );
+    })()}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          EDIT STAFF DETAILS MODAL (Non-Self, Non-Owner)
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {isEditStaffModalOpen && editStaffTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl border border-border-subtle shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-border-subtle pb-3">
+              <div>
+                <h3 className="text-base font-black text-brand-forest">Edit Staff Details</h3>
+                <p className="text-xs text-content-muted">
+                  Update info for <strong>{editStaffTarget.staffMember.fullName}</strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditStaffModalOpen(false)}
+                className="p-1.5 rounded-xl hover:bg-surface-cream text-content-muted hover:text-brand-forest transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {editStaffError && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs font-bold text-red-700">
+                {editStaffError}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEditStaff} className="space-y-3.5">
+              {/* Full Name */}
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1">
+                  Full Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editFullName}
+                  onChange={(e) => setEditFullName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                />
+              </div>
+
+              {/* Role / Position Category */}
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1">Position / Role</label>
+                <select
+                  value={editPositionCategoryId}
+                  onChange={(e) => setEditPositionCategoryId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                >
+                  <option value="">Select Position...</option>
+                  {positionCategories.map((pos) => (
+                    <option key={pos.id} value={pos.id}>
+                      {pos.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Mobile */}
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1">Mobile Number</label>
+                <input
+                  type="tel"
+                  placeholder="9876543210"
+                  value={editMobile}
+                  onChange={(e) => setEditMobile(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                />
+              </div>
+
+              {/* Address */}
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1">Address</label>
+                <input
+                  type="text"
+                  placeholder="Street, City, State"
+                  value={editAddress}
+                  onChange={(e) => setEditAddress(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                />
+              </div>
+
+              {/* Joining Date */}
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1">Joining Date</label>
+                <input
+                  type="date"
+                  value={editJoiningDate}
+                  onChange={(e) => setEditJoiningDate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                />
+              </div>
+
+              {/* Salary & Security Deposit Grid */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">Monthly Salary (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="18000"
+                    value={editMonthlySalary}
+                    onChange={(e) => setEditMonthlySalary(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">Security Deposit (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="5000"
+                    value={editSecurityDeposit}
+                    onChange={(e) => setEditSecurityDeposit(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                  />
+                </div>
+              </div>
+
+              {/* Duty Timing & Incentive Grid */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">Duty Timing</label>
+                  <input
+                    type="text"
+                    placeholder="09:00 AM – 06:00 PM"
+                    value={editDutyTiming}
+                    onChange={(e) => setEditDutyTiming(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">Incentive (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="1500"
+                    value={editIncentive}
+                    onChange={(e) => setEditIncentive(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-3 pt-3 border-t border-border-subtle">
+                <button
+                  type="button"
+                  onClick={() => setIsEditStaffModalOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-bold text-brand-forest"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingEditStaff || !editFullName.trim()}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isSavingEditStaff ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          ASSIGN TASK MODAL FOR SUPERVISOR
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {isAssignTaskModalOpen && selectedStaff && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl border border-border-subtle shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-border-subtle pb-3">
+              <div>
+                <h3 className="text-base font-black text-brand-forest">
+                  Assign Task to {selectedStaff.staffMember.fullName}
+                </h3>
+                <p className="text-xs text-content-muted">
+                  {selectedStaff.positionCategory?.name || 'Staff Employee'} • Date: {staffTaskDate}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAssignTaskModalOpen(false)}
+                className="p-1.5 rounded-xl hover:bg-surface-cream text-content-muted hover:text-brand-forest transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {taskFeedback && (
+              <div
+                className={`p-3 rounded-xl text-xs font-bold ${
+                  taskFeedback.type === 'success'
+                    ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                    : 'bg-red-50 border border-red-200 text-red-700'
+                }`}
+              >
+                {taskFeedback.message}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateTaskSubmit} className="space-y-3.5">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">
+                    Order ID <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="TD2015"
+                    value={taskOrderId}
+                    onChange={(e) => setTaskOrderId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">
+                    No. of Pieces <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    placeholder="5"
+                    value={taskPieces}
+                    onChange={(e) => setTaskPieces(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1">Service Type</label>
+                <select
+                  value={taskServiceTypeId}
+                  onChange={(e) => setTaskServiceTypeId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                >
+                  {services.map((svc) => (
+                    <option key={svc.id} value={svc.id}>
+                      {svc.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1.5">Process Activities *</label>
+                <div className="flex flex-wrap gap-2">
+                  {['WASH', 'DRY', 'IRON', 'FOLD', 'PACK', 'DELIVERY'].map((act) => {
+                    const isSelected = taskSelectedActivities.includes(act);
+                    return (
+                      <button
+                        key={act}
+                        type="button"
+                        onClick={() => {
+                          setTaskSelectedActivities((prev) =>
+                            prev.includes(act) ? prev.filter((a) => a !== act) : [...prev, act]
+                          );
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                          isSelected
+                            ? 'bg-[#245431] text-white border-[#245431] shadow-sm'
+                            : 'bg-surface-cream text-content-muted border-border-subtle hover:bg-surface-hover'
+                        }`}
+                      >
+                        {act.charAt(0) + act.slice(1).toLowerCase()}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1">Notes (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="Special instructions or customer remarks"
+                  value={taskNotes}
+                  onChange={(e) => setTaskNotes(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 pt-3 border-t border-border-subtle">
+                <button
+                  type="button"
+                  onClick={() => setIsAssignTaskModalOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-bold text-brand-forest"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingTask || !taskOrderId.trim() || !taskPieces || taskSelectedActivities.length === 0}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{isSubmittingTask ? 'Assigning...' : 'Create Task'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

@@ -58,6 +58,12 @@ interface StaffMembershipItem {
   positionCategory?: { id: string; name: string } | null;
   account?: { id: string; username: string; status: string } | null;
   attendanceEnabled?: boolean;
+  attendanceToday?: {
+    isPresent: boolean;
+    checkInAt?: string | null;
+    checkOutAt?: string | null;
+    status: string;
+  };
 }
 
 interface StaffTaskDaySummary {
@@ -593,7 +599,7 @@ export default function OwnerPage() {
   });
 
   return (
-    <div className="space-y-6 animate-fade-in pb-12">
+    <div className="space-y-6 animate-fade-in pb-36 sm:pb-32">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -700,7 +706,9 @@ export default function OwnerPage() {
                 </div>
               </div>
               <div className="text-2xl sm:text-3xl font-black text-brand-forest">
-                {metrics?.global.totalActiveStaff ?? 0}
+                {metrics?.global?.totalActiveStaff && metrics.global.totalActiveStaff > 0
+                  ? metrics.global.totalActiveStaff
+                  : (shopStaff.length > 0 ? shopStaff.length : 0)}
               </div>
               <p className="text-[11px] text-content-muted">Active registered employees</p>
             </div>
@@ -735,7 +743,9 @@ export default function OwnerPage() {
                 </div>
               </div>
               <div className="text-2xl sm:text-3xl font-black text-brand-forest">
-                {metrics?.global.todayAttendanceCount ?? 0}
+                {metrics?.global?.todayAttendanceCount && metrics.global.todayAttendanceCount > 0
+                  ? metrics.global.todayAttendanceCount
+                  : shopStaff.filter((s) => s.attendanceToday?.isPresent).length}
               </div>
               <p className="text-[11px] text-content-muted">Staff present in shops today</p>
             </div>
@@ -873,11 +883,17 @@ export default function OwnerPage() {
                       <div className="grid grid-cols-3 gap-1.5 py-1 text-center bg-surface-cream/50 rounded-xl p-2 border border-border-subtle/50 text-[11px]">
                         <div>
                           <p className="text-content-muted font-medium">Staff</p>
-                          <p className="font-extrabold text-brand-forest">{shopPerf?.staffCount ?? '-'}</p>
+                          <p className="font-extrabold text-brand-forest">
+                            {shopPerf?.staffCount && shopPerf.staffCount > 0
+                              ? shopPerf.staffCount
+                              : (shop.id === selectedShopId && shopStaff.length > 0 ? shopStaff.length : (shopPerf?.staffCount ?? '-'))}
+                          </p>
                         </div>
                         <div>
                           <p className="text-content-muted font-medium">Present</p>
-                          <p className="font-extrabold text-purple-700">{shopPerf?.todayAttendance ?? '-'}</p>
+                          <p className="font-extrabold text-purple-700">
+                            {shopPerf?.todayAttendance ?? (shop.id === selectedShopId ? shopStaff.filter((s) => s.attendanceToday?.isPresent).length : '-')}
+                          </p>
                         </div>
                         <div>
                           <p className="text-content-muted font-medium">Today Units</p>
@@ -1017,6 +1033,33 @@ export default function OwnerPage() {
                               {staff.staffMember.employmentStatus}
                             </span>
                           </div>
+                        </div>
+
+                        {/* Real-time Today Presence */}
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          {staff.attendanceEnabled === false ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600">
+                              Attendance Exempt
+                            </span>
+                          ) : staff.attendanceToday?.isPresent ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              Present {staff.attendanceToday.checkInAt ? `(${new Date(staff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })})` : ''}
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">
+                              Absent Today
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Inspect Staff Performance & Tasks Action */}
+                        <div className="flex items-center justify-between text-xs pt-1.5 px-2.5 py-1.5 rounded-xl bg-surface-card border border-border-subtle group-hover:border-brand-forest/40 transition-all text-brand-forest font-bold">
+                          <span className="flex items-center gap-1.5 text-[11px]">
+                            <Sparkles className="w-3.5 h-3.5 text-brand-forest" />
+                            Inspect Tasks & Productivity
+                          </span>
+                          <ChevronRight className="w-3.5 h-3.5 text-content-muted group-hover:text-brand-forest transition-transform group-hover:translate-x-0.5" />
                         </div>
 
                         {staff.staffMember.mobile && (
