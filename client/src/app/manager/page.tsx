@@ -245,23 +245,23 @@ function ManagerPageInner() {
     try {
       const [dashRes, staffRes, svcRes, wfRes, sessRes] = await Promise.all([
         apiRequest<DashboardMetrics>(`/api/shops/${activeShopId}/supervisor/dashboard?date=${selectedDate}`).catch(() => null),
-        apiRequest<{ staff: ManagerStaffItem[] }>(`/api/shops/${activeShopId}/staff?date=${selectedDate}`).catch(() => ({ staff: [] })),
-        apiRequest<{ serviceTypes: ServiceType[] }>('/api/config/service-types').catch(() => ({ serviceTypes: [] })),
-        apiRequest<{ profiles: WorkflowProfile[] }>('/api/config/workflow-profiles').catch(() => ({ profiles: [] })),
-        apiRequest<{ session: { id: string; checkInAt: string; checkOutAt: string | null; status: string; checkInPhotoPath?: string | null } | null }>(`/api/shops/${activeShopId}/attendance/my-session`).catch(() => ({ session: null })),
+        apiRequest<{ staff: ManagerStaffItem[] }>(`/api/shops/${activeShopId}/staff?date=${selectedDate}`).catch(() => null),
+        services.length > 0 ? Promise.resolve(null) : apiRequest<{ serviceTypes: ServiceType[] }>('/api/config/service-types').catch(() => null),
+        workflowProfiles.length > 0 ? Promise.resolve(null) : apiRequest<{ profiles: WorkflowProfile[] }>('/api/config/workflow-profiles').catch(() => null),
+        apiRequest<{ session: { id: string; checkInAt: string; checkOutAt: string | null; status: string; checkInPhotoPath?: string | null } | null }>(`/api/shops/${activeShopId}/attendance/my-session?date=${selectedDate}`).catch(() => null),
       ]);
 
       if (dashRes) setDashboardData(dashRes);
-      if (staffRes) setStaffList(staffRes.staff || []);
-      if (svcRes) setServices(svcRes.serviceTypes || []);
-      if (wfRes) setWorkflowProfiles(wfRes.profiles || []);
-      if (sessRes) setManagerSession(sessRes.session);
+      if (staffRes?.staff) setStaffList(staffRes.staff);
+      if (svcRes?.serviceTypes) setServices(svcRes.serviceTypes);
+      if (wfRes?.profiles) setWorkflowProfiles(wfRes.profiles);
+      if (sessRes && sessRes.session !== undefined) setManagerSession(sessRes.session);
     } catch (err) {
       console.error('Failed to load manager workspace:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [activeShopId, selectedDate, dashboardData]);
+  }, [activeShopId, selectedDate, dashboardData, services.length, workflowProfiles.length]);
 
   // Refetch when nav tab or selected date changes (silent)
   useEffect(() => {
@@ -530,8 +530,9 @@ function ManagerPageInner() {
   // Task breakdown numbers
   const washCount = dashboardData?.departmentBreakdown?.wash?.total ?? 0;
   const ironCount = dashboardData?.departmentBreakdown?.iron?.total ?? 0;
+  const dryCleanCount = dashboardData?.departmentBreakdown?.dryClean?.total ?? 0;
   const deliveryCount = dashboardData?.departmentBreakdown?.packaging?.total ?? 0;
-  const pickupCount = dashboardData?.departmentBreakdown?.dryClean?.total ?? 0;
+  const pickupCount = (dashboardData?.departmentBreakdown as unknown as { pickup?: { total: number } })?.pickup?.total ?? 0;
 
   if (!isMounted || (isLoading && !dashboardData)) {
     return (
@@ -1676,13 +1677,13 @@ function ManagerPageInner() {
                 <span className="text-[10px] font-bold text-emerald-800 block truncate">Iron</span>
                 <span className="text-lg font-black text-emerald-800 mt-0.5 block">{ironCount}</span>
               </div>
+              <div className="bg-[#FFF8E1] p-2.5 rounded-xl border border-amber-200">
+                <span className="text-[10px] font-bold text-amber-900 block truncate">Dry Clean</span>
+                <span className="text-lg font-black text-amber-900 mt-0.5 block">{dryCleanCount}</span>
+              </div>
               <div className="bg-[#E3F2FD] p-2.5 rounded-xl border border-blue-100">
                 <span className="text-[10px] font-bold text-blue-800 block truncate">Delivery</span>
                 <span className="text-lg font-black text-blue-800 mt-0.5 block">{deliveryCount}</span>
-              </div>
-              <div className="bg-[#FFEBEE] p-2.5 rounded-xl border border-red-100">
-                <span className="text-[10px] font-bold text-red-800 block truncate">Pickup</span>
-                <span className="text-lg font-black text-red-800 mt-0.5 block">{pickupCount}</span>
               </div>
             </div>
           </div>
@@ -2063,7 +2064,17 @@ function ManagerPageInner() {
 
               <div>
                 <div className="flex justify-between mb-1 font-bold">
-                  <span className="text-brand-forest">Delivery Orders</span>
+                  <span className="text-brand-forest">Dry Clean & Delicate</span>
+                  <span>{dryCleanCount} units</span>
+                </div>
+                <div className="w-full h-2 rounded-full bg-border-subtle overflow-hidden">
+                  <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.min(100, dryCleanCount * 5)}%` }} />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between mb-1 font-bold">
+                  <span className="text-brand-forest">Delivery & Packaging Orders</span>
                   <span>{deliveryCount} orders</span>
                 </div>
                 <div className="w-full h-2 rounded-full bg-border-subtle overflow-hidden">
@@ -2071,15 +2082,17 @@ function ManagerPageInner() {
                 </div>
               </div>
 
-              <div>
-                <div className="flex justify-between mb-1 font-bold">
-                  <span className="text-brand-forest">Pickups Collected</span>
-                  <span>{pickupCount} pickups</span>
+              {pickupCount > 0 && (
+                <div>
+                  <div className="flex justify-between mb-1 font-bold">
+                    <span className="text-brand-forest">Pickups Collected</span>
+                    <span>{pickupCount} pickups</span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-border-subtle overflow-hidden">
+                    <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${Math.min(100, pickupCount * 5)}%` }} />
+                  </div>
                 </div>
-                <div className="w-full h-2 rounded-full bg-border-subtle overflow-hidden">
-                  <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.min(100, pickupCount * 5)}%` }} />
-                </div>
-              </div>
+              )}
             </div>
           </div>
         </div>

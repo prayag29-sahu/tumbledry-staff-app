@@ -383,19 +383,19 @@ export default function SupervisorPage() {
       const activeDate = currentNav === 'attendance' ? attendanceDate : dashboardDate;
       const [dashRes, staffRes, posRes, permRes, fieldsRes, svcRes, wfRes] = await Promise.all([
         apiRequest<SupervisorDashboardData>(`/api/shops/${activeShopId}/supervisor/dashboard?date=${dashboardDate}`).catch(() => null),
-        apiRequest<{ staff: EnrichedStaffItem[] }>(`/api/shops/${activeShopId}/staff?date=${activeDate}`).catch(() => ({ staff: [] })),
-        apiRequest<{ categories: PositionCategory[] }>(`/api/config/shops/${activeShopId}/position-categories`).catch(() => ({ categories: [] })),
-        apiRequest<{ profiles: PermissionProfileItem[] }>(`/api/config/shops/${activeShopId}/permission-profiles`).catch(() => ({ profiles: [] })),
-        apiRequest<{ fields: CustomFieldDefinition[] }>(`/api/config/shops/${activeShopId}/custom-fields`).catch(() => ({ fields: [] })),
-        apiRequest<{ serviceTypes: ServiceType[] }>(`/api/config/service-types`).catch(() => ({ serviceTypes: [] })),
-        apiRequest<{ profiles: WorkflowProfile[] }>(`/api/config/workflow-profiles`).catch(() => ({ profiles: [] })),
+        apiRequest<{ staff: EnrichedStaffItem[] }>(`/api/shops/${activeShopId}/staff?date=${activeDate}`).catch(() => null),
+        positionCategories.length > 0 ? Promise.resolve(null) : apiRequest<{ categories: PositionCategory[] }>(`/api/config/shops/${activeShopId}/position-categories`).catch(() => null),
+        permissionProfiles.length > 0 ? Promise.resolve(null) : apiRequest<{ profiles: PermissionProfileItem[] }>(`/api/config/shops/${activeShopId}/permission-profiles`).catch(() => null),
+        customFields.length > 0 ? Promise.resolve(null) : apiRequest<{ fields: CustomFieldDefinition[] }>(`/api/config/shops/${activeShopId}/custom-fields`).catch(() => null),
+        services.length > 0 ? Promise.resolve(null) : apiRequest<{ serviceTypes: ServiceType[] }>(`/api/config/service-types`).catch(() => null),
+        workflowProfiles.length > 0 ? Promise.resolve(null) : apiRequest<{ profiles: WorkflowProfile[] }>(`/api/config/workflow-profiles`).catch(() => null),
       ]);
 
       if (dashRes) setDashboardData(dashRes);
-      setStaffList(staffRes.staff || []);
-      setPositionCategories(posRes.categories || []);
-      setPermissionProfiles(permRes.profiles || []);
-      setCustomFields(fieldsRes.fields || []);
+      if (staffRes?.staff) setStaffList(staffRes.staff);
+      if (posRes?.categories) setPositionCategories(posRes.categories);
+      if (permRes?.profiles) setPermissionProfiles(permRes.profiles);
+      if (fieldsRes?.fields) setCustomFields(fieldsRes.fields);
       if (svcRes?.serviceTypes) {
         setServices(svcRes.serviceTypes);
         if (svcRes.serviceTypes.length > 0) {
@@ -408,7 +408,7 @@ export default function SupervisorPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [activeShopId, dashboardDate, attendanceDate, currentNav, dashboardData]);
+  }, [activeShopId, dashboardDate, attendanceDate, currentNav, dashboardData, positionCategories.length, permissionProfiles.length, customFields.length, services.length, workflowProfiles.length]);
 
   // Refetch when nav tab or dates change (silent to avoid flickering)
   useEffect(() => {
@@ -1655,7 +1655,7 @@ export default function SupervisorPage() {
                       <span className="text-base font-black text-emerald-900 block">
                         {staffAttendanceData?.summary.presentCount ?? 0}
                       </span>
-                      <span className="text-[10px] font-bold text-emerald-700">Present</span>
+                      <span className="text-[10px] font-bold text-emerald-700">Full Day</span>
                     </div>
                     <div className="p-2.5 rounded-xl bg-red-50 border border-red-200">
                       <span className="text-base font-black text-red-700 block">
@@ -1685,7 +1685,8 @@ export default function SupervisorPage() {
                         const durStr = item.durationMinutes
                           ? `${Math.floor(item.durationMinutes / 60)}h ${item.durationMinutes % 60}m`
                           : (item.status === 'OPEN' ? 'Active' : 'Absent');
-                        const isPresent = item.status === 'CLOSED' || item.status === 'OPEN';
+                        const isHalfDay = (item as unknown as { isHalfDay?: boolean }).isHalfDay ?? ((item.durationMinutes || 0) > 0 && (item.durationMinutes || 0) < 240 && item.status !== 'OPEN');
+                        const isOpen = item.status === 'OPEN';
 
                         return (
                           <div key={item.id} className="flex items-center justify-between py-2 border-b border-border-subtle/40 text-xs">
@@ -1694,13 +1695,20 @@ export default function SupervisorPage() {
                               <span className="text-content-muted text-[11px]">{dayStr}</span>
                             </div>
                             <span className="text-[11px] font-medium text-content-muted">{timeStr}</span>
-                            <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                isPresent ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'
-                              }`}
-                            >
-                              {durStr}
-                            </span>
+                            {isHalfDay ? (
+                              <span className="px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">
+                                Half Day ({durStr})
+                              </span>
+                            ) : isOpen ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                                Active
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                {durStr}
+                              </span>
+                            )}
                           </div>
                         );
                       })}
