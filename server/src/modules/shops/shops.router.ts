@@ -329,6 +329,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
     iron: { name: 'Steam Press & Ironing', total: 0, completed: 0, percentage: 0 },
     dryClean: { name: 'Dry Clean & Delicate', total: 0, completed: 0, percentage: 0 },
     packaging: { name: 'Packaging & Dispatch', total: 0, completed: 0, percentage: 0 },
+    pickup: { name: 'Pickup Orders', total: 0, completed: 0, percentage: 0 },
   };
 
   for (const a of assignments) {
@@ -348,7 +349,10 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
       }
 
       const code = (u.activityCode || '').toUpperCase();
-      if (code.includes('WASH') || code.includes('WET')) {
+      if (code.includes('PICKUP')) {
+        departmentBreakdown.pickup.total++;
+        if (isDone) departmentBreakdown.pickup.completed++;
+      } else if (code.includes('WASH') || code.includes('WET')) {
         departmentBreakdown.wash.total++;
         if (isDone) departmentBreakdown.wash.completed++;
       } else if (code.includes('IRON') || code.includes('PRESS')) {
@@ -376,6 +380,8 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
     ? Math.round((departmentBreakdown.dryClean.completed / departmentBreakdown.dryClean.total) * 100) : 0;
   departmentBreakdown.packaging.percentage = departmentBreakdown.packaging.total > 0
     ? Math.round((departmentBreakdown.packaging.completed / departmentBreakdown.packaging.total) * 100) : 0;
+  departmentBreakdown.pickup.percentage = departmentBreakdown.pickup.total > 0
+    ? Math.round((departmentBreakdown.pickup.completed / departmentBreakdown.pickup.total) * 100) : 0;
 
   const todayPendingUnits = todayTotalUnits - todayCompletedUnits;
   const completionPercentage = todayTotalUnits > 0

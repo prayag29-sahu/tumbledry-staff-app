@@ -130,7 +130,7 @@ attendanceRouter.post(
   }
 );
 
-// GET /api/shops/:shopId/attendance/my-session — Fetch today's current session for the logged in staff
+// GET /api/shops/:shopId/attendance/my-session — Fetch session for logged-in staff on target date
 attendanceRouter.get(
   '/shops/:shopId/attendance/my-session',
   async (req: Request, res: Response) => {
@@ -146,14 +146,18 @@ attendanceRouter.get(
       return;
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const dateStr = req.query['date'] as string;
+    const targetDate = dateStr ? new Date(dateStr) : new Date();
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
 
     const session = await prisma.attendanceSession.findFirst({
       where: {
         staffMemberId: membership.staffMemberId,
         shopId,
-        checkInAt: { gte: today },
+        checkInAt: { gte: startOfDay, lte: endOfDay },
       },
       orderBy: { checkInAt: 'desc' },
     });
@@ -250,18 +254,31 @@ attendanceRouter.get(
       },
     });
 
-    const presentCount = sessions.filter((s) => s.status === 'CLOSED' || s.status === 'OPEN').length;
-    const halfDayCount = sessions.filter((s) => (s.durationMinutes || 0) > 0 && (s.durationMinutes || 0) < 240).length;
+    const enrichedSessions = sessions.map((s) => {
+      const isHalfDay = (s.durationMinutes || 0) > 0 && (s.durationMinutes || 0) < 240 && s.status !== 'OPEN';
+      return {
+        ...s,
+        isHalfDay,
+        attendanceType: isHalfDay ? 'HALF_DAY' : (s.status === 'OPEN' ? 'ON_FLOOR' : 'FULL_DAY'),
+      };
+    });
+
+    const halfDayCount = enrichedSessions.filter((s) => s.isHalfDay).length;
+    const fullDayCount = enrichedSessions.filter((s) => !s.isHalfDay && (s.status === 'OPEN' || s.status === 'CLOSED')).length;
+    const totalPresentDays = fullDayCount + halfDayCount;
+
     const now = new Date();
     const daysInMonth = (year === now.getFullYear() && month === (now.getMonth() + 1))
       ? now.getDate()
       : new Date(year, month, 0).getDate();
-    const absentCount = Math.max(0, daysInMonth - presentCount);
+    const absentCount = Math.max(0, daysInMonth - totalPresentDays);
 
     res.json({
-      sessions,
+      sessions: enrichedSessions,
       summary: {
-        presentCount,
+        presentCount: fullDayCount,
+        fullDayCount,
+        totalPresentDays,
         absentCount,
         halfDayCount,
       },
