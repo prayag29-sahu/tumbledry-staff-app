@@ -280,7 +280,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
 
   // Only count staff whose attendance tracking is enabled
   const attendanceTrackedStaff = staffMemberships.filter(
-    (m) => m.attendanceEnabled !== false
+    (m) => (m as typeof m & { attendanceEnabled?: boolean }).attendanceEnabled !== false
   );
 
   let activeOnFloorCount = 0;
@@ -393,7 +393,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
     const isOnFloor = session ? (session.status === 'OPEN' && !session.checkOutAt) : false;
     const isShiftCompleted = session ? (session.status === 'CLOSED' || !!session.checkOutAt) : false;
 
-    const isAttendanceEnabled = m.attendanceEnabled !== false;
+    const isAttendanceEnabled = (m as typeof m & { attendanceEnabled?: boolean }).attendanceEnabled !== false;
 
     return {
       staffId: m.staffMemberId,

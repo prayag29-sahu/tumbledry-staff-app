@@ -243,8 +243,37 @@ export async function refreshTokens(
     },
   });
 
-  if (!session || session.account.status !== 'ACTIVE') {
+  if (!session) {
+    // Check if this token was just rotated in the last 60 seconds (concurrency grace period)
+    const graceThreshold = new Date(now.getTime() - 60 * 1000);
+    const recentRevoked = await prisma.refreshSession.findFirst({
+      where: {
+        tokenHash: hash,
+        revokedAt: { gte: graceThreshold },
+        expiresAt: { gt: now },
+      },
+      include: {
+        account: {
+          select: { id: true, status: true, isOwner: true, tokenVersion: true },
+        },
+      },
+    });
+
+    if (recentRevoked && recentRevoked.account.status === 'ACTIVE') {
+      const newAccessToken = signAccessToken(
+        recentRevoked.account.id,
+        recentRevoked.account.isOwner,
+        recentRevoked.account.tokenVersion
+      );
+      const newRefreshToken = await createRefreshSession(recentRevoked.accountId, deviceInfo, ipAddress);
+      return { accessToken: newAccessToken, refreshToken: newRefreshToken };
+    }
+
     throw new AppError(401, 'UNAUTHORIZED', 'Session expired or revoked. Please log in again.');
+  }
+
+  if (session.account.status !== 'ACTIVE') {
+    throw new AppError(401, 'UNAUTHORIZED', 'Account is no longer active.');
   }
 
   // Rotate: revoke old session, create new one

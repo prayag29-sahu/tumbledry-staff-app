@@ -99,9 +99,12 @@ staffRouter.get(
       const isOnFloor = session ? (session.status === 'OPEN' && !session.checkOutAt) : false;
       const isShiftCompleted = session ? (session.status === 'CLOSED' || !!session.checkOutAt) : false;
 
+      const mWithAtt = m as typeof m & { attendanceEnabled?: boolean };
+      const isAttEnabled = mWithAtt.attendanceEnabled !== false;
+
       return {
         ...m,
-        attendanceEnabled: m.attendanceEnabled,
+        attendanceEnabled: isAttEnabled,
         attendanceToday: session ? {
           isPresent: true,
           isOnFloor,
@@ -119,7 +122,7 @@ staffRouter.get(
           checkOutAt: null,
           checkInPhotoPath: null,
           checkOutPhotoPath: null,
-          status: m.attendanceEnabled === false ? 'EXEMPT' : 'ABSENT',
+          status: !isAttEnabled ? 'EXEMPT' : 'ABSENT',
         },
       };
     });
