@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiRequest } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -352,26 +352,30 @@ function OwnerPageInner() {
   const [posWfId, setPosWfId] = useState('');
   const [isSubmittingPos, setIsSubmittingPos] = useState(false);
 
+  const lastOwnerFetchRef = useRef<number>(0);
+
   // Fetch staff when selectedShopId changes
-  const fetchShopStaff = useCallback(async (shopId: string) => {
+  const fetchShopStaff = useCallback(async (shopId: string, silent = false) => {
     if (!shopId) return;
-    setIsLoadingStaff(true);
+    if (!silent) setIsLoadingStaff(true);
     try {
       const res = await apiRequest<{ staff: StaffMembershipItem[] }>(`/api/shops/${shopId}/staff`);
       setShopStaff(res.staff || []);
     } catch {
       setShopStaff([]);
     } finally {
-      setIsLoadingStaff(false);
+      if (!silent) setIsLoadingStaff(false);
     }
   }, []);
 
   // Fetch Branch Operational Data (Supervisor Dashboard, Tasks, Attendance)
-  const fetchBranchData = useCallback(async (shopId: string, date: string) => {
+  const fetchBranchData = useCallback(async (shopId: string, date: string, silent = false) => {
     if (!shopId) return;
-    setIsLoadingBranchDashboard(true);
-    setIsLoadingBranchTasks(true);
-    setIsLoadingBranchAttendance(true);
+    if (!silent) {
+      setIsLoadingBranchDashboard(true);
+      setIsLoadingBranchTasks(true);
+      setIsLoadingBranchAttendance(true);
+    }
     try {
       const [dashRes, tasksRes, attRes] = await Promise.all([
         apiRequest<BranchDashboardData>(`/api/shops/${shopId}/supervisor/dashboard?date=${date}`).catch(() => null),
@@ -379,13 +383,15 @@ function OwnerPageInner() {
         apiRequest<{ sessions: BranchAttendanceSession[] }>(`/api/shops/${shopId}/attendance/today?date=${date}`).catch(() => ({ sessions: [] })),
       ]);
 
-      setBranchDashboard(dashRes);
+      if (dashRes) setBranchDashboard(dashRes);
       setBranchTasks(tasksRes.assignments || []);
       setBranchAttendance(attRes.sessions || []);
     } finally {
-      setIsLoadingBranchDashboard(false);
-      setIsLoadingBranchTasks(false);
-      setIsLoadingBranchAttendance(false);
+      if (!silent) {
+        setIsLoadingBranchDashboard(false);
+        setIsLoadingBranchTasks(false);
+        setIsLoadingBranchAttendance(false);
+      }
     }
   }, []);
 
@@ -563,19 +569,25 @@ function OwnerPageInner() {
     }
   }, [selectedShopId, branchDate, branchSubTab, activeTab, fetchShopStaff, fetchBranchData]);
 
-  // Auto-refresh on window focus / visibility change without manual page reload
+  // Auto-refresh on window focus / visibility change without manual page reload (throttled to 30s)
   useEffect(() => {
     const handleFocus = () => {
-      if (selectedShopId && activeTab === 'overview') {
-        fetchShopStaff(selectedShopId);
-        fetchBranchData(selectedShopId, branchDate);
+      const now = Date.now();
+      if (now - lastOwnerFetchRef.current > 30000 && selectedShopId && activeTab === 'overview') {
+        lastOwnerFetchRef.current = now;
+        fetchShopStaff(selectedShopId, true);
+        fetchBranchData(selectedShopId, branchDate, true);
       }
     };
     window.addEventListener('focus', handleFocus);
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && selectedShopId && activeTab === 'overview') {
-        fetchShopStaff(selectedShopId);
-        fetchBranchData(selectedShopId, branchDate);
+      if (document.visibilityState === 'visible') {
+        const now = Date.now();
+        if (now - lastOwnerFetchRef.current > 30000 && selectedShopId && activeTab === 'overview') {
+          lastOwnerFetchRef.current = now;
+          fetchShopStaff(selectedShopId, true);
+          fetchBranchData(selectedShopId, branchDate, true);
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);

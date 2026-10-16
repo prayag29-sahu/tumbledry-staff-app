@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../lib/api';
 import { TaskAssignment, TaskSummary, TaskUnit } from '../../types';
 import { ProgressRing } from '../../components/ProgressRing';
 import { DamageModal } from '../../components/DamageModal';
+import { DamageIncidentViewerModal, DamageIncidentRecord } from '../../components/DamageIncidentViewerModal';
 import {
   Calendar,
   Layers,
@@ -36,12 +37,14 @@ export default function WashermanPage() {
     pieceNumber?: number;
     orderId?: string;
   } | null>(null);
+  const [viewingDamageIncident, setViewingDamageIncident] = useState<DamageIncidentRecord | null>(null);
+  const lastWashermanFetchRef = useRef<number>(0);
 
   const staffMemberId = user?.staffMember?.id;
 
   const fetchTasks = useCallback(async (showLoading = true) => {
     if (!activeShopId || !staffMemberId) return;
-    if (showLoading) setIsLoading(true);
+    if (showLoading && assignments.length === 0) setIsLoading(true);
     try {
       const data = await apiRequest<{
         assignments: TaskAssignment[];
@@ -56,23 +59,31 @@ export default function WashermanPage() {
       setAssignments([]);
       setSummary(null);
     } finally {
-      if (showLoading) setIsLoading(false);
+      setIsLoading(false);
     }
-  }, [activeShopId, staffMemberId, selectedDate]);
+  }, [activeShopId, staffMemberId, selectedDate, assignments.length]);
 
   useEffect(() => {
     fetchTasks(true);
   }, [fetchTasks]);
 
-  // Auto-refresh tasks silently when returning to app tab or focusing window
+  // Auto-refresh tasks silently when returning to app tab or focusing window (throttled to 30s)
   useEffect(() => {
     const handleFocus = () => {
-      fetchTasks(false);
+      const now = Date.now();
+      if (now - lastWashermanFetchRef.current > 30000) {
+        lastWashermanFetchRef.current = now;
+        fetchTasks(false);
+      }
     };
     window.addEventListener('focus', handleFocus);
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        fetchTasks(false);
+        const now = Date.now();
+        if (now - lastWashermanFetchRef.current > 30000) {
+          lastWashermanFetchRef.current = now;
+          fetchTasks(false);
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -242,6 +253,59 @@ export default function WashermanPage() {
                   </span>
                 </div>
 
+                {/* Reported Damage Alerts for this Order */}
+                {assignment.damageIncidents && assignment.damageIncidents.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-border-subtle/80 space-y-2 animate-fade-in">
+                    <div className="flex items-center gap-1.5 text-xs font-black text-status-danger uppercase tracking-wider">
+                      <AlertTriangle className="w-4 h-4 text-status-danger" />
+                      <span>Reported Damage / Issues ({assignment.damageIncidents.length})</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {assignment.damageIncidents.map((dmg) => (
+                        <div
+                          key={dmg.id}
+                          onClick={() => setViewingDamageIncident(dmg as unknown as DamageIncidentRecord)}
+                          className="cursor-pointer p-2.5 rounded-xl bg-red-50/90 hover:bg-red-100 border border-red-200 flex items-center justify-between gap-3 transition-colors shadow-sm"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            {dmg.photoPath ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={dmg.photoPath}
+                                alt="Damage Evidence"
+                                className="w-10 h-10 rounded-lg object-cover border border-red-300 shadow-sm shrink-0"
+                              />
+                            ) : (
+                              <div className="w-10 h-10 rounded-lg bg-red-200 flex items-center justify-center text-red-700 shrink-0">
+                                <AlertTriangle className="w-4 h-4" />
+                              </div>
+                            )}
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-extrabold text-red-950 text-xs">
+                                  {dmg.pieceNumber ? `Piece #${dmg.pieceNumber}` : 'Incident'}
+                                </span>
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-200 text-red-900 uppercase">
+                                  {dmg.status}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-red-900 font-medium line-clamp-1">
+                                {dmg.notes || 'Damage reported'}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="px-2.5 py-1 rounded-lg bg-white border border-red-300 text-red-900 text-[11px] font-bold shadow-sm whitespace-nowrap"
+                          >
+                            View Evidence
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Piece-by-Piece Rows */}
                 <div className="mt-3 space-y-2.5">
                   {pieceNumbers.map((pieceNum) => {
@@ -249,18 +313,36 @@ export default function WashermanPage() {
                       (u) => u.pieceNumber === pieceNum
                     );
 
+                    const pieceDamage =
+                      assignment.damageIncidents?.find((d) => d.pieceNumber === pieceNum) ||
+                      pieceUnits.flatMap((u) => u.damageIncidents || []).find(Boolean);
+
                     return (
                       <div
                         key={pieceNum}
-                        className="bg-surface-cream/70 rounded-xl p-3 border border-border-subtle/80 flex flex-wrap items-center justify-between gap-2"
+                        className={`rounded-xl p-3 border flex flex-wrap items-center justify-between gap-2 transition-all ${
+                          pieceDamage
+                            ? 'bg-red-50/60 border-red-200 shadow-sm'
+                            : 'bg-surface-cream/70 border-border-subtle/80'
+                        }`}
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <div className="w-6 h-6 rounded-lg bg-surface-card border border-border-subtle flex items-center justify-center text-xs font-bold text-brand-forest shadow-clay-sm">
                             {pieceNum}
                           </div>
                           <span className="text-xs font-bold text-brand-forest">
                             Piece #{pieceNum}
                           </span>
+                          {pieceDamage && (
+                            <button
+                              type="button"
+                              onClick={() => setViewingDamageIncident(pieceDamage as unknown as DamageIncidentRecord)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-100 hover:bg-red-200 text-red-900 text-[10px] font-extrabold border border-red-300 shadow-sm transition-all"
+                            >
+                              <AlertTriangle className="w-3 h-3 text-red-600" />
+                              <span>Damage ({pieceDamage.status})</span>
+                            </button>
+                          )}
                         </div>
 
                         {/* Activities (Wash / Dry) */}
@@ -301,8 +383,12 @@ export default function WashermanPage() {
                                 orderId: assignment.orderId || undefined,
                               })
                             }
-                            className="p-1.5 rounded-xl text-content-muted hover:text-status-danger hover:bg-status-danger/10 transition-colors"
-                            title="Report Damage for this piece"
+                            className={`p-1.5 rounded-xl transition-colors ${
+                              pieceDamage
+                                ? 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200'
+                                : 'text-content-muted hover:text-status-danger hover:bg-status-danger/10'
+                            }`}
+                            title={pieceDamage ? 'Damage reported. Click to report more or view' : 'Report Damage for this piece'}
                           >
                             <AlertTriangle className="w-4 h-4" />
                           </button>
@@ -332,6 +418,18 @@ export default function WashermanPage() {
             setTimeout(() => setSuccessToast(null), 4000);
             fetchTasks();
           }}
+        />
+      )}
+
+      {/* Damage Incident Viewer Modal for Washerman */}
+      {viewingDamageIncident && (
+        <DamageIncidentViewerModal
+          isOpen={true}
+          onClose={() => setViewingDamageIncident(null)}
+          incident={viewingDamageIncident}
+          shopId={activeShopId || ''}
+          canManage={false}
+          onUpdated={() => fetchTasks(false)}
         />
       )}
 

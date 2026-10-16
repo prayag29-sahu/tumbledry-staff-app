@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../lib/api';
 import {
@@ -231,6 +231,7 @@ export default function SupervisorPage() {
   const [permissionProfiles, setPermissionProfiles] = useState<PermissionProfileItem[]>([]);
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const lastFetchTimeRef = useRef<number>(0);
 
   // Staff List Search & Category Filter (Screen 2)
   const [staffSearchQuery, setStaffSearchQuery] = useState('');
@@ -373,9 +374,11 @@ export default function SupervisorPage() {
   });
 
   // Fetch Dashboard & Staff Lists
-  const fetchAllData = useCallback(async () => {
+  const fetchAllData = useCallback(async (isSilent = false) => {
     if (!activeShopId) return;
-    setIsLoading(true);
+    if (!isSilent && !dashboardData) {
+      setIsLoading(true);
+    }
     try {
       const activeDate = currentNav === 'attendance' ? attendanceDate : dashboardDate;
       const [dashRes, staffRes, posRes, permRes, fieldsRes, svcRes, wfRes] = await Promise.all([
@@ -395,8 +398,8 @@ export default function SupervisorPage() {
       setCustomFields(fieldsRes.fields || []);
       if (svcRes?.serviceTypes) {
         setServices(svcRes.serviceTypes);
-        if (svcRes.serviceTypes.length > 0 && !taskServiceTypeId) {
-          setTaskServiceTypeId(svcRes.serviceTypes[0].id);
+        if (svcRes.serviceTypes.length > 0) {
+          setTaskServiceTypeId((prev) => prev || svcRes.serviceTypes[0].id);
         }
       }
       if (wfRes?.profiles) setWorkflowProfiles(wfRes.profiles);
@@ -405,22 +408,30 @@ export default function SupervisorPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [activeShopId, dashboardDate, attendanceDate, currentNav, taskServiceTypeId]);
+  }, [activeShopId, dashboardDate, attendanceDate, currentNav, dashboardData]);
 
-  // Refetch when nav tab or dates change
+  // Refetch when nav tab or dates change (silent to avoid flickering)
   useEffect(() => {
-    fetchAllData();
+    fetchAllData(true);
   }, [fetchAllData, currentNav, dashboardDate, attendanceDate]);
 
-  // Auto-refresh when window receives focus or returns from background tab
+  // Auto-refresh when window receives focus or returns from background tab (throttled to 30s)
   useEffect(() => {
     const handleFocus = () => {
-      fetchAllData();
+      const now = Date.now();
+      if (now - lastFetchTimeRef.current > 30000) {
+        lastFetchTimeRef.current = now;
+        fetchAllData(true);
+      }
     };
     window.addEventListener('focus', handleFocus);
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        fetchAllData();
+        const now = Date.now();
+        if (now - lastFetchTimeRef.current > 30000) {
+          lastFetchTimeRef.current = now;
+          fetchAllData(true);
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -790,6 +801,14 @@ export default function SupervisorPage() {
     roleCounts[roleName] = (roleCounts[roleName] || 0) + 1;
   });
 
+  if (isLoading && !dashboardData) {
+    return (
+      <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center p-4">
+        <div className="w-8 h-8 rounded-full border-2 border-brand-forest border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-md mx-auto min-h-screen pb-24 bg-[#F8F9FA] text-[#1E293B] antialiased">
       {user?.isOwner && (
@@ -806,11 +825,7 @@ export default function SupervisorPage() {
           </button>
         </div>
       )}
-      {isLoading && (
-        <div className="mx-4 mt-2 px-3.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-800 text-center animate-pulse">
-          Refreshing shop data...
-        </div>
-      )}
+
       {/* ══════════════════════════════════════════════════════════════════════════
           DRILLDOWN VIEW 1: ADD NEW STAFF WIZARD (SCREENS 3 & 4)
       ══════════════════════════════════════════════════════════════════════════ */}

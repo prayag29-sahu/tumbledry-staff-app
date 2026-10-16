@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../lib/api';
@@ -236,10 +236,12 @@ function ManagerPageInner() {
   } | null>(null);
   const [attendanceSuccessToast, setAttendanceSuccessToast] = useState<string | null>(null);
 
+  const lastManagerFetchRef = useRef<number>(0);
+
   // Fetch Core Dashboard & Staff Data
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (silent = false) => {
     if (!activeShopId) return;
-    setIsLoading(true);
+    if (!silent && !dashboardData) setIsLoading(true);
     try {
       const [dashRes, staffRes, svcRes, wfRes, sessRes] = await Promise.all([
         apiRequest<DashboardMetrics>(`/api/shops/${activeShopId}/supervisor/dashboard?date=${selectedDate}`).catch(() => null),
@@ -259,22 +261,30 @@ function ManagerPageInner() {
     } finally {
       setIsLoading(false);
     }
-  }, [activeShopId, selectedDate]);
+  }, [activeShopId, selectedDate, dashboardData]);
 
-  // Refetch when nav tab or selected date changes
+  // Refetch when nav tab or selected date changes (silent)
   useEffect(() => {
-    fetchData();
+    fetchData(true);
   }, [fetchData, currentNav, selectedDate]);
 
-  // Auto-refresh when window receives focus or returns to view
+  // Auto-refresh when window receives focus or returns to view (throttled to 30s)
   useEffect(() => {
     const handleFocus = () => {
-      fetchData();
+      const now = Date.now();
+      if (now - lastManagerFetchRef.current > 30000) {
+        lastManagerFetchRef.current = now;
+        fetchData(true);
+      }
     };
     window.addEventListener('focus', handleFocus);
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        fetchData();
+        const now = Date.now();
+        if (now - lastManagerFetchRef.current > 30000) {
+          lastManagerFetchRef.current = now;
+          fetchData(true);
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -523,7 +533,7 @@ function ManagerPageInner() {
   const deliveryCount = dashboardData?.departmentBreakdown?.packaging?.total ?? 0;
   const pickupCount = dashboardData?.departmentBreakdown?.dryClean?.total ?? 0;
 
-  if (!isMounted) {
+  if (!isMounted || (isLoading && !dashboardData)) {
     return (
       <div className="min-h-screen bg-surface-cream flex items-center justify-center p-4">
         <div className="w-8 h-8 rounded-full border-2 border-brand-forest border-t-transparent animate-spin" />
@@ -547,11 +557,7 @@ function ManagerPageInner() {
           </button>
         </div>
       )}
-      {isLoading && (
-        <div className="mx-4 mt-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-800 text-center animate-pulse">
-          Refreshing shop workspace...
-        </div>
-      )}
+
 
       {/* ══════════════════════════════════════════════════════════════════════════
           DRILLDOWN VIEW: CREATE TASK (SCREENS 5, 6, 7, 8)
@@ -1732,7 +1738,7 @@ function ManagerPageInner() {
             </div>
 
             <button
-              onClick={fetchData}
+              onClick={() => fetchData()}
               className="p-2 rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-hover"
               title="Refresh staff"
             >

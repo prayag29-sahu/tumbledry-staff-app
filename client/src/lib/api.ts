@@ -35,6 +35,42 @@ export class ApiError extends Error {
   }
 }
 
+let activeRefreshPromise: Promise<string | null> | null = null;
+
+async function doRefreshAccessToken(): Promise<string | null> {
+  if (activeRefreshPromise) {
+    return activeRefreshPromise;
+  }
+
+  activeRefreshPromise = (async () => {
+    try {
+      const refreshRes = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (refreshRes.ok) {
+        const refreshData = await refreshRes.json();
+        if (refreshData?.accessToken) {
+          setAccessToken(refreshData.accessToken);
+          return refreshData.accessToken as string;
+        }
+      }
+      // If refresh fails with 401/403, clear tokens and redirect to login if not already on login page
+      setAccessToken(null);
+      if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+        window.location.href = '/login';
+      }
+      return null;
+    } catch {
+      return null;
+    } finally {
+      activeRefreshPromise = null;
+    }
+  })();
+
+  return activeRefreshPromise;
+}
+
 export async function apiRequest<T = unknown>(
   endpoint: string,
   options: RequestInit = {}
@@ -57,25 +93,16 @@ export async function apiRequest<T = unknown>(
   });
 
   if (response.status === 401 && !endpoint.includes('/auth/login') && !endpoint.includes('/auth/refresh')) {
-    // Attempt automatic refresh
-    try {
-      const refreshRes = await fetch('/api/auth/refresh', {
-        method: 'POST',
-        credentials: 'include',
-      });
-      if (refreshRes.ok) {
-        const refreshData = await refreshRes.json();
-        setAccessToken(refreshData.accessToken);
-        headers.set('Authorization', `Bearer ${refreshData.accessToken}`);
-        const retryRes = await fetch(endpoint, { ...options, headers, credentials: 'include' });
-        if (!retryRes.ok) {
-          const errData = await retryRes.json().catch(() => ({}));
-          throw new ApiError(retryRes.status, errData.error?.code || 'ERROR', errData.error?.message || 'Request failed');
-        }
+    // Attempt automatic single-flight refresh
+    const newAccessToken = await doRefreshAccessToken();
+    if (newAccessToken) {
+      headers.set('Authorization', `Bearer ${newAccessToken}`);
+      const retryRes = await fetch(endpoint, { ...options, headers, credentials: 'include' });
+      if (retryRes.ok) {
         return retryRes.json() as Promise<T>;
       }
-    } catch {
-      // Refresh failed, let the original 401 throw
+      const errData = await retryRes.json().catch(() => ({}));
+      throw new ApiError(retryRes.status, errData.error?.code || 'ERROR', errData.error?.message || 'Request failed');
     }
   }
 
