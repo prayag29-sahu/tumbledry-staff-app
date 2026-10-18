@@ -48,13 +48,14 @@ authRouter.post('/login', async (req: Request, res: Response) => {
 
   res.json({
     accessToken: result.accessToken,
+    refreshToken: result.refreshToken,
     account: result.account,
   });
 });
 
 // POST /api/auth/refresh
 authRouter.post('/refresh', async (req: Request, res: Response) => {
-  const rawToken = req.cookies?.[REFRESH_COOKIE] as string | undefined;
+  const rawToken = (req.cookies?.[REFRESH_COOKIE] || req.body?.refreshToken || req.headers['x-refresh-token']) as string | undefined;
   if (!rawToken) {
     res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'No refresh session.', requestId: '' } });
     return;
@@ -62,7 +63,7 @@ authRouter.post('/refresh', async (req: Request, res: Response) => {
 
   const result = await refreshTokens(rawToken, req.headers['user-agent'], req.ip);
   setRefreshCookie(res, result.refreshToken);
-  res.json({ accessToken: result.accessToken });
+  res.json({ accessToken: result.accessToken, refreshToken: result.refreshToken });
 });
 
 // GET /api/auth/me — fetch current account profile & memberships

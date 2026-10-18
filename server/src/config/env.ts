@@ -8,8 +8,8 @@ const envSchema = z.object({
   DIRECT_DATABASE_URL: z.string().url().optional(),
   JWT_SECRET: z.string().min(32),
   JWT_REFRESH_SECRET: z.string().min(32),
-  JWT_ACCESS_EXPIRY: z.string().default('72h'),
-  JWT_REFRESH_EXPIRY_DAYS: z.string().default('30').transform(Number),
+  JWT_ACCESS_EXPIRY: z.string().default('30d'),
+  JWT_REFRESH_EXPIRY_DAYS: z.string().default('60').transform(Number),
   CORS_ORIGIN: z.string(), // comma-separated allowed origins
   SUPABASE_STORAGE_URL: z.string().url().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),

@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { AccountSession } from '../types';
-import { apiRequest, setAccessToken } from '../lib/api';
+import { apiRequest, setAccessToken, setRefreshToken, getRefreshToken } from '../lib/api';
 
 interface AuthContextType {
   user: AccountSession | null;
@@ -23,15 +23,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [activeShopId, setActiveShopId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Restore session on mount via refresh token cookie
+  // Restore session on mount via refresh token cookie or local storage
   useEffect(() => {
     async function restoreSession() {
       try {
-        const refreshData = await apiRequest<{ accessToken: string }>('/api/auth/refresh', {
+        const storedRefreshToken = getRefreshToken();
+        const refreshData = await apiRequest<{ accessToken: string; refreshToken?: string }>('/api/auth/refresh', {
           method: 'POST',
+          body: JSON.stringify({ refreshToken: storedRefreshToken }),
         });
         if (refreshData.accessToken) {
           setAccessToken(refreshData.accessToken);
+          if (refreshData.refreshToken) {
+            setRefreshToken(refreshData.refreshToken);
+          }
           // Try fetching fresh profile from /api/auth/me
           try {
             const meData = await apiRequest<{ account: AccountSession }>('/api/auth/me');
@@ -68,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {
         // Not authenticated
         localStorage.removeItem('td_user');
+        setRefreshToken(null);
       } finally {
         setIsLoading(false);
       }
@@ -81,12 +87,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const login = async (username: string, password: string): Promise<AccountSession> => {
-    const data = await apiRequest<{ accessToken: string; account: AccountSession }>('/api/auth/login', {
+    const data = await apiRequest<{ accessToken: string; refreshToken?: string; account: AccountSession }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     });
 
     setAccessToken(data.accessToken);
+    if (data.refreshToken) {
+      setRefreshToken(data.refreshToken);
+    }
     setUser(data.account);
     localStorage.setItem('td_user', JSON.stringify(data.account));
 
@@ -107,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // ignore
     } finally {
       setAccessToken(null);
+      setRefreshToken(null);
       setUser(null);
       setActiveShopId(null);
       localStorage.removeItem('td_user');

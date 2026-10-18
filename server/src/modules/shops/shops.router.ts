@@ -43,10 +43,11 @@ shopsRouter.get('/metrics', async (req: Request, res: Response, next: NextFuncti
     targetShopWhere = { id: { in: memberShopIds }, status: { not: 'ARCHIVED' } };
   }
 
-  const today = new Date();
-  const startOfDay = new Date(today);
+  const dateStr = req.query['date'] as string;
+  const targetDate = dateStr ? new Date(dateStr) : new Date();
+  const startOfDay = new Date(targetDate);
   startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(today);
+  const endOfDay = new Date(targetDate);
   endOfDay.setHours(23, 59, 59, 999);
 
   const shops = await prisma.shop.findMany({
@@ -73,8 +74,11 @@ shopsRouter.get('/metrics', async (req: Request, res: Response, next: NextFuncti
     prisma.taskUnit.findMany({
       where: {
         shopId: { in: shopIds },
-        createdAt: { gte: startOfDay, lte: endOfDay },
         status: { not: 'CANCELLED' },
+        OR: [
+          { createdAt: { gte: startOfDay, lte: endOfDay } },
+          { taskAssignment: { assignmentDate: { gte: startOfDay, lte: endOfDay } } },
+        ],
       },
       select: { shopId: true, status: true, activityCode: true, unitType: true },
     }),
@@ -151,8 +155,8 @@ shopsRouter.get('/metrics', async (req: Request, res: Response, next: NextFuncti
     else if (code.includes('IRON')) activityCounts.iron++;
     else if (code.includes('FOLD')) activityCounts.fold++;
     else if (code.includes('PACK')) activityCounts.pack++;
-    else if (u.unitType === 'PER_ORDER') activityCounts.delivery++;
-    else if (u.unitType === 'COUNT_BASED') activityCounts.pickup++;
+    else if (code.includes('PICKUP') || u.unitType === 'COUNT_BASED') activityCounts.pickup++;
+    else if (code.includes('DELIVER') || u.unitType === 'PER_ORDER') activityCounts.delivery++;
   }
 
   const shopMetrics = shops.map((s) => ({

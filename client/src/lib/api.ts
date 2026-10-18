@@ -23,6 +23,26 @@ export function getAccessToken(): string | null {
   return accessToken;
 }
 
+let refreshToken: string | null = null;
+
+export function setRefreshToken(token: string | null): void {
+  refreshToken = token;
+  if (typeof window !== 'undefined') {
+    if (token) {
+      localStorage.setItem('td_refresh_token', token);
+    } else {
+      localStorage.removeItem('td_refresh_token');
+    }
+  }
+}
+
+export function getRefreshToken(): string | null {
+  if (!refreshToken && typeof window !== 'undefined') {
+    refreshToken = localStorage.getItem('td_refresh_token');
+  }
+  return refreshToken;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -44,19 +64,26 @@ async function doRefreshAccessToken(): Promise<string | null> {
 
   activeRefreshPromise = (async () => {
     try {
+      const storedRefreshToken = getRefreshToken();
       const refreshRes = await fetch('/api/auth/refresh', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: storedRefreshToken }),
         credentials: 'include',
       });
       if (refreshRes.ok) {
         const refreshData = await refreshRes.json();
         if (refreshData?.accessToken) {
           setAccessToken(refreshData.accessToken);
+          if (refreshData?.refreshToken) {
+            setRefreshToken(refreshData.refreshToken);
+          }
           return refreshData.accessToken as string;
         }
       }
       // If refresh fails with 401/403, clear tokens and redirect to login if not already on login page
       setAccessToken(null);
+      setRefreshToken(null);
       if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
         window.location.href = '/login';
       }

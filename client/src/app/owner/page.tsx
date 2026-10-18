@@ -355,18 +355,19 @@ function OwnerPageInner() {
   const lastOwnerFetchRef = useRef<number>(0);
 
   // Fetch staff when selectedShopId changes
-  const fetchShopStaff = useCallback(async (shopId: string, silent = false) => {
+  const fetchShopStaff = useCallback(async (shopId: string, silent = false, date?: string) => {
     if (!shopId) return;
     if (!silent) setIsLoadingStaff(true);
     try {
-      const res = await apiRequest<{ staff: StaffMembershipItem[] }>(`/api/shops/${shopId}/staff`);
+      const activeDate = date || branchDate;
+      const res = await apiRequest<{ staff: StaffMembershipItem[] }>(`/api/shops/${shopId}/staff?date=${activeDate}`);
       setShopStaff(res.staff || []);
     } catch {
       setShopStaff([]);
     } finally {
       if (!silent) setIsLoadingStaff(false);
     }
-  }, []);
+  }, [branchDate]);
 
   // Fetch Branch Operational Data (Supervisor Dashboard, Tasks, Attendance)
   const fetchBranchData = useCallback(async (shopId: string, date: string, silent = false) => {
@@ -561,13 +562,13 @@ function OwnerPageInner() {
     }
   }, [authLoading, fetchAllData]);
 
-  // Fetch staff and branch operational data when selectedShopId, branchDate, or sub-tabs change
+  // Fetch staff and branch operational data when selectedShopId, branchDate, or activeTab changes
   useEffect(() => {
     if (selectedShopId) {
-      fetchShopStaff(selectedShopId);
+      fetchShopStaff(selectedShopId, false, branchDate);
       fetchBranchData(selectedShopId, branchDate);
     }
-  }, [selectedShopId, branchDate, branchSubTab, activeTab, fetchShopStaff, fetchBranchData]);
+  }, [selectedShopId, branchDate, activeTab, fetchShopStaff, fetchBranchData]);
 
   // Auto-refresh on window focus / visibility change without manual page reload (throttled to 30s)
   useEffect(() => {
@@ -575,7 +576,7 @@ function OwnerPageInner() {
       const now = Date.now();
       if (now - lastOwnerFetchRef.current > 30000 && selectedShopId && activeTab === 'overview') {
         lastOwnerFetchRef.current = now;
-        fetchShopStaff(selectedShopId, true);
+        fetchShopStaff(selectedShopId, true, branchDate);
         fetchBranchData(selectedShopId, branchDate, true);
       }
     };
@@ -585,7 +586,7 @@ function OwnerPageInner() {
         const now = Date.now();
         if (now - lastOwnerFetchRef.current > 30000 && selectedShopId && activeTab === 'overview') {
           lastOwnerFetchRef.current = now;
-          fetchShopStaff(selectedShopId, true);
+          fetchShopStaff(selectedShopId, true, branchDate);
           fetchBranchData(selectedShopId, branchDate, true);
         }
       }
