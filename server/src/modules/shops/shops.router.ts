@@ -261,11 +261,17 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
   if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
 
   const dateStr = req.query['date'] as string;
-  const targetDate = dateStr ? new Date(dateStr) : new Date();
-  const startOfDay = new Date(targetDate);
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(targetDate);
-  endOfDay.setHours(23, 59, 59, 999);
+  let startOfDay: Date;
+  let endOfDay: Date;
+  if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    startOfDay = new Date(y, m - 1, d, 0, 0, 0, 0);
+    endOfDay = new Date(y, m - 1, d, 23, 59, 59, 999);
+  } else {
+    const now = new Date();
+    startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  }
 
   // 1. Active staff memberships of this shop
   const staffMemberships = await prisma.shopMembership.findMany({
@@ -485,7 +491,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
   staffPerformance.sort((a, b) => b.completedUnits - a.completedUnits || b.percentage - a.percentage || b.totalUnits - a.totalUnits);
 
   res.json({
-    date: targetDate.toISOString().split('T')[0],
+    date: dateStr || `${startOfDay.getFullYear()}-${String(startOfDay.getMonth() + 1).padStart(2, '0')}-${String(startOfDay.getDate()).padStart(2, '0')}`,
     totalStaff,
     totalEmployees: staffMemberships.length,
     exemptCount: exemptStaff.length,

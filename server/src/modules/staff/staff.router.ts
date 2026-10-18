@@ -73,11 +73,17 @@ staffRouter.get(
 
     // Fetch attendance sessions to attach presence status (supports ?date=YYYY-MM-DD)
     const dateStr = req.query['date'] as string;
-    const targetDate = dateStr ? new Date(dateStr) : new Date();
-    const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    let startOfDay: Date;
+    let endOfDay: Date;
+    if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      startOfDay = new Date(y, m - 1, d, 0, 0, 0, 0);
+      endOfDay = new Date(y, m - 1, d, 23, 59, 59, 999);
+    } else {
+      const now = new Date();
+      startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    }
 
     const todaySessions = await prisma.attendanceSession.findMany({
       where: {
@@ -160,6 +166,8 @@ staffRouter.post(
       incentiveAmount: z.number().min(0).optional(),
       role: z.string().optional(),
       attendanceEnabled: z.boolean().optional(),
+      customFieldValues: z.record(z.string(), z.string().nullable().optional()).optional(),
+      customFields: z.array(z.object({ fieldId: z.string(), value: z.string().nullable().optional() })).optional(),
       // Account creation (optional — person can exist without login access)
       username: z.string().min(3).max(100).optional(),
       password: z.string().min(6).max(128).optional(),
@@ -284,6 +292,69 @@ staffRouter.post(
           attendanceEnabled: resolvedAttendanceEnabled,
         },
       });
+
+      // Persist custom fields if provided
+      const rawFieldEntries: Array<{ fieldKeyOrId: string; value: string | null }> = [];
+      if (body.customFields && Array.isArray(body.customFields)) {
+        for (const item of body.customFields) {
+          rawFieldEntries.push({ fieldKeyOrId: item.fieldId, value: item.value?.trim() || null });
+        }
+      }
+      if (body.customFieldValues && typeof body.customFieldValues === 'object') {
+        for (const [key, val] of Object.entries(body.customFieldValues)) {
+          if (val !== undefined && val !== null) {
+            rawFieldEntries.push({ fieldKeyOrId: key, value: String(val).trim() });
+          }
+        }
+      }
+
+      if (rawFieldEntries.length > 0) {
+        const candidateKeysOrIds = rawFieldEntries.map((e) => e.fieldKeyOrId);
+        const definitions = await tx.customFieldDefinition.findMany({
+          where: {
+            OR: [
+              { id: { in: candidateKeysOrIds } },
+              { key: { in: candidateKeysOrIds } },
+            ],
+            AND: [{ OR: [{ shopId }, { shopId: null }] }],
+          },
+        });
+        const defById = new Map(definitions.map((d) => [d.id, d]));
+        const defByKey = new Map(definitions.map((d) => [d.key, d]));
+
+        for (const entry of rawFieldEntries) {
+          const def = defById.get(entry.fieldKeyOrId) || defByKey.get(entry.fieldKeyOrId);
+          if (!def || !entry.value) continue;
+
+          let valueText: string | null = null;
+          let valueNumber: number | null = null;
+          let valueDate: Date | null = null;
+          let valueBoolean: boolean | null = null;
+
+          if (def.fieldType === 'NUMBER') {
+            const num = parseFloat(entry.value);
+            if (!isNaN(num)) valueNumber = num;
+          } else if (def.fieldType === 'DATE') {
+            const d = new Date(entry.value);
+            if (!isNaN(d.getTime())) valueDate = d;
+          } else if (def.fieldType === 'YES_NO') {
+            valueBoolean = entry.value.toLowerCase() === 'true' || entry.value.toLowerCase() === 'yes';
+          } else {
+            valueText = entry.value;
+          }
+
+          await tx.customFieldValue.create({
+            data: {
+              customFieldDefinitionId: def.id,
+              staffMemberId: staffMember.id,
+              valueText,
+              valueNumber,
+              valueDate,
+              valueBoolean,
+            },
+          });
+        }
+      }
 
       return { staffMember, account: account ? { id: account.id, username: account.username } : null, membership };
     });
@@ -754,5 +825,161 @@ staffRouter.post(
     });
 
     res.json({ message: 'Staff member archived. Historical records are preserved.' });
+  }
+);
+
+// ─── GET /api/shops/:shopId/staff/:staffId/custom-fields ─────────────────────
+staffRouter.get(
+  '/shops/:shopId/staff/:staffId/custom-fields',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
+    const { shopId, staffId } = req.params as { shopId: string; staffId: string };
+
+    const hasAccess =
+      auth.isOwner ||
+      auth.shopMemberships.some((m) => m.shopId === shopId && m.capabilities.includes('staff.read'));
+    if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
+
+    const membership = await prisma.shopMembership.findFirst({
+      where: { shopId, staffMemberId: staffId, isActive: true },
+      select: { positionCategoryId: true },
+    });
+
+    const definitions = await prisma.customFieldDefinition.findMany({
+      where: { OR: [{ shopId }, { shopId: null }], isActive: true },
+      orderBy: { displayOrder: 'asc' },
+    });
+
+    const values = await prisma.customFieldValue.findMany({
+      where: { staffMemberId: staffId },
+    });
+    const valueMap = new Map<string, string | null>();
+    for (const v of values) {
+      if (v.valueText != null) valueMap.set(v.customFieldDefinitionId, v.valueText);
+      else if (v.valueNumber != null) valueMap.set(v.customFieldDefinitionId, String(v.valueNumber));
+      else if (v.valueDate != null) valueMap.set(v.customFieldDefinitionId, v.valueDate.toISOString().split('T')[0]);
+      else if (v.valueBoolean != null) valueMap.set(v.customFieldDefinitionId, String(v.valueBoolean));
+      else if (v.valueFilePath != null) valueMap.set(v.customFieldDefinitionId, v.valueFilePath);
+    }
+
+    const posId = membership?.positionCategoryId;
+    const filtered = definitions.filter((d) => {
+      if (!d.visibilityScope || d.visibilityScope === 'ALL') return true;
+      try {
+        const scopes = JSON.parse(d.visibilityScope);
+        if (!Array.isArray(scopes) || scopes.length === 0) return true;
+        return posId ? scopes.includes(posId) : false;
+      } catch {
+        return true;
+      }
+    });
+
+    res.json({
+      fields: filtered.map((d) => ({
+        id: d.id,
+        key: d.key,
+        label: d.label,
+        helpText: d.helpText,
+        fieldType: d.fieldType,
+        isRequired: d.isRequired,
+        dropdownOptions: d.dropdownOptions || [],
+        value: valueMap.get(d.id) ?? null,
+      })),
+    });
+  }
+);
+
+// ─── PUT /api/shops/:shopId/staff/:staffId/custom-fields ─────────────────────
+staffRouter.put(
+  '/shops/:shopId/staff/:staffId/custom-fields',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
+    const { shopId, staffId } = req.params as { shopId: string; staffId: string };
+
+    const hasAccess =
+      auth.isOwner ||
+      auth.shopMemberships.some((m) => m.shopId === shopId && m.capabilities.includes('staff.update'));
+    if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Permission denied.'));
+
+    const schema = z.object({
+      values: z.array(
+        z.object({
+          fieldId: z.string(),
+          value: z.string().nullable().optional(),
+        })
+      ),
+    });
+    const { values } = schema.parse(req.body);
+
+    const definitions = await prisma.customFieldDefinition.findMany({
+      where: { id: { in: values.map((v) => v.fieldId) } },
+    });
+    const defMap = new Map(definitions.map((d) => [d.id, d]));
+
+    await prisma.$transaction(async (tx) => {
+      for (const item of values) {
+        const def = defMap.get(item.fieldId);
+        if (!def) continue;
+
+        const rawVal = item.value?.trim() || null;
+        if (!rawVal) {
+          await tx.customFieldValue.deleteMany({
+            where: { customFieldDefinitionId: item.fieldId, staffMemberId: staffId },
+          });
+          continue;
+        }
+
+        let valueText: string | null = null;
+        let valueNumber: number | null = null;
+        let valueDate: Date | null = null;
+        let valueBoolean: boolean | null = null;
+
+        if (def.fieldType === 'NUMBER') {
+          const num = parseFloat(rawVal);
+          if (!isNaN(num)) valueNumber = num;
+        } else if (def.fieldType === 'DATE') {
+          const d = new Date(rawVal);
+          if (!isNaN(d.getTime())) valueDate = d;
+        } else if (def.fieldType === 'YES_NO') {
+          valueBoolean = rawVal.toLowerCase() === 'true' || rawVal.toLowerCase() === 'yes';
+        } else {
+          valueText = rawVal;
+        }
+
+        await tx.customFieldValue.upsert({
+          where: {
+            customFieldDefinitionId_staffMemberId: {
+              customFieldDefinitionId: item.fieldId,
+              staffMemberId: staffId,
+            },
+          },
+          update: {
+            valueText,
+            valueNumber,
+            valueDate,
+            valueBoolean,
+          },
+          create: {
+            customFieldDefinitionId: item.fieldId,
+            staffMemberId: staffId,
+            valueText,
+            valueNumber,
+            valueDate,
+            valueBoolean,
+          },
+        });
+      }
+    });
+
+    await logAudit({
+      action: 'staff.custom_fields_updated',
+      entityType: 'StaffMember',
+      entityId: staffId,
+      actorAccountId: auth.accountId,
+      shopId,
+      metadata: { fullName: await staffNameOf(staffId) },
+    });
+
+    res.json({ success: true, message: 'Custom fields updated.' });
   }
 );
