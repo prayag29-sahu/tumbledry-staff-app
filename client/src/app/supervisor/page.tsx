@@ -51,6 +51,7 @@ import {
   DamageIncidentRecord,
 } from '../../components/DamageIncidentViewerModal';
 import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
+import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
 
 interface EnrichedStaffItem {
   id: string; // membership id
@@ -203,8 +204,35 @@ interface StaffMonthlyPerfResponse {
 }
 
 export default function SupervisorPage() {
-  const { user, activeShopId, activeShopName, logout } = useAuth();
+  const { user, activeShopId, activeShopName, activeRole, isLoading: isAuthLoading, logout } = useAuth();
   const router = useRouter();
+
+  // Route Guard: Restrict non-supervisor staff from opening /supervisor
+  useEffect(() => {
+    if (isAuthLoading) return;
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
+    const role = (activeRole || user.shopMemberships?.[0]?.roleName || '').toLowerCase();
+    const isAllowed =
+      user.isOwner ||
+      role.includes('supervisor') ||
+      role.includes('manager') ||
+      role.includes('admin') ||
+      user.shopMemberships?.some((m) =>
+        m.capabilities?.some((c) =>
+          ['staff.read', 'staff.create', 'tasks.assign', 'attendance.read_team'].includes(c)
+        )
+      );
+
+    if (!isAllowed) {
+      if (role.includes('iron')) router.replace('/ironman');
+      else if (role.includes('wash')) router.replace('/washerman');
+      else if (role.includes('delivery')) router.replace('/delivery');
+      else router.replace('/staff');
+    }
+  }, [user, isAuthLoading, router]);
 
   // Root Navigation View: 'dashboard' (Screen 10), 'staff_list' (Screen 2), 'attendance', 'reports', 'more' (Screen 5)
   const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'reports' | 'more'>('dashboard');
@@ -261,8 +289,7 @@ export default function SupervisorPage() {
   // Step 2 — Employment & Login
   const [addUsername, setAddUsername] = useState('');
   const [addPassword, setAddPassword] = useState('');
-  const [addAadhaar, setAddAadhaar] = useState('');
-  const [addBankAccount, setAddBankAccount] = useState('');
+  const [addCustomFieldDraft, setAddCustomFieldDraft] = useState<Record<string, string>>({});
   const [addJoiningDate, setAddJoiningDate] = useState('');
   const [addSalary, setAddSalary] = useState('');
   const [addSecurityDeposit, setAddSecurityDeposit] = useState('');
@@ -375,8 +402,21 @@ export default function SupervisorPage() {
 
   // Fetch Dashboard & Staff Lists
   const fetchAllData = useCallback(async (isSilent = false) => {
-    if (!activeShopId) return;
-    if (!isSilent && !dashboardData) {
+    if (!activeShopId || isAuthLoading || !user) return;
+    const role = (activeRole || user.shopMemberships?.[0]?.roleName || '').toLowerCase();
+    const isAllowed =
+      user.isOwner ||
+      role.includes('supervisor') ||
+      role.includes('manager') ||
+      role.includes('admin') ||
+      user.shopMemberships?.some((m) =>
+        m.capabilities?.some((c) =>
+          ['staff.read', 'staff.create', 'tasks.assign', 'attendance.read_team'].includes(c)
+        )
+      );
+    if (!isAllowed) return;
+
+    if (!isSilent) {
       setIsLoading(true);
     }
     try {
@@ -384,11 +424,11 @@ export default function SupervisorPage() {
       const [dashRes, staffRes, posRes, permRes, fieldsRes, svcRes, wfRes] = await Promise.all([
         apiRequest<SupervisorDashboardData>(`/api/shops/${activeShopId}/supervisor/dashboard?date=${dashboardDate}`).catch(() => null),
         apiRequest<{ staff: EnrichedStaffItem[] }>(`/api/shops/${activeShopId}/staff?date=${activeDate}`).catch(() => null),
-        positionCategories.length > 0 ? Promise.resolve(null) : apiRequest<{ categories: PositionCategory[] }>(`/api/config/shops/${activeShopId}/position-categories`).catch(() => null),
-        permissionProfiles.length > 0 ? Promise.resolve(null) : apiRequest<{ profiles: PermissionProfileItem[] }>(`/api/config/shops/${activeShopId}/permission-profiles`).catch(() => null),
-        customFields.length > 0 ? Promise.resolve(null) : apiRequest<{ fields: CustomFieldDefinition[] }>(`/api/config/shops/${activeShopId}/custom-fields`).catch(() => null),
-        services.length > 0 ? Promise.resolve(null) : apiRequest<{ serviceTypes: ServiceType[] }>(`/api/config/service-types`).catch(() => null),
-        workflowProfiles.length > 0 ? Promise.resolve(null) : apiRequest<{ profiles: WorkflowProfile[] }>(`/api/config/workflow-profiles`).catch(() => null),
+        apiRequest<{ categories: PositionCategory[] }>(`/api/config/shops/${activeShopId}/position-categories`).catch(() => null),
+        apiRequest<{ profiles: PermissionProfileItem[] }>(`/api/config/shops/${activeShopId}/permission-profiles`).catch(() => null),
+        apiRequest<{ fields: CustomFieldDefinition[] }>(`/api/config/shops/${activeShopId}/custom-fields`).catch(() => null),
+        apiRequest<{ serviceTypes: ServiceType[] }>(`/api/config/service-types`).catch(() => null),
+        apiRequest<{ profiles: WorkflowProfile[] }>(`/api/config/workflow-profiles`).catch(() => null),
       ]);
 
       if (dashRes) setDashboardData(dashRes);
@@ -408,7 +448,7 @@ export default function SupervisorPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [activeShopId, dashboardDate, attendanceDate, currentNav, dashboardData, positionCategories.length, permissionProfiles.length, customFields.length, services.length, workflowProfiles.length]);
+  }, [activeShopId, user, activeRole, isAuthLoading, dashboardDate, attendanceDate, currentNav]);
 
   // Refetch when nav tab or dates change (silent to avoid flickering)
   useEffect(() => {
@@ -516,8 +556,7 @@ export default function SupervisorPage() {
     setAddAddress('');
     setAddUsername('');
     setAddPassword('');
-    setAddAadhaar('');
-    setAddBankAccount('');
+    setAddCustomFieldDraft({});
     setAddJoiningDate('');
     setAddSalary('');
     setAddSecurityDeposit('');
@@ -547,6 +586,7 @@ export default function SupervisorPage() {
         securityDeposit: addSecurityDeposit ? parseFloat(addSecurityDeposit) : undefined,
         dutyTimingNotes: addDutyTiming.trim() || undefined,
         incentiveAmount: addIncentive ? parseFloat(addIncentive) : undefined,
+        customFieldValues: addCustomFieldDraft,
       };
 
       if (addPositionId) {
@@ -1123,27 +1163,68 @@ export default function SupervisorPage() {
                       />
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-brand-forest mb-1">Aadhaar Number</label>
-                      <input
-                        type="text"
-                        placeholder="1234 5678 9012"
-                        value={addAadhaar}
-                        onChange={(e) => setAddAadhaar(e.target.value)}
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-brand-forest mb-1">Bank Account Number</label>
-                      <input
-                        type="text"
-                        placeholder="50100012345678"
-                        value={addBankAccount}
-                        onChange={(e) => setAddBankAccount(e.target.value)}
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
-                      />
-                    </div>
+                    {/* Dynamic Custom Fields fetched from Database */}
+                    {customFields
+                      .filter((cf) => cf.isActive !== false)
+                      .filter((cf) => {
+                        if (!cf.positionCategoryIds || cf.positionCategoryIds.length === 0) return true;
+                        return addPositionId ? cf.positionCategoryIds.includes(addPositionId) : true;
+                      })
+                      .map((cf) => (
+                        <div key={cf.id}>
+                          <label className="block text-xs font-bold text-brand-forest mb-1">
+                            {cf.label} {cf.isRequired && <span className="text-red-500">*</span>}
+                          </label>
+                          {cf.fieldType === 'DROPDOWN' ? (
+                            <select
+                              value={addCustomFieldDraft[cf.id] ?? ''}
+                              onChange={(e) => setAddCustomFieldDraft((prev) => ({ ...prev, [cf.id]: e.target.value }))}
+                              className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                            >
+                              <option value="">— Select {cf.label} —</option>
+                              {(cf.dropdownOptions || []).map((opt) => (
+                                <option key={opt} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          ) : cf.fieldType === 'YES_NO' ? (
+                            <select
+                              value={addCustomFieldDraft[cf.id] ?? ''}
+                              onChange={(e) => setAddCustomFieldDraft((prev) => ({ ...prev, [cf.id]: e.target.value }))}
+                              className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                            >
+                              <option value="">— Select —</option>
+                              <option value="Yes">Yes</option>
+                              <option value="No">No</option>
+                            </select>
+                          ) : cf.fieldType === 'DATE' ? (
+                            <input
+                              type="date"
+                              value={addCustomFieldDraft[cf.id] ?? ''}
+                              onChange={(e) => setAddCustomFieldDraft((prev) => ({ ...prev, [cf.id]: e.target.value }))}
+                              className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                            />
+                          ) : cf.fieldType === 'NUMBER' ? (
+                            <input
+                              type="number"
+                              placeholder={cf.helpText || `Enter ${cf.label}`}
+                              value={addCustomFieldDraft[cf.id] ?? ''}
+                              onChange={(e) => setAddCustomFieldDraft((prev) => ({ ...prev, [cf.id]: e.target.value }))}
+                              className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                            />
+                          ) : (
+                            <input
+                              type="text"
+                              placeholder={cf.helpText || `Enter ${cf.label}`}
+                              value={addCustomFieldDraft[cf.id] ?? ''}
+                              onChange={(e) => setAddCustomFieldDraft((prev) => ({ ...prev, [cf.id]: e.target.value }))}
+                              className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
+                            />
+                          )}
+                          {cf.helpText && (
+                            <p className="text-[10px] text-content-muted mt-0.5">{cf.helpText}</p>
+                          )}
+                        </div>
+                      ))}
 
                     <div className="flex items-center gap-3 pt-1">
                       <button
@@ -1330,23 +1411,13 @@ export default function SupervisorPage() {
                 </div>
               </div>
 
-              {/* Custom Fields Box matching Screen 6 */}
-              <div className="p-3.5 rounded-xl bg-surface-cream/50 border border-border-subtle space-y-2 mt-2">
-                <h4 className="text-xs font-black text-brand-forest uppercase tracking-wider">Custom Fields</h4>
-                {selectedStaff.staffMember.customFieldValues && selectedStaff.staffMember.customFieldValues.length > 0 ? (
-                  <div className="grid grid-cols-2 gap-2 text-[11px]">
-                    {selectedStaff.staffMember.customFieldValues.map((cf) => (
-                      <div key={cf.id}>
-                        <span className="text-content-muted">{cf.customFieldDefinition.label}</span>
-                        <p className="font-bold text-brand-forest">
-                          {cf.valueText || cf.valueNumber?.toString() || (cf.valueBoolean != null ? (cf.valueBoolean ? 'Yes' : 'No') : '—')}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-content-muted font-medium italic">No custom fields assigned to this staff member.</p>
-                )}
+              {/* Custom Fields Box matching Screen 6 & Owner Architecture */}
+              <div className="mt-2">
+                <StaffExtraDetails
+                  shopId={activeShopId!}
+                  staffMemberId={selectedStaff.staffMember.id}
+                  canEdit={canEditStaff}
+                />
               </div>
 
               {canEditStaff && (
@@ -2879,6 +2950,7 @@ export default function SupervisorPage() {
                     <div className="pt-2 border-t border-border-subtle/50 flex items-center gap-2">
                       {!isPresent ? (
                         <>
+                          {/* Mark Present is commented out for supervisor: Staff marks attendance via self photo/check-in
                           <button
                             disabled={isMarking}
                             onClick={() => handleMarkStaffAttendance(staff.staffMember.id, 'PRESENT')}
@@ -2887,12 +2959,14 @@ export default function SupervisorPage() {
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             <span>{isMarking ? 'Marking...' : 'Mark Present'}</span>
                           </button>
+                          */}
                           <button
                             disabled={isMarking}
                             onClick={() => handleMarkStaffAttendance(staff.staffMember.id, 'HALF_DAY')}
-                            className="py-1.5 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[11px] font-bold shadow-sm transition-all disabled:opacity-50"
+                            className="flex-1 py-2 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold shadow-sm transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
                           >
-                            <span>Half Day</span>
+                            <Clock className="w-3.5 h-3.5 text-amber-700" />
+                            <span>{isMarking ? 'Updating...' : 'Mark Half Day'}</span>
                           </button>
                         </>
                       ) : (
