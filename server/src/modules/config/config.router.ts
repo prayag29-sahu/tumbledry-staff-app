@@ -165,8 +165,13 @@ configRouter.get('/shops/:shopId/position-categories', async (req: Request, res:
   const hasAccess = auth.isOwner || auth.shopMemberships.some((m) => m.shopId === shopId);
   if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
 
+  const includeInactive = req.query['includeInactive'] === 'true' || req.query['includeInactive'] === '1';
+
   const categories = await prisma.positionCategory.findMany({
-    where: { OR: [{ shopId }, { shopId: null }], isActive: true },
+    where: {
+      OR: [{ shopId }, { shopId: null }],
+      ...(includeInactive ? {} : { isActive: true }),
+    },
     include: { workflowProfile: { select: { id: true, name: true, workflowType: true } } },
     orderBy: { name: 'asc' },
   });
@@ -206,7 +211,7 @@ configRouter.post('/shops/:shopId/position-categories', async (req: Request, res
   res.status(201).json(category);
 });
 
-// PATCH /api/config/shops/:shopId/position-categories/:id — Owner renames / deactivates a job role
+// PATCH /api/config/shops/:shopId/position-categories/:id — Owner renames / activates / deactivates a job role
 configRouter.patch('/shops/:shopId/position-categories/:id', ownerOnly, async (req: Request, res: Response, next: NextFunction) => {
   const auth = (req as AuthenticatedRequest).auth;
   const { shopId, id } = req.params as { shopId: string; id: string };
@@ -219,12 +224,7 @@ configRouter.patch('/shops/:shopId/position-categories/:id', ownerOnly, async (r
   const body = schema.parse(req.body);
   const existing = await prisma.positionCategory.findFirst({ where: { id, OR: [{ shopId }, { shopId: null }] } });
   if (!existing) return next(new AppError(404, 'NOT_FOUND', 'Job role not found.'));
-  if (body.isActive === false) {
-    const inUse = await prisma.shopMembership.count({ where: { positionCategoryId: id, isActive: true } });
-    if (inUse > 0) {
-      return next(new AppError(409, 'CONFLICT', `${inUse} active staff still have this job role. Change their role first.`));
-    }
-  }
+
   const updated = await prisma.positionCategory.update({
     where: { id },
     data: {
@@ -235,7 +235,7 @@ configRouter.patch('/shops/:shopId/position-categories/:id', ownerOnly, async (r
     },
   });
   await logAudit({
-    action: body.isActive === false ? 'position_category.deactivated' : 'position_category.updated',
+    action: body.isActive === false ? 'position_category.deactivated' : body.isActive === true ? 'position_category.activated' : 'position_category.updated',
     entityType: 'PositionCategory',
     entityId: id,
     actorAccountId: auth.accountId,
@@ -366,8 +366,13 @@ configRouter.get('/shops/:shopId/custom-fields', async (req: Request, res: Respo
   const hasAccess = auth.isOwner || auth.shopMemberships.some((m) => m.shopId === shopId);
   if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
 
+  const includeInactive = req.query['includeInactive'] === 'true' || req.query['includeInactive'] === '1';
+
   const fields = await prisma.customFieldDefinition.findMany({
-    where: { OR: [{ shopId }, { shopId: null }], isActive: true },
+    where: {
+      OR: [{ shopId }, { shopId: null }],
+      ...(includeInactive ? {} : { isActive: true }),
+    },
     orderBy: { displayOrder: 'asc' },
   });
 
@@ -419,7 +424,7 @@ configRouter.post('/shops/:shopId/custom-fields', async (req: Request, res: Resp
   res.status(201).json({ ...field, positionCategoryIds });
 });
 
-// PATCH /api/config/shops/:shopId/custom-fields/:fieldId — edit label / required / who it applies to
+// PATCH /api/config/shops/:shopId/custom-fields/:fieldId — edit label / required / active / who it applies to
 configRouter.patch('/shops/:shopId/custom-fields/:fieldId', async (req: Request, res: Response, next: NextFunction) => {
   const auth = (req as AuthenticatedRequest).auth;
   const { shopId, fieldId } = req.params as { shopId: string; fieldId: string };
@@ -431,6 +436,7 @@ configRouter.patch('/shops/:shopId/custom-fields/:fieldId', async (req: Request,
     label: z.string().min(1).max(100).optional(),
     helpText: z.string().max(300).nullable().optional(),
     isRequired: z.boolean().optional(),
+    isActive: z.boolean().optional(),
     dropdownOptions: z.array(z.string()).optional(),
     positionCategoryIds: z.array(z.string()).optional(),
   });
@@ -445,7 +451,7 @@ configRouter.patch('/shops/:shopId/custom-fields/:fieldId', async (req: Request,
     },
   });
   await logAudit({
-    action: 'custom_field.updated',
+    action: body.isActive === false ? 'custom_field.hidden' : body.isActive === true ? 'custom_field.unhidden' : 'custom_field.updated',
     entityType: 'CustomFieldDefinition',
     entityId: fieldId,
     actorAccountId: auth.accountId,
