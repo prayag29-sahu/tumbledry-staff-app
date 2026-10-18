@@ -9,6 +9,15 @@ export const shopsRouter = Router();
 
 shopsRouter.use(authenticate as unknown as (req: Request, res: Response, next: NextFunction) => void);
 
+// Roles allowed to see branch-level dashboards (Owner always allowed)
+const DASHBOARD_CAPABILITIES = ['staff.read', 'reports.read', 'tasks.read_team'];
+function canViewDashboard(auth: AuthenticatedRequest['auth'], shopId?: string): boolean {
+  if (auth.isOwner) return true;
+  return auth.shopMemberships.some(
+    (m) => (!shopId || m.shopId === shopId) && m.capabilities.some((c) => DASHBOARD_CAPABILITIES.includes(c))
+  );
+}
+
 // GET /api/shops — Owner sees all; others see their memberships
 shopsRouter.get('/', async (req: Request, res: Response) => {
   const auth = (req as AuthenticatedRequest).auth;
@@ -33,10 +42,13 @@ shopsRouter.get('/', async (req: Request, res: Response) => {
 // GET /api/shops/metrics — Owner & branch high-level cross-shop metrics
 shopsRouter.get('/metrics', async (req: Request, res: Response, next: NextFunction) => {
   const auth = (req as AuthenticatedRequest).auth;
+  if (!canViewDashboard(auth)) return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
   
   let targetShopWhere: Record<string, unknown> = { status: { not: 'ARCHIVED' } };
   if (!auth.isOwner) {
-    const memberShopIds = auth.shopMemberships.map((m) => m.shopId);
+    const memberShopIds = auth.shopMemberships
+      .filter((m) => m.capabilities.some((c) => DASHBOARD_CAPABILITIES.includes(c)))
+      .map((m) => m.shopId);
     if (memberShopIds.length === 0) {
       return next(new AppError(403, 'FORBIDDEN', 'No accessible shops found.'));
     }
@@ -209,7 +221,7 @@ shopsRouter.post(
 
     const shop = await prisma.shop.create({ data: body });
 
-    logAudit({
+    await logAudit({
       action: 'shop.created',
       entityType: 'Shop',
       entityId: shop.id,
@@ -245,7 +257,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
   const auth = (req as AuthenticatedRequest).auth;
   const { shopId } = req.params as { shopId: string };
 
-  const hasAccess = auth.isOwner || auth.shopMemberships.some((m) => m.shopId === shopId);
+  const hasAccess = canViewDashboard(auth, shopId);
   if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
 
   const dateStr = req.query['date'] as string;
@@ -255,7 +267,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
   const endOfDay = new Date(targetDate);
   endOfDay.setHours(23, 59, 59, 999);
 
-  // 1. All active staff in this shop
+  // 1. Active staff memberships of this shop
   const staffMemberships = await prisma.shopMembership.findMany({
     where: { shopId, isActive: true },
     include: {
@@ -305,28 +317,63 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
 
   const totalStaff = attendanceTrackedStaff.length;
   const absentCount = Math.max(0, totalStaff - presentCount);
+  const exemptStaff = staffMemberships
+    .filter((m) => (m as typeof m & { attendanceEnabled?: boolean }).attendanceEnabled === false)
+    .map((m) => ({ staffId: m.staffMemberId, fullName: m.staffMember.fullName, position: m.positionCategory?.name || 'Staff' }));
 
-  // 3. Tasks on targetDate
-  const assignments = await prisma.taskAssignment.findMany({
-    where: {
-      shopId,
-      assignmentDate: { gte: startOfDay, lte: endOfDay },
-      status: 'ACTIVE',
-    },
-    select: {
-      id: true,
-      staffMemberId: true,
-      serviceType: { select: { code: true, name: true } },
-      taskUnits: {
-        where: { status: { not: 'CANCELLED' } },
-        select: { status: true, activityCode: true, unitType: true },
+  // 3. Tasks on targetDate + full service catalogue (so new services show up automatically)
+  const [assignments, serviceCatalogue] = await Promise.all([
+    prisma.taskAssignment.findMany({
+      where: {
+        shopId,
+        assignmentDate: { gte: startOfDay, lte: endOfDay },
+        status: 'ACTIVE',
       },
-    },
-  });
+      select: {
+        id: true,
+        staffMemberId: true,
+        pieceCount: true,
+        serviceTypeId: true,
+        serviceType: { select: { code: true, name: true } },
+        taskUnits: {
+          where: { status: { not: 'CANCELLED' } },
+          select: { status: true, activityCode: true, unitType: true },
+        },
+      },
+    }),
+    prisma.serviceType.findMany({
+      where: { isActive: true },
+      select: { id: true, code: true, name: true },
+      orderBy: { displayOrder: 'asc' },
+    }),
+  ]);
+
+  // Per-service KPI: orders, pieces and task units (done / total) for the selected day
+  type ServiceKpi = { id: string; code: string; name: string; orders: number; pieces: number; totalUnits: number; completedUnits: number; percentage: number };
+  const serviceMap = new Map<string, ServiceKpi>();
+  for (const s of serviceCatalogue) {
+    serviceMap.set(s.id, { id: s.id, code: s.code, name: s.name, orders: 0, pieces: 0, totalUnits: 0, completedUnits: 0, percentage: 0 });
+  }
+  const OTHER_KEY = '__other__';
+  for (const a of assignments) {
+    const key = a.serviceTypeId && serviceMap.has(a.serviceTypeId) ? a.serviceTypeId : OTHER_KEY;
+    if (!serviceMap.has(key)) {
+      serviceMap.set(key, { id: key, code: 'OTHER', name: 'Pickup / Delivery (no service)', orders: 0, pieces: 0, totalUnits: 0, completedUnits: 0, percentage: 0 });
+    }
+    const kpi = serviceMap.get(key)!;
+    kpi.orders++;
+    kpi.pieces += a.pieceCount ?? 0;
+    kpi.totalUnits += a.taskUnits.length;
+    kpi.completedUnits += a.taskUnits.filter((u) => u.status === 'COMPLETED').length;
+  }
+  const serviceBreakdown = Array.from(serviceMap.values()).map((k) => ({
+    ...k,
+    percentage: k.totalUnits > 0 ? Math.round((k.completedUnits / k.totalUnits) * 100) : 0,
+  }));
 
   let todayTotalUnits = 0;
   let todayCompletedUnits = 0;
-  const staffTaskMap: Record<string, { total: number; completed: number }> = {};
+  const staffTaskMap: Record<string, { total: number; completed: number; orders: number; pieces: number }> = {};
 
   const departmentBreakdown = {
     wash: { name: 'Washing & Cleaning', total: 0, completed: 0, percentage: 0 },
@@ -340,8 +387,10 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
     const isDryClean = a.serviceType?.code === 'CL' || (a.serviceType?.name || '').toLowerCase().includes('dry clean');
 
     if (!staffTaskMap[a.staffMemberId]) {
-      staffTaskMap[a.staffMemberId] = { total: 0, completed: 0 };
+      staffTaskMap[a.staffMemberId] = { total: 0, completed: 0, orders: 0, pieces: 0 };
     }
+    staffTaskMap[a.staffMemberId].orders++;
+    staffTaskMap[a.staffMemberId].pieces += a.pieceCount ?? 0;
 
     for (const u of a.taskUnits) {
       todayTotalUnits++;
@@ -394,7 +443,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
 
   // 4. Staff Performance list for dashboard
   const staffPerformance = staffMemberships.map((m) => {
-    const taskData = staffTaskMap[m.staffMemberId] || { total: 0, completed: 0 };
+    const taskData = staffTaskMap[m.staffMemberId] || { total: 0, completed: 0, orders: 0, pieces: 0 };
     const pct = taskData.total > 0
       ? Math.round((taskData.completed / taskData.total) * 100)
       : 0;
@@ -412,6 +461,8 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
       percentage: pct,
       totalUnits: taskData.total,
       completedUnits: taskData.completed,
+      ordersAssigned: taskData.orders,
+      piecesAssigned: taskData.pieces,
       attendanceEnabled: isAttendanceEnabled,
       isPresent,
       isOnFloor,
@@ -430,12 +481,15 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
     };
   });
 
-  staffPerformance.sort((a, b) => b.percentage - a.percentage);
+  // Rank: completed units first, then completion %, so idle staff don't tie at the top
+  staffPerformance.sort((a, b) => b.completedUnits - a.completedUnits || b.percentage - a.percentage || b.totalUnits - a.totalUnits);
 
   res.json({
     date: targetDate.toISOString().split('T')[0],
     totalStaff,
     totalEmployees: staffMemberships.length,
+    exemptCount: exemptStaff.length,
+    exemptStaff,
     presentCount,
     activeOnFloorCount,
     completedShiftCount,
@@ -448,6 +502,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
     },
     staffPerformance,
     departmentBreakdown,
+    serviceBreakdown,
   });
 });
 
@@ -479,7 +534,7 @@ shopsRouter.patch(
     const shop = await prisma.shop.update({ where: { id: shopId }, data: body });
 
     const auth = (req as AuthenticatedRequest).auth;
-    logAudit({
+    await logAudit({
       action: 'shop.updated',
       entityType: 'Shop',
       entityId: shop.id,
@@ -516,7 +571,7 @@ shopsRouter.delete(
         data: { status: 'ARCHIVED' },
       });
 
-      logAudit({
+      await logAudit({
         action: 'shop.archived',
         entityType: 'Shop',
         entityId: shopId,
@@ -542,7 +597,7 @@ shopsRouter.delete(
       prisma.shop.delete({ where: { id: shopId } }),
     ]);
 
-    logAudit({
+    await logAudit({
       action: 'shop.deleted',
       entityType: 'Shop',
       entityId: shopId,

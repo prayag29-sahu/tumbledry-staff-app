@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticate, AuthenticatedRequest } from '../../middleware/auth';
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
+import { logAudit } from '../../lib/audit';
 
 export const attendanceRouter = Router();
 
@@ -316,6 +317,23 @@ attendanceRouter.post(
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(targetDate);
     endOfDay.setHours(23, 59, 59, 999);
+
+    const markedStaff = await prisma.staffMember.findUnique({
+      where: { id: body.staffMemberId },
+      select: { fullName: true },
+    });
+    await logAudit({
+      action: `attendance.marked_${body.status.toLowerCase()}`,
+      entityType: 'AttendanceSession',
+      entityId: body.staffMemberId,
+      actorAccountId: auth.accountId,
+      shopId,
+      metadata: {
+        fullName: markedStaff?.fullName ?? null,
+        status: body.status,
+        date: body.date ?? targetDate.toISOString().split('T')[0],
+      },
+    });
 
     if (body.status === 'PRESENT') {
       let session = await prisma.attendanceSession.findFirst({
