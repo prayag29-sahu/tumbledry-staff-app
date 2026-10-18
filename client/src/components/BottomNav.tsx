@@ -28,9 +28,10 @@ function BottomNavInner() {
 
   if (user.isOwner) {
     navItems.push(
-      { label: 'Admin', href: '/owner', icon: Shield, id: 'admin' },
-      { label: 'Workforce', href: '/owner?view=workforce', icon: Users, id: 'workforce' },
-      { label: 'Live Tasks', href: '/owner?view=tasks', icon: ClipboardList, id: 'tasks' },
+      { label: 'Dashboard', href: '/owner', icon: Shield, id: 'admin' },
+      // Workforce & Live Tasks rendered the same owner page — hidden for now.
+      // { label: 'Workforce', href: '/owner?view=workforce', icon: Users, id: 'workforce' },
+      // { label: 'Live Tasks', href: '/owner?view=tasks', icon: ClipboardList, id: 'tasks' },
       { label: 'Profile', href: '/profile', icon: User, id: 'profile' }
     );
   } else if (activeRole === 'Supervisor') {
@@ -79,7 +80,7 @@ function BottomNavInner() {
           let isActive = false;
           if (user.isOwner) {
             if (item.id === 'admin') {
-              isActive = pathname === '/owner' && (!currentView || currentView === 'shops' || currentView === 'admin');
+              isActive = pathname === '/owner';
             } else if (item.id === 'workforce') {
               isActive = pathname === '/owner' && currentView === 'workforce';
             } else if (item.id === 'tasks') {

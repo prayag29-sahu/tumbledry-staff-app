@@ -156,6 +156,7 @@ export interface ServiceType {
   name: string;
   code: string;
   displayOrder: number;
+  isActive?: boolean;
   activityMappings: {
     activityType: {
       id: string;
@@ -191,6 +192,7 @@ export interface PositionCategory {
     name: string;
     workflowType: WorkflowType;
   } | null;
+  isActive?: boolean;
 }
 
 export interface PermissionProfile {
@@ -198,6 +200,8 @@ export interface PermissionProfile {
   name: string;
   description?: string | null;
   capabilities: { id: string; capability: string }[];
+  isOwnerOnly?: boolean;
+  isSystem?: boolean;
 }
 
 export interface CustomFieldDefinition {
@@ -211,6 +215,8 @@ export interface CustomFieldDefinition {
   displayOrder: number;
   dropdownOptions: string[];
   isActive: boolean;
+  /** Job roles this field applies to. Empty = all staff. */
+  positionCategoryIds?: string[];
 }
 
 export interface AuditLogItem {

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { apiRequest } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -23,7 +23,6 @@ import {
   Sliders,
   X,
   Pencil,
-  Trash2,
   Users,
   CheckCircle2,
   Clock,
@@ -37,8 +36,6 @@ import {
   TrendingUp,
   RefreshCw,
   Phone,
-  Package,
-  Truck,
   Shirt,
   UserPlus,
   KeyRound,
@@ -53,6 +50,10 @@ import {
   DamageIncidentRecord,
 } from '../../components/DamageIncidentViewerModal';
 import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
+import { CatalogueRolesPanel, workflowLabel } from '../../components/owner/CatalogueRolesPanel';
+import { CustomFieldsPanel } from '../../components/owner/CustomFieldsPanel';
+import { AuditLogPanel } from '../../components/owner/AuditLogPanel';
+import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
 
 interface BranchDashboardData {
   date: string;
@@ -74,6 +75,18 @@ interface BranchDashboardData {
     dryClean: { name: string; total: number; completed: number; percentage: number };
     packaging: { name: string; total: number; completed: number; percentage: number };
   };
+  exemptCount?: number;
+  exemptStaff?: Array<{ staffId: string; fullName: string; position: string }>;
+  serviceBreakdown?: Array<{
+    id: string;
+    code: string;
+    name: string;
+    orders: number;
+    pieces: number;
+    totalUnits: number;
+    completedUnits: number;
+    percentage: number;
+  }>;
   staffPerformance: Array<{
     staffId: string;
     fullName: string;
@@ -82,6 +95,8 @@ interface BranchDashboardData {
     percentage: number;
     totalUnits: number;
     completedUnits: number;
+    ordersAssigned?: number;
+    piecesAssigned?: number;
     attendanceEnabled?: boolean;
     isPresent: boolean;
     isOnFloor?: boolean;
@@ -220,19 +235,34 @@ interface StaffTaskMonthlySummary {
   }>;
 }
 
+const SERVICE_PALETTE = [
+  { card: 'bg-blue-50/60 border-blue-200/70', text: 'text-blue-950', track: 'bg-blue-200', bar: 'bg-blue-600' },
+  { card: 'bg-orange-50/60 border-orange-200/70', text: 'text-orange-950', track: 'bg-orange-200', bar: 'bg-orange-600' },
+  { card: 'bg-cyan-50/60 border-cyan-200/70', text: 'text-cyan-950', track: 'bg-cyan-200', bar: 'bg-cyan-600' },
+  { card: 'bg-indigo-50/60 border-indigo-200/70', text: 'text-indigo-950', track: 'bg-indigo-200', bar: 'bg-indigo-600' },
+  { card: 'bg-emerald-50/60 border-emerald-200/70', text: 'text-emerald-950', track: 'bg-emerald-200', bar: 'bg-emerald-600' },
+  { card: 'bg-rose-50/60 border-rose-200/70', text: 'text-rose-950', track: 'bg-rose-200', bar: 'bg-rose-600' },
+  { card: 'bg-amber-50/60 border-amber-200/70', text: 'text-amber-950', track: 'bg-amber-200', bar: 'bg-amber-600' },
+];
+
 function OwnerPageInner() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const viewParam = searchParams.get('view');
-  const { isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
+  // Owner console is ONLY for the owner account. Any other logged-in staff is sent to their own home.
+  const isOwner = !!user?.isOwner;
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) router.replace('/login');
+    else if (!user.isOwner) router.replace('/');
+  }, [authLoading, user, router]);
   const [activeTab, setActiveTab] = useState<'overview' | 'custom-fields' | 'audit-logs' | 'config'>('overview');
-  const [configSubTab, setConfigSubTab] = useState<'positions' | 'catalogues' | 'permissions'>('positions');
 
   // Core Data
   const [shops, setShops] = useState<Shop[]>([]);
   const [metrics, setMetrics] = useState<{ global: GlobalShopMetrics; shops: PerShopMetrics[] } | null>(null);
-  const [positions, setPositions] = useState<PositionCategory[]>([]);
   const [permissionProfiles, setPermissionProfiles] = useState<PermissionProfile[]>([]);
-  const [services, setServices] = useState<ServiceType[]>([]);
   const [activities, setActivities] = useState<ActivityType[]>([]);
   const [workflowProfiles, setWorkflowProfiles] = useState<WorkflowProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -283,21 +313,7 @@ function OwnerPageInner() {
     status?: string;
   } | null>(null);
 
-  // Custom Fields Builder state
-  const [customFieldsShopId, setCustomFieldsShopId] = useState<string>('');
-  const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
-  const [isLoadingFields, setIsLoadingFields] = useState(false);
-  const [newFieldKey, setNewFieldKey] = useState('');
-  const [newFieldLabel, setNewFieldLabel] = useState('');
-  const [newFieldType, setNewFieldType] = useState<'TEXT' | 'NUMBER' | 'DATE' | 'DROPDOWN' | 'YES_NO' | 'FILE_IMAGE'>('TEXT');
-  const [newFieldOptions, setNewFieldOptions] = useState('');
-  const [newFieldRequired, setNewFieldRequired] = useState(false);
-  const [isSubmittingField, setIsSubmittingField] = useState(false);
-
-  // Audit Logs state
-  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
-  const [auditFilterShopId, setAuditFilterShopId] = useState<string>('');
-  const [isLoadingAudit, setIsLoadingAudit] = useState(false);
+  // Custom Fields, Audit Logs and Catalogues now live in components/owner/* panels (self-contained, DB-backed)
 
   // Shop Add / Edit Modals
   const [isAddShopOpen, setIsAddShopOpen] = useState(false);
@@ -315,12 +331,13 @@ function OwnerPageInner() {
   const [editShopTimezone, setEditShopTimezone] = useState('Asia/Kolkata');
   const [editShopStatus, setEditShopStatus] = useState<'ACTIVE' | 'PAUSED' | 'ARCHIVED'>('ACTIVE');
   const [isSubmittingEditShop, setIsSubmittingEditShop] = useState(false);
-  const [deletingShopId, setDeletingShopId] = useState<string | null>(null);
+  // const [deletingShopId, setDeletingShopId] = useState<string | null>(null);
 
   // General Staff Creation State (Supports any role)
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
-  const [newStaffRole, setNewStaffRole] = useState<'Supervisor' | 'Manager' | 'Washerman' | 'Ironman' | 'Delivery Boy' | 'Other'>('Supervisor');
-  const [newStaffCustomRole, setNewStaffCustomRole] = useState('');
+  const [newStaffPositionId, setNewStaffPositionId] = useState('');
+  const [newStaffPermissionId, setNewStaffPermissionId] = useState('');
+  const [branchPositions, setBranchPositions] = useState<PositionCategory[]>([]);
   const [newStaffFullName, setNewStaffFullName] = useState('');
   const [newStaffMobile, setNewStaffMobile] = useState('');
   const [newStaffUsername, setNewStaffUsername] = useState('');
@@ -344,13 +361,6 @@ function OwnerPageInner() {
 
   // Attendance Toggle State
   const [togglingStaffId, setTogglingStaffId] = useState<string | null>(null);
-
-  // Position Modal
-  const [isAddPosOpen, setIsAddPosOpen] = useState(false);
-  const [posName, setPosName] = useState('');
-  const [posDescription, setPosDescription] = useState('');
-  const [posWfId, setPosWfId] = useState('');
-  const [isSubmittingPos, setIsSubmittingPos] = useState(false);
 
   const lastOwnerFetchRef = useRef<number>(0);
 
@@ -417,16 +427,37 @@ function OwnerPageInner() {
     setExpandedTaskIds((prev) => ({ ...prev, [taskId]: !prev[taskId] }));
   };
 
+  // Pick the access level whose name best matches the job role (e.g. "Senior Washerman" → "Washerman")
+  const suggestAccessLevel = (positionName: string): string | null => {
+    const name = positionName.toLowerCase();
+    const candidates = permissionProfiles.filter((p) => !p.isOwnerOnly && p.id !== 'sys-owner');
+    const exact = candidates.find((p) => p.name.toLowerCase() === name);
+    if (exact) return exact.id;
+    const partial = candidates
+      .filter((p) => name.includes(p.name.toLowerCase()) || p.name.toLowerCase().includes(name))
+      .sort((a, b) => b.name.length - a.name.length)[0];
+    return partial?.id ?? null;
+  };
+
+  // Job roles available in the selected shop (shop-specific + shared)
+  useEffect(() => {
+    if (!selectedShopId || !isOwner) return;
+    apiRequest<{ categories: PositionCategory[] }>(`/api/config/shops/${selectedShopId}/position-categories`)
+      .then((res) => setBranchPositions(res.categories || []))
+      .catch(() => setBranchPositions([]));
+  }, [selectedShopId, isOwner, isAddStaffOpen]);
+
   // Create Staff Member (Supervisor, Manager, Washerman, etc.)
   const handleCreateStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedShopId || !newStaffFullName.trim()) return;
 
-    const roleName = newStaffRole === 'Other' ? newStaffCustomRole.trim() : newStaffRole;
-    if (!roleName) {
-      alert('Please specify a role.');
+    const pos = branchPositions.find((p) => p.id === newStaffPositionId);
+    if (!pos || !newStaffPermissionId) {
+      alert('Please pick a job role and an access level.');
       return;
     }
+    const roleName = pos.name;
 
     setIsSubmittingNewStaff(true);
     try {
@@ -438,6 +469,8 @@ function OwnerPageInner() {
           username: newStaffUsername.trim() ? newStaffUsername.trim().toLowerCase() : undefined,
           password: newStaffPassword.trim() || undefined,
           role: roleName,
+          positionCategoryId: pos.id,
+          permissionProfileId: newStaffPermissionId,
           monthlySalary: newStaffSalary ? parseFloat(newStaffSalary) : undefined,
           dutyTimingNotes: newStaffDutyTiming.trim() || undefined,
           attendanceEnabled: newStaffAttendanceEnabled,
@@ -519,11 +552,10 @@ function OwnerPageInner() {
   const fetchAllData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [shopsData, metricsData, wfData, svcData, actData, permData] = await Promise.all([
+      const [shopsData, metricsData, wfData, actData, permData] = await Promise.all([
         apiRequest<{ shops: Shop[] }>('/api/shops').catch(() => ({ shops: [] })),
         apiRequest<{ global: GlobalShopMetrics; shops: PerShopMetrics[] }>('/api/shops/metrics').catch(() => null),
         apiRequest<{ profiles: WorkflowProfile[] }>('/api/config/workflow-profiles').catch(() => ({ profiles: [] })),
-        apiRequest<{ serviceTypes: ServiceType[] }>('/api/config/service-types').catch(() => ({ serviceTypes: [] })),
         apiRequest<{ activityTypes: ActivityType[] }>('/api/config/activity-types').catch(() => ({ activityTypes: [] })),
         apiRequest<{ profiles: PermissionProfile[] }>('/api/config/permission-profiles').catch(() => ({ profiles: [] })),
       ]);
@@ -531,7 +563,6 @@ function OwnerPageInner() {
       setShops(shopsData.shops || []);
       if (metricsData) setMetrics(metricsData);
       setWorkflowProfiles(wfData.profiles || []);
-      setServices(svcData.serviceTypes || []);
       setActivities(actData.activityTypes || []);
       setPermissionProfiles(permData.profiles || []);
 
@@ -539,28 +570,19 @@ function OwnerPageInner() {
         if (!selectedShopId) {
           setSelectedShopId(shopsData.shops[0].id);
         }
-        if (!customFieldsShopId) {
-          setCustomFieldsShopId(shopsData.shops[0].id);
-        }
-
-        // Fetch position categories for the first shop
-        const posData = await apiRequest<{ categories: PositionCategory[] }>(
-          `/api/config/shops/${shopsData.shops[0].id}/position-categories`
-        ).catch(() => ({ categories: [] }));
-        setPositions(posData.categories || []);
       }
     } catch {
       // Ignored
     } finally {
       setIsLoading(false);
     }
-  }, [selectedShopId, customFieldsShopId]);
+  }, [selectedShopId]);
 
   useEffect(() => {
-    if (!authLoading) {
+    if (!authLoading && isOwner) {
       fetchAllData();
     }
-  }, [authLoading, fetchAllData]);
+  }, [authLoading, isOwner, fetchAllData]);
 
   // Fetch staff and branch operational data when selectedShopId, branchDate, or activeTab changes
   useEffect(() => {
@@ -693,26 +715,6 @@ function OwnerPageInner() {
     }
   };
 
-  // Fetch custom fields when customFieldsShopId changes
-  useEffect(() => {
-    if (activeTab !== 'custom-fields' || !customFieldsShopId) return;
-    setIsLoadingFields(true);
-    apiRequest<{ fields: CustomFieldDefinition[] }>(`/api/config/shops/${customFieldsShopId}/custom-fields`)
-      .then((res) => setCustomFields(res.fields || []))
-      .catch(() => setCustomFields([]))
-      .finally(() => setIsLoadingFields(false));
-  }, [activeTab, customFieldsShopId]);
-
-  // Fetch audit logs when activeTab is 'audit-logs'
-  useEffect(() => {
-    if (activeTab !== 'audit-logs') return;
-    setIsLoadingAudit(true);
-    const query = auditFilterShopId ? `?shopId=${auditFilterShopId}` : '';
-    apiRequest<{ logs: AuditLogItem[] }>(`/api/config/audit-logs${query}`)
-      .then((res) => setAuditLogs(res.logs || []))
-      .catch(() => setAuditLogs([]))
-      .finally(() => setIsLoadingAudit(false));
-  }, [activeTab, auditFilterShopId]);
 
   // Handle Create Shop
   const handleCreateShop = async (e: React.FormEvent) => {
@@ -777,115 +779,19 @@ function OwnerPageInner() {
     }
   };
 
-  // Handle Delete Shop
-  const handleDeleteShop = async (shop: Shop) => {
-    const confirmed = window.confirm(
-      `Are you sure you want to delete branch "${shop.name}" (${shop.code})?\n\nThis will remove the branch permanently.`
-    );
-    if (!confirmed) return;
-
-    setDeletingShopId(shop.id);
-    try {
-      const res = await apiRequest<{ action?: string; message?: string }>(`/api/shops/${shop.id}`, {
-        method: 'DELETE',
-      });
-      alert(res.message || 'Branch deleted successfully.');
-      if (selectedShopId === shop.id) {
-        setSelectedShopId('');
-      }
-      fetchAllData();
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to delete shop.');
-    } finally {
-      setDeletingShopId(null);
-    }
-  };
-
-  // Handle Add Custom Field
-  const handleCreateCustomField = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customFieldsShopId || !newFieldKey.trim() || !newFieldLabel.trim()) return;
-
-    const formattedKey = newFieldKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
-    const optionsArray = newFieldType === 'DROPDOWN'
-      ? newFieldOptions.split(',').map((o) => o.trim()).filter(Boolean)
-      : [];
-
-    setIsSubmittingField(true);
-    try {
-      await apiRequest(`/api/config/shops/${customFieldsShopId}/custom-fields`, {
-        method: 'POST',
-        body: JSON.stringify({
-          key: formattedKey,
-          label: newFieldLabel.trim(),
-          fieldType: newFieldType,
-          isRequired: newFieldRequired,
-          dropdownOptions: optionsArray,
-        }),
-      });
-      setNewFieldKey('');
-      setNewFieldLabel('');
-      setNewFieldOptions('');
-      setNewFieldRequired(false);
-      alert('Custom field created.');
-      const res = await apiRequest<{ fields: CustomFieldDefinition[] }>(`/api/config/shops/${customFieldsShopId}/custom-fields`);
-      setCustomFields(res.fields || []);
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to create custom field.');
-    } finally {
-      setIsSubmittingField(false);
-    }
-  };
-
-  const handleDeleteCustomField = async (fieldId: string) => {
-    if (!confirm('Are you sure you want to delete this custom field?')) return;
-    try {
-      await apiRequest(`/api/config/shops/${customFieldsShopId}/custom-fields/${fieldId}`, {
-        method: 'DELETE',
-      });
-      setCustomFields((prev) => prev.filter((f) => f.id !== fieldId));
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to delete custom field.');
-    }
-  };
-
-  // Handle Add Position
-  const handleCreatePosition = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!posName.trim()) return;
-    const targetShopId = shops[0]?.id;
-    if (!targetShopId) {
-      alert('Create at least one shop first.');
-      return;
-    }
-
-    setIsSubmittingPos(true);
-    try {
-      await apiRequest(`/api/config/shops/${targetShopId}/position-categories`, {
-        method: 'POST',
-        body: JSON.stringify({
-          name: posName.trim(),
-          description: posDescription.trim() || undefined,
-          workflowProfileId: posWfId || undefined,
-        }),
-      });
-      setIsAddPosOpen(false);
-      alert('Position category created.');
-      fetchAllData();
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to create position.');
-    } finally {
-      setIsSubmittingPos(false);
-    }
-  };
+  // Handle Delete Shop (Commented out in UI per owner feedback: use Shop Status Active/Paused instead)
+  // const handleDeleteShop = async (shop: Shop) => { ... };
 
   const selectedShopObj = shops.find((s) => s.id === selectedShopId) || shops[0];
+
+  // Role chips are built from the real job roles of this shop's staff (no hardcoded list)
+  const staffRoleName = (m: StaffMembershipItem) => m.positionCategory?.name || m.role || 'Staff';
+  const roleFilterOptions = ['ALL', ...Array.from(new Set(shopStaff.map(staffRoleName))).sort()];
 
   // Filter staff by search query and role filter
   const filteredStaff = shopStaff.filter((m) => {
     if (roleFilter !== 'ALL') {
-      const staffRole = (m.role || m.positionCategory?.name || '').toLowerCase();
-      if (!staffRole.includes(roleFilter.toLowerCase())) return false;
+      if (staffRoleName(m) !== roleFilter) return false;
     }
     if (!staffSearchQuery.trim()) return true;
     const q = staffSearchQuery.toLowerCase();
@@ -918,6 +824,21 @@ function OwnerPageInner() {
   const presentStaffMemberIds = new Set(branchAttendance.map((s) => s.staffMemberId));
   const absentStaffList = shopStaff.filter((s) => s.attendanceEnabled !== false && !presentStaffMemberIds.has(s.staffMember.id));
   const exemptStaffList = shopStaff.filter((s) => s.attendanceEnabled === false);
+
+  // Block render for anyone who is not the owner (redirect happens in the effect above)
+  if (authLoading || !isOwner) {
+    return (
+      <div className="py-16 text-center space-y-2">
+        <ShieldCheck className="w-8 h-8 text-brand-forest mx-auto" />
+        <p className="text-sm font-bold text-brand-forest">
+          {authLoading ? 'Checking access…' : 'Owner access only'}
+        </p>
+        {!authLoading && (
+          <p className="text-xs text-content-muted">This page is only for the owner account. Taking you to your own dashboard…</p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fade-in pb-36 sm:pb-32">
@@ -1003,7 +924,7 @@ function OwnerPageInner() {
       {activeTab === 'overview' && (
         <div className="space-y-6">
           {/* Feature 9: Global Cross-Shop Metrics Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {/* Card 1: Active Shops */}
             <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 space-y-1 relative overflow-hidden">
               <div className="flex items-center justify-between text-content-muted">
@@ -1034,7 +955,7 @@ function OwnerPageInner() {
               <p className="text-[11px] text-content-muted">Active registered employees</p>
             </div>
 
-            {/* Card 3: Today's Units Output */}
+            {/* Card 3: Today's Units Output — HIDDEN (owner feedback: ambiguous across shops/staff)
             <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 space-y-1 relative overflow-hidden">
               <div className="flex items-center justify-between text-content-muted">
                 <span className="text-[11px] font-bold uppercase tracking-wider">Today&apos;s Units</span>
@@ -1054,6 +975,7 @@ function OwnerPageInner() {
                   : '0% completed'}
               </p>
             </div>
+            */}
 
             {/* Card 4: Today's Attendance Checked-In */}
             <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 space-y-1 relative overflow-hidden">
@@ -1072,7 +994,7 @@ function OwnerPageInner() {
             </div>
           </div>
 
-          {/* Today's Activity Breakdown Mini-strip */}
+          {/* Today's Activity Breakdown Mini-strip — HIDDEN (owner feedback: per-shop breakdown lives in Branch Surveillance)
           {metrics?.global.activityBreakdown && (
             <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-3.5 space-y-2">
               <div className="flex items-center justify-between text-xs font-bold text-brand-forest">
@@ -1110,6 +1032,7 @@ function OwnerPageInner() {
               </div>
             </div>
           )}
+          */}
 
           {/* Section: Shop Selection Grid */}
           <div className="space-y-3">
@@ -1189,6 +1112,7 @@ function OwnerPageInner() {
                           >
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
+                          {/* Delete hidden — use Edit → Status (Active / Paused) instead.
                           <button
                             onClick={() => handleDeleteShop(shop)}
                             disabled={deletingShopId === shop.id}
@@ -1197,6 +1121,7 @@ function OwnerPageInner() {
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
+                          */}
                         </div>
                       </div>
 
@@ -1313,8 +1238,8 @@ function OwnerPageInner() {
 
                   <button
                     onClick={() => {
-                      setNewStaffRole('Supervisor');
-                      setNewStaffCustomRole('');
+                      setNewStaffPositionId('');
+                      setNewStaffPermissionId('');
                       setNewStaffFullName('');
                       setNewStaffMobile('');
                       setNewStaffUsername(`staff_${selectedShopObj.code.toLowerCase()}_${Math.floor(10 + Math.random() * 90)}`);
@@ -1334,16 +1259,26 @@ function OwnerPageInner() {
 
               {/* 4 Floor Metric Badges */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                {/* Total Staff */}
+                {/* Total Staff (attendance-tracked + exempt) */}
                 <div className="p-3.5 rounded-2xl bg-surface-cream/50 border border-border-subtle space-y-1">
                   <div className="flex items-center justify-between text-xs text-content-muted font-bold">
                     <span>Total Staff</span>
                     <Users className="w-4 h-4 text-blue-600" />
                   </div>
                   <div className="text-2xl font-black text-brand-forest">
-                    {branchDashboard?.totalStaff ?? shopStaff.length}
+                    {branchDashboard?.totalEmployees ?? shopStaff.length}
                   </div>
-                  <p className="text-[11px] text-content-muted font-medium">Registered in branch</p>
+                  <p className="text-[11px] text-content-muted font-medium">
+                    {branchDashboard?.totalStaff ?? shopStaff.filter((s) => s.attendanceEnabled !== false).length} attendance tracked
+                    {(branchDashboard?.exemptCount ?? exemptStaffList.length) > 0 && (
+                      <> + {branchDashboard?.exemptCount ?? exemptStaffList.length} exempt</>
+                    )}
+                  </p>
+                  {(branchDashboard?.exemptStaff?.length ?? 0) > 0 && (
+                    <p className="text-[10px] text-content-muted leading-snug">
+                      Exempt: {branchDashboard!.exemptStaff!.map((e) => `${e.fullName} (${e.position})`).join(', ')}
+                    </p>
+                  )}
                 </div>
 
                 {/* Present / Active On Floor */}
@@ -1377,7 +1312,7 @@ function OwnerPageInner() {
                   <div className="text-2xl font-black text-red-700">
                     {branchDashboard?.absentCount ?? absentStaffList.length}
                   </div>
-                  <p className="text-[11px] text-red-600 font-medium">Expected on floor today</p>
+                  <p className="text-[11px] text-red-600 font-medium">Tracked staff not checked in</p>
                 </div>
 
                 {/* Floor Units Output */}
@@ -1401,115 +1336,56 @@ function OwnerPageInner() {
                       style={{ width: `${branchDashboard?.todayTasks.percentage ?? 0}%` }}
                     />
                   </div>
+                  <p className="text-[10px] text-amber-900/80 font-medium leading-snug">
+                    Work steps done / assigned on this date (1 unit = 1 piece × 1 step, or 1 delivery / pickup)
+                  </p>
                 </div>
               </div>
 
-              {/* 4 Live Department Breakdown Cards */}
-              {branchDashboard?.departmentBreakdown && (
+              {/* Service-wise Live Progress — built from the DB service catalogue (new services appear automatically) */}
+              {(branchDashboard?.serviceBreakdown?.length ?? 0) > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs font-black text-brand-forest">
                     <span className="flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-brand-forest" />
-                      Live Floor Departments Progress
+                      Service-wise Progress ({branchDate})
                     </span>
                     <span className="text-[10px] text-content-muted font-normal">
-                      Real-time piece/unit completion breakdown
+                      Orders · pieces · work steps done / assigned
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-                    {/* Wash */}
-                    <div className="p-3 rounded-2xl bg-blue-50/60 border border-blue-200/70 space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-extrabold text-blue-950 flex items-center gap-1.5">
-                          <Shirt className="w-3.5 h-3.5 text-blue-600" />
-                          Washing & Cleaning
-                        </span>
-                        <span className="text-[11px] font-black text-blue-800">
-                          {branchDashboard.departmentBreakdown.wash.percentage}%
-                        </span>
-                      </div>
-                      <div className="flex items-baseline justify-between text-xs">
-                        <span className="text-lg font-black text-blue-950">
-                          {branchDashboard.departmentBreakdown.wash.completed} <span className="text-xs font-semibold text-blue-700">/ {branchDashboard.departmentBreakdown.wash.total} pcs</span>
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 rounded-full bg-blue-200 overflow-hidden">
+                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5">
+                    {branchDashboard!.serviceBreakdown!.map((svc, idx) => {
+                      const palette = SERVICE_PALETTE[idx % SERVICE_PALETTE.length];
+                      const isIdle = svc.orders === 0;
+                      return (
                         <div
-                          className="h-full bg-blue-600 rounded-full transition-all"
-                          style={{ width: `${branchDashboard.departmentBreakdown.wash.percentage}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Iron */}
-                    <div className="p-3 rounded-2xl bg-orange-50/60 border border-orange-200/70 space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-extrabold text-orange-950 flex items-center gap-1.5">
-                          Steam Press & Iron
-                        </span>
-                        <span className="text-[11px] font-black text-orange-800">
-                          {branchDashboard.departmentBreakdown.iron.percentage}%
-                        </span>
-                      </div>
-                      <div className="flex items-baseline justify-between text-xs">
-                        <span className="text-lg font-black text-orange-950">
-                          {branchDashboard.departmentBreakdown.iron.completed} <span className="text-xs font-semibold text-orange-700">/ {branchDashboard.departmentBreakdown.iron.total} pcs</span>
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 rounded-full bg-orange-200 overflow-hidden">
-                        <div
-                          className="h-full bg-orange-600 rounded-full transition-all"
-                          style={{ width: `${branchDashboard.departmentBreakdown.iron.percentage}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Dry Clean */}
-                    <div className="p-3 rounded-2xl bg-cyan-50/60 border border-cyan-200/70 space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-extrabold text-cyan-950 flex items-center gap-1.5">
-                          Dry Clean & Delicate
-                        </span>
-                        <span className="text-[11px] font-black text-cyan-800">
-                          {branchDashboard.departmentBreakdown.dryClean.percentage}%
-                        </span>
-                      </div>
-                      <div className="flex items-baseline justify-between text-xs">
-                        <span className="text-lg font-black text-cyan-950">
-                          {branchDashboard.departmentBreakdown.dryClean.completed} <span className="text-xs font-semibold text-cyan-700">/ {branchDashboard.departmentBreakdown.dryClean.total} pcs</span>
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 rounded-full bg-cyan-200 overflow-hidden">
-                        <div
-                          className="h-full bg-cyan-600 rounded-full transition-all"
-                          style={{ width: `${branchDashboard.departmentBreakdown.dryClean.percentage}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Packaging */}
-                    <div className="p-3 rounded-2xl bg-indigo-50/60 border border-indigo-200/70 space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-extrabold text-indigo-950 flex items-center gap-1.5">
-                          <Package className="w-3.5 h-3.5 text-indigo-600" />
-                          Packaging & Dispatch
-                        </span>
-                        <span className="text-[11px] font-black text-indigo-800">
-                          {branchDashboard.departmentBreakdown.packaging.percentage}%
-                        </span>
-                      </div>
-                      <div className="flex items-baseline justify-between text-xs">
-                        <span className="text-lg font-black text-indigo-950">
-                          {branchDashboard.departmentBreakdown.packaging.completed} <span className="text-xs font-semibold text-indigo-700">/ {branchDashboard.departmentBreakdown.packaging.total} pcs</span>
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 rounded-full bg-indigo-200 overflow-hidden">
-                        <div
-                          className="h-full bg-indigo-600 rounded-full transition-all"
-                          style={{ width: `${branchDashboard.departmentBreakdown.packaging.percentage}%` }}
-                        />
-                      </div>
-                    </div>
+                          key={svc.id}
+                          className={`p-3 rounded-2xl border space-y-1.5 transition-all ${palette.card} ${isIdle ? 'opacity-60' : ''}`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={`text-xs font-extrabold flex items-center gap-1.5 truncate ${palette.text}`}>
+                              <Shirt className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">{svc.name}</span>
+                            </span>
+                            <span className={`text-[11px] font-black ${palette.text}`}>{svc.percentage}%</span>
+                          </div>
+                          <div className={`text-lg font-black ${palette.text}`}>
+                            {svc.completedUnits}
+                            <span className="text-xs font-semibold opacity-70"> / {svc.totalUnits} units</span>
+                          </div>
+                          <div className="text-[10px] font-semibold text-content-muted">
+                            {svc.orders} order{svc.orders === 1 ? '' : 's'} · {svc.pieces} piece{svc.pieces === 1 ? '' : 's'}
+                          </div>
+                          <div className={`w-full h-1.5 rounded-full overflow-hidden ${palette.track}`}>
+                            <div
+                              className={`h-full rounded-full transition-all ${palette.bar}`}
+                              style={{ width: `${svc.percentage}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1573,7 +1449,7 @@ function OwnerPageInner() {
                   {/* Search and Role Filter Bar */}
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-                      {['ALL', 'Supervisor', 'Manager', 'Washerman', 'Ironman', 'Delivery Boy'].map((role) => (
+                      {roleFilterOptions.map((role) => (
                         <button
                           key={role}
                           onClick={() => setRoleFilter(role)}
@@ -2179,9 +2055,12 @@ function OwnerPageInner() {
                         Branch Productivity Rankings on {branchDate}
                       </h4>
                       <span className="text-[10px] text-content-muted">
-                        Ranked by completion rate & units handled
+                        Ranked by work steps completed, then completion %
                       </span>
                     </div>
+                    <p className="text-[10px] text-content-muted leading-snug -mt-1">
+                      <strong>1 unit</strong> = 1 piece × 1 work step (e.g. 5 shirts × Wash + Iron = 10 units). Delivery staff: 1 unit = 1 delivery order. Pickup staff: 1 unit = 1 pickup.
+                    </p>
 
                     {!branchDashboard?.staffPerformance || branchDashboard.staffPerformance.length === 0 ? (
                       <div className="py-8 text-center text-xs text-content-muted">
@@ -2205,7 +2084,7 @@ function OwnerPageInner() {
                                   {item.fullName}
                                 </span>
                                 <p className="text-[11px] text-content-muted">
-                                  {item.position} • {item.isPresent ? '🟢 Present' : '⚪ Absent'}
+                                  {item.position} • {item.attendanceStatus === 'EXEMPT' ? 'Attendance exempt' : item.isOnFloor ? '🟢 On floor' : item.isPresent ? '🔵 Shift done' : '⚪ Absent'}
                                 </p>
                               </div>
                             </div>
@@ -2215,6 +2094,9 @@ function OwnerPageInner() {
                                 <span className="text-sm font-black text-brand-forest">
                                   {item.completedUnits} / {item.totalUnits} units
                                 </span>
+                                <p className="text-[10px] text-content-muted">
+                                  {item.ordersAssigned ?? 0} orders · {item.piecesAssigned ?? 0} pieces
+                                </p>
                                 <div className="w-24 h-1.5 rounded-full bg-border-subtle overflow-hidden mt-1">
                                   <div
                                     className="h-full bg-brand-forest rounded-full"
@@ -2266,6 +2148,9 @@ function OwnerPageInner() {
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {/* Extra Details — custom fields that apply to this staff member's job role */}
+            <StaffExtraDetails key={selectedStaff.staffMember.id} shopId={selectedShopId} staffMemberId={selectedStaff.staffMember.id} />
 
             {/* Performance Sub-tabs */}
             <div className="flex items-center gap-1.5 p-1 bg-surface-cream rounded-xl border border-border-subtle">
@@ -2907,409 +2792,25 @@ function OwnerPageInner() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════════
-          TAB 2: CUSTOM FIELDS BUILDER
+          TAB 2: CUSTOM FIELDS (extra staff details) — DB-backed, scoped by job role
       ══════════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'custom-fields' && (
-        <div className="space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <h2 className="text-base font-extrabold text-brand-forest">
-                Shop Custom Fields Builder
-              </h2>
-              <p className="text-xs text-content-muted">
-                Define dynamic operational inputs (e.g. stain severity, brand tags, rack locations)
-              </p>
-            </div>
-
-            {/* Shop Selector */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-content-muted">Select Branch:</span>
-              <select
-                value={customFieldsShopId}
-                onChange={(e) => setCustomFieldsShopId(e.target.value)}
-                className="px-3 py-1.5 text-xs rounded-xl bg-surface-card border border-border-subtle font-bold text-brand-forest focus:ring-1 focus:ring-brand-forest"
-              >
-                {shops.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.code})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            {/* Create Field Form */}
-            <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-5 space-y-4">
-              <h3 className="text-sm font-black text-brand-forest">Add Dynamic Custom Field</h3>
-              <form onSubmit={handleCreateCustomField} className="space-y-3.5">
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">
-                    Field Key <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. garment_brand or stain_tag"
-                    value={newFieldKey}
-                    onChange={(e) => setNewFieldKey(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest"
-                  />
-                  <p className="text-[10px] text-content-muted mt-0.5">Lowercase and underscores only</p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">
-                    Display Label <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Garment Brand"
-                    value={newFieldLabel}
-                    onChange={(e) => setNewFieldLabel(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">Field Type</label>
-                  <select
-                    value={newFieldType}
-                    onChange={(e) => setNewFieldType(e.target.value as CustomFieldDefinition['fieldType'])}
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest"
-                  >
-                    <option value="TEXT">Short Text</option>
-                    <option value="NUMBER">Number</option>
-                    <option value="DATE">Date</option>
-                    <option value="DROPDOWN">Dropdown / Select</option>
-                    <option value="YES_NO">Yes / No Switch</option>
-                    <option value="FILE_IMAGE">Photo / File Upload</option>
-                  </select>
-                </div>
-
-                {newFieldType === 'DROPDOWN' && (
-                  <div>
-                    <label className="block text-xs font-bold text-brand-forest mb-1">
-                      Options (comma-separated)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Zara, H&M, Raymond, Other"
-                      value={newFieldOptions}
-                      onChange={(e) => setNewFieldOptions(e.target.value)}
-                      className="w-full px-3 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest"
-                    />
-                  </div>
-                )}
-
-                <div className="flex items-center gap-2 pt-1">
-                  <input
-                    type="checkbox"
-                    id="isRequiredCheck"
-                    checked={newFieldRequired}
-                    onChange={(e) => setNewFieldRequired(e.target.checked)}
-                    className="rounded text-brand-forest focus:ring-brand-forest"
-                  />
-                  <label htmlFor="isRequiredCheck" className="text-xs font-semibold text-brand-forest">
-                    Mandatory field (Required)
-                  </label>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isSubmittingField}
-                  className="w-full py-2.5 rounded-xl clay-btn-forest text-xs font-bold shadow-clay-sm flex items-center justify-center gap-1.5"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>{isSubmittingField ? 'Adding...' : 'Add Custom Field'}</span>
-                </button>
-              </form>
-            </div>
-
-            {/* Existing Fields List */}
-            <div className="lg:col-span-2 bg-surface-card rounded-clay border border-border-subtle shadow-clay p-5 space-y-4">
-              <h3 className="text-sm font-black text-brand-forest">
-                Active Custom Fields ({customFields.length})
-              </h3>
-
-              {isLoadingFields ? (
-                <div className="py-8 text-center text-xs text-content-muted">Loading fields...</div>
-              ) : customFields.length === 0 ? (
-                <div className="py-8 text-center text-xs text-content-muted">
-                  No custom fields configured for this branch yet.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {customFields.map((field) => (
-                    <div
-                      key={field.id}
-                      className="p-3 rounded-xl bg-surface-cream/50 border border-border-subtle flex items-center justify-between text-xs"
-                    >
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-brand-forest">{field.label}</span>
-                          <span className="px-1.5 py-0.5 rounded bg-surface-card border text-[10px] font-mono text-content-muted">
-                            {field.key}
-                          </span>
-                          {field.isRequired && (
-                            <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-bold">
-                              Required
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-content-muted font-medium">
-                          Type: <strong>{field.fieldType}</strong>
-                          {field.dropdownOptions?.length > 0 && ` • [${field.dropdownOptions.join(', ')}]`}
-                        </p>
-                      </div>
-
-                      <button
-                        onClick={() => handleDeleteCustomField(field.id)}
-                        className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-colors"
-                        title="Delete Field"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {activeTab === 'custom-fields' && <CustomFieldsPanel shops={shops} />}
 
       {/* ══════════════════════════════════════════════════════════════════════════
-          TAB 3: AUDIT LOGS VIEWER
+          TAB 3: AUDIT LOGS (activity history)
       ══════════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'audit-logs' && (
-        <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-5 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-border-subtle pb-3">
-            <div>
-              <h2 className="text-base font-extrabold text-brand-forest">Platform Audit Trail</h2>
-              <p className="text-xs text-content-muted">
-                Immutable security and administrative record of changes across shops, configurations, and accounts
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-content-muted">Filter:</span>
-              <select
-                value={auditFilterShopId}
-                onChange={(e) => setAuditFilterShopId(e.target.value)}
-                className="px-3 py-1.5 text-xs rounded-xl bg-surface-cream border border-border-subtle font-bold text-brand-forest"
-              >
-                <option value="">All Branches</option>
-                {shops.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {isLoadingAudit ? (
-            <div className="py-12 text-center text-xs text-content-muted font-semibold">
-              Loading audit records...
-            </div>
-          ) : auditLogs.length === 0 ? (
-            <div className="py-12 text-center text-xs text-content-muted space-y-1">
-              <FileText className="w-8 h-8 text-content-muted mx-auto" />
-              <p className="font-bold text-brand-forest">No audit events recorded yet</p>
-              <p>Actions like branch creation, field configuration, or profile edits will be recorded here.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-border-subtle text-content-muted text-[11px] uppercase tracking-wider font-extrabold">
-                    <th className="py-2.5 px-3">Timestamp</th>
-                    <th className="py-2.5 px-3">Action</th>
-                    <th className="py-2.5 px-3">Entity</th>
-                    <th className="py-2.5 px-3">Actor</th>
-                    <th className="py-2.5 px-3">Branch</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border-subtle">
-                  {auditLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-surface-cream/50 transition-colors">
-                      <td className="py-2.5 px-3 whitespace-nowrap text-content-muted font-mono text-[11px]">
-                        {new Date(log.createdAt).toLocaleString('en-IN', {
-                          day: '2-digit',
-                          month: 'short',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </td>
-                      <td className="py-2.5 px-3 whitespace-nowrap">
-                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-brand-forest/10 text-brand-forest font-mono">
-                          {log.action}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 whitespace-nowrap font-bold text-brand-forest">
-                        {log.entityType}
-                      </td>
-                      <td className="py-2.5 px-3 whitespace-nowrap font-medium text-content-muted">
-                        {log.actor?.username || 'System'}
-                      </td>
-                      <td className="py-2.5 px-3 whitespace-nowrap text-content-muted">
-                        {log.shop?.name || 'Global'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
+      {activeTab === 'audit-logs' && <AuditLogPanel shops={shops} />}
 
       {/* ══════════════════════════════════════════════════════════════════════════
-          TAB 4: SYSTEM CONFIGURATIONS (POSITIONS, CATALOGUES, PERMISSIONS)
+          TAB 4: CATALOGUES & ROLES (job roles, services, access levels)
       ══════════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'config' && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-1.5 p-1 bg-surface-card rounded-xl border border-border-subtle w-fit">
-            <button
-              onClick={() => setConfigSubTab('positions')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                configSubTab === 'positions'
-                  ? 'bg-brand-forest text-white'
-                  : 'text-content-muted hover:text-brand-forest'
-              }`}
-            >
-              Position Categories ({positions.length})
-            </button>
-            <button
-              onClick={() => setConfigSubTab('catalogues')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                configSubTab === 'catalogues'
-                  ? 'bg-brand-forest text-white'
-                  : 'text-content-muted hover:text-brand-forest'
-              }`}
-            >
-              Catalogues ({services.length} Services • {activities.length} Activities)
-            </button>
-            <button
-              onClick={() => setConfigSubTab('permissions')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                configSubTab === 'permissions'
-                  ? 'bg-brand-forest text-white'
-                  : 'text-content-muted hover:text-brand-forest'
-              }`}
-            >
-              Permissions ({permissionProfiles.length})
-            </button>
-          </div>
-
-          {configSubTab === 'positions' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-brand-forest uppercase tracking-wider">
-                    Position Categories
-                  </h3>
-                  <p className="text-xs text-content-muted">
-                    Editable job titles mapped to workflow calculation rules
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    setPosName('');
-                    setPosDescription('');
-                    setPosWfId(workflowProfiles[0]?.id || '');
-                    setIsAddPosOpen(true);
-                  }}
-                  className="px-3 py-1.5 rounded-xl clay-btn-forest text-xs font-bold flex items-center gap-1"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>Add Position</span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {positions.map((pos) => (
-                  <div
-                    key={pos.id}
-                    className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 space-y-1.5"
-                  >
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-extrabold text-brand-forest">{pos.name}</h4>
-                      {pos.workflowProfile && (
-                        <span className="px-2 py-0.5 rounded-lg clay-badge-gold text-[10px] font-bold">
-                          {pos.workflowProfile.workflowType}
-                        </span>
-                      )}
-                    </div>
-                    {pos.description && (
-                      <p className="text-xs text-content-muted">{pos.description}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {configSubTab === 'catalogues' && (
-            <div className="space-y-4">
-              <h3 className="text-sm font-bold text-brand-forest uppercase tracking-wider">
-                Services & Activities Catalogue
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {services.map((svc) => (
-                  <div
-                    key={svc.id}
-                    className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 space-y-2"
-                  >
-                    <h4 className="text-sm font-extrabold text-brand-forest">{svc.name}</h4>
-                    <div className="flex flex-wrap gap-1">
-                      {svc.activityMappings.map((am) => (
-                        <span
-                          key={am.activityType.id}
-                          className="px-2 py-0.5 rounded bg-surface-cream text-[10px] font-semibold text-brand-forest border"
-                        >
-                          {am.activityType.name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {configSubTab === 'permissions' && (
-            <div className="space-y-4">
-              <h3 className="text-sm font-bold text-brand-forest uppercase tracking-wider">
-                Permission Profiles
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {permissionProfiles.map((perm) => (
-                  <div
-                    key={perm.id}
-                    className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 space-y-2"
-                  >
-                    <h4 className="text-sm font-extrabold text-brand-forest">{perm.name}</h4>
-                    <p className="text-xs text-content-muted">{perm.description || 'Pre-configured capability set'}</p>
-                    <div className="flex flex-wrap gap-1">
-                      {perm.capabilities.map((c) => (
-                        <span
-                          key={c.id}
-                          className="px-2 py-0.5 rounded bg-brand-forest/5 text-[10px] font-mono text-brand-forest"
-                        >
-                          {c.capability}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        <CatalogueRolesPanel
+          shops={shops}
+          activities={activities}
+          workflowProfiles={workflowProfiles}
+          onChanged={fetchAllData}
+        />
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════════
@@ -3487,87 +2988,6 @@ function OwnerPageInner() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════════
-          ADD POSITION MODAL
-      ══════════════════════════════════════════════════════════════════════════ */}
-      {isAddPosOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay-lg w-full max-w-md p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-extrabold text-brand-forest">Add Position Category</h3>
-              <button
-                onClick={() => setIsAddPosOpen(false)}
-                className="p-1 rounded-lg hover:bg-surface-hover text-content-muted"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreatePosition} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-bold text-brand-forest mb-1">
-                  Title / Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Master Tailor"
-                  value={posName}
-                  onChange={(e) => setPosName(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-brand-forest mb-1">Description</label>
-                <input
-                  type="text"
-                  placeholder="Brief role responsibilities"
-                  value={posDescription}
-                  onChange={(e) => setPosDescription(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-brand-forest mb-1">
-                  Workflow Profile
-                </label>
-                <select
-                  value={posWfId}
-                  onChange={(e) => setPosWfId(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest"
-                >
-                  <option value="">None (Standard Role)</option>
-                  {workflowProfiles.map((wf) => (
-                    <option key={wf.id} value={wf.id}>
-                      {wf.name} ({wf.workflowType})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddPosOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-content-muted hover:bg-surface-hover"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingPos}
-                  className="px-4 py-2 rounded-xl clay-btn-forest text-xs font-bold shadow-clay-sm"
-                >
-                  {isSubmittingPos ? 'Creating...' : 'Create Position'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════════════════════════════════════
           ADD STAFF / SUPERVISOR / MANAGER MODAL (OWNER CREATES ANY ROLE)
       ══════════════════════════════════════════════════════════════════════════ */}
       {isAddStaffOpen && selectedShopObj && (
@@ -3592,50 +3012,64 @@ function OwnerPageInner() {
             </div>
 
             <form onSubmit={handleCreateStaff} className="space-y-3.5">
-              {/* Role Selection */}
-              <div>
-                <label className="block text-xs font-bold text-brand-forest mb-1.5">
-                  Designation / Role <span className="text-red-500">*</span>
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['Supervisor', 'Manager', 'Washerman', 'Ironman', 'Delivery Boy', 'Other'] as const).map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => {
-                        setNewStaffRole(r);
-                        if (!newStaffUsername) {
-                          const prefix = r.toLowerCase().substring(0, 4);
-                          setNewStaffUsername(`${prefix}_${selectedShopObj.code.toLowerCase()}_${Math.floor(10 + Math.random() * 90)}`);
-                        }
-                      }}
-                      className={`py-2 px-2 rounded-xl text-xs font-bold transition-all text-center ${
-                        newStaffRole === r
-                          ? 'bg-brand-forest text-white shadow-sm ring-2 ring-brand-forest/20'
-                          : 'bg-surface-cream text-content-muted hover:text-brand-forest border border-border-subtle'
-                      }`}
-                    >
-                      {r}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {newStaffRole === 'Other' && (
+              {/* Job Role + Access Level (both from database) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-brand-forest mb-1">
-                    Custom Role Title <span className="text-red-500">*</span>
+                    Job Role <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="text"
+                  <select
                     required
-                    placeholder="e.g. Master Dry Cleaner, Store Assistant"
-                    value={newStaffCustomRole}
-                    onChange={(e) => setNewStaffCustomRole(e.target.value)}
-                    className="w-full px-3.5 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-semibold"
-                  />
+                    value={newStaffPositionId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setNewStaffPositionId(id);
+                      const pos = branchPositions.find((p) => p.id === id);
+                      if (pos) {
+                        const suggested = suggestAccessLevel(pos.name);
+                        if (suggested) setNewStaffPermissionId(suggested);
+                        setNewStaffAttendanceEnabled(!/supervisor/i.test(pos.name));
+                        if (!newStaffUsername || /^staff_/.test(newStaffUsername)) {
+                          const prefix = pos.name.toLowerCase().replace(/[^a-z]/g, '').substring(0, 4) || 'stf';
+                          setNewStaffUsername(`${prefix}_${selectedShopObj.code.toLowerCase().replace(/[^a-z0-9]/g, '')}_${Math.floor(10 + Math.random() * 90)}`);
+                        }
+                      }
+                    }}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-semibold"
+                  >
+                    <option value="">Select job role…</option>
+                    {branchPositions.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-content-muted mt-0.5">
+                    {(() => {
+                      const pos = branchPositions.find((p) => p.id === newStaffPositionId);
+                      return pos ? workflowLabel(pos.workflowProfile) : 'Title + how their work is counted';
+                    })()}
+                  </p>
                 </div>
-              )}
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">
+                    Access Level <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    required
+                    value={newStaffPermissionId}
+                    onChange={(e) => setNewStaffPermissionId(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-surface-cream border border-border-subtle focus:ring-1 focus:ring-brand-forest font-semibold"
+                  >
+                    <option value="">Select access level…</option>
+                    {permissionProfiles.filter((p) => !p.isOwnerOnly && p.id !== 'sys-owner').map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-content-muted mt-0.5">What they can open in the app</p>
+                </div>
+              </div>
+              <p className="text-[10px] text-content-muted -mt-1">
+                Need a new title like Senior Washerman? Create it in <strong>Catalogues &amp; Roles → Job Roles</strong> first.
+              </p>
 
               <div>
                 <label className="block text-xs font-bold text-brand-forest mb-1">
