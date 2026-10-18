@@ -244,8 +244,12 @@ export default function SupervisorPage() {
   const [selectedStaff, setSelectedStaff] = useState<EnrichedStaffItem | null>(null);
   const [profileTab, setProfileTab] = useState<'overview' | 'tasks' | 'attendance' | 'performance'>('overview');
 
-  // Selected date for Dashboard & Daily Tasks
-  const [dashboardDate, setDashboardDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  // Selected operational date (synchronized across all tabs: Dashboard, Attendance & Tasks)
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [isDateLoading, setIsDateLoading] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const dashboardDate = selectedDate;
+  const attendanceDate = selectedDate;
   const [staffTaskDate, setStaffTaskDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
   // Selected month & year for Attendance & Performance
@@ -345,7 +349,6 @@ export default function SupervisorPage() {
   const [isSubmittingField, setIsSubmittingField] = useState(false);
 
   // ─── Attendance Section State ──────────────────────────────────────────────
-  const [attendanceDate, setAttendanceDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [attendanceFilter, setAttendanceFilter] = useState<'ALL' | 'ON_FLOOR' | 'COMPLETED' | 'ABSENT'>('ALL');
   const [markingStaffId, setMarkingStaffId] = useState<string | null>(null);
   const [attendanceFeedback, setAttendanceFeedback] = useState<string | null>(null);
@@ -363,11 +366,11 @@ export default function SupervisorPage() {
         body: JSON.stringify({
           staffMemberId,
           status,
-          date: attendanceDate,
+          date: selectedDate,
         }),
       });
       setAttendanceFeedback(`Marked staff as ${status.replace('_', ' ').toLowerCase()}.`);
-      await fetchAllData();
+      await handleDateChange(selectedDate);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Failed to record attendance.');
     } finally {
@@ -400,6 +403,26 @@ export default function SupervisorPage() {
     return true;
   });
 
+  // Fast, instant date change refetch (only queries the 2 operational endpoints)
+  const handleDateChange = useCallback(async (newDate: string) => {
+    if (!newDate) return;
+    setSelectedDate(newDate);
+    if (!activeShopId) return;
+    setIsDateLoading(true);
+    try {
+      const [dashRes, staffRes] = await Promise.all([
+        apiRequest<SupervisorDashboardData>(`/api/shops/${activeShopId}/supervisor/dashboard?date=${newDate}`).catch(() => null),
+        apiRequest<{ staff: EnrichedStaffItem[] }>(`/api/shops/${activeShopId}/staff?date=${newDate}`).catch(() => null),
+      ]);
+      if (dashRes) setDashboardData(dashRes);
+      if (staffRes?.staff) setStaffList(staffRes.staff);
+    } catch {
+      // Ignored
+    } finally {
+      setIsDateLoading(false);
+    }
+  }, [activeShopId]);
+
   // Fetch Dashboard & Staff Lists
   const fetchAllData = useCallback(async (isSilent = false) => {
     if (!activeShopId || isAuthLoading || !user) return;
@@ -420,15 +443,14 @@ export default function SupervisorPage() {
       setIsLoading(true);
     }
     try {
-      const activeDate = currentNav === 'attendance' ? attendanceDate : dashboardDate;
       const [dashRes, staffRes, posRes, permRes, fieldsRes, svcRes, wfRes] = await Promise.all([
-        apiRequest<SupervisorDashboardData>(`/api/shops/${activeShopId}/supervisor/dashboard?date=${dashboardDate}`).catch(() => null),
-        apiRequest<{ staff: EnrichedStaffItem[] }>(`/api/shops/${activeShopId}/staff?date=${activeDate}`).catch(() => null),
-        apiRequest<{ categories: PositionCategory[] }>(`/api/config/shops/${activeShopId}/position-categories`).catch(() => null),
-        apiRequest<{ profiles: PermissionProfileItem[] }>(`/api/config/shops/${activeShopId}/permission-profiles`).catch(() => null),
-        apiRequest<{ fields: CustomFieldDefinition[] }>(`/api/config/shops/${activeShopId}/custom-fields`).catch(() => null),
-        apiRequest<{ serviceTypes: ServiceType[] }>(`/api/config/service-types`).catch(() => null),
-        apiRequest<{ profiles: WorkflowProfile[] }>(`/api/config/workflow-profiles`).catch(() => null),
+        apiRequest<SupervisorDashboardData>(`/api/shops/${activeShopId}/supervisor/dashboard?date=${selectedDate}`).catch(() => null),
+        apiRequest<{ staff: EnrichedStaffItem[] }>(`/api/shops/${activeShopId}/staff?date=${selectedDate}`).catch(() => null),
+        positionCategories.length > 0 ? Promise.resolve(null) : apiRequest<{ categories: PositionCategory[] }>(`/api/config/shops/${activeShopId}/position-categories`).catch(() => null),
+        permissionProfiles.length > 0 ? Promise.resolve(null) : apiRequest<{ profiles: PermissionProfileItem[] }>(`/api/config/shops/${activeShopId}/permission-profiles`).catch(() => null),
+        customFields.length > 0 ? Promise.resolve(null) : apiRequest<{ fields: CustomFieldDefinition[] }>(`/api/config/shops/${activeShopId}/custom-fields`).catch(() => null),
+        services.length > 0 ? Promise.resolve(null) : apiRequest<{ serviceTypes: ServiceType[] }>(`/api/config/service-types`).catch(() => null),
+        workflowProfiles.length > 0 ? Promise.resolve(null) : apiRequest<{ profiles: WorkflowProfile[] }>(`/api/config/workflow-profiles`).catch(() => null),
       ]);
 
       if (dashRes) setDashboardData(dashRes);
@@ -447,13 +469,14 @@ export default function SupervisorPage() {
       // Ignored
     } finally {
       setIsLoading(false);
+      setIsDateLoading(false);
     }
-  }, [activeShopId, user, activeRole, isAuthLoading, dashboardDate, attendanceDate, currentNav]);
+  }, [activeShopId, user, activeRole, isAuthLoading, selectedDate, positionCategories.length, permissionProfiles.length, customFields.length, services.length, workflowProfiles.length]);
 
   // Refetch when nav tab or dates change (silent to avoid flickering)
   useEffect(() => {
     fetchAllData(true);
-  }, [fetchAllData, currentNav, dashboardDate, attendanceDate]);
+  }, [fetchAllData, currentNav, selectedDate]);
 
   // Auto-refresh when window receives focus or returns from background tab (throttled to 30s)
   useEffect(() => {
@@ -2268,22 +2291,30 @@ export default function SupervisorPage() {
                 </p>
               </div>
             </div>
-            <div className="relative p-2 rounded-xl bg-white border border-border-subtle shadow-sm">
+            <button
+              type="button"
+              onClick={() => setIsNotificationsOpen(true)}
+              className="relative p-2 rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-cream transition-all"
+              title="Operational Alerts"
+            >
               <Bell className="w-4 h-4 text-brand-forest" />
-              <span className="w-2 h-2 rounded-full bg-red-500 absolute top-1.5 right-1.5" />
-            </div>
+              {(absentTrackedStaff.length > 0 || (dashboardData?.todayTasks?.pending ?? 0) > 0) && (
+                <span className="w-2 h-2 rounded-full bg-red-500 absolute top-1.5 right-1.5 animate-pulse" />
+              )}
+            </button>
           </div>
 
-          {/* Date bar: 15 Oct 2026 */}
+          {/* Date bar */}
           <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-border-subtle shadow-sm">
             <div className="flex items-center gap-2 text-xs font-bold text-brand-forest">
-              <Calendar className="w-4 h-4 text-brand-forest" />
-              <span>{new Date(dashboardDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+              <Calendar className={`w-4 h-4 text-brand-forest ${isDateLoading ? 'animate-spin' : ''}`} />
+              <span>{new Date(selectedDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+              {isDateLoading && <span className="text-[10px] text-content-muted font-normal animate-pulse">(updating...)</span>}
             </div>
             <input
               type="date"
-              value={dashboardDate}
-              onChange={(e) => setDashboardDate(e.target.value)}
+              value={selectedDate}
+              onChange={(e) => handleDateChange(e.target.value)}
               className="text-xs font-bold text-brand-forest border rounded-lg px-2 py-1 bg-surface-cream"
             />
           </div>
@@ -2412,10 +2443,17 @@ export default function SupervisorPage() {
                 <p className="text-xs text-content-muted font-medium">Supervisor • {activeShopName || 'Branch'}</p>
               </div>
             </div>
-            <div className="relative p-2 rounded-xl bg-white border border-border-subtle shadow-sm">
+            <button
+              type="button"
+              onClick={() => setIsNotificationsOpen(true)}
+              className="relative p-2 rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-cream transition-all"
+              title="Operational Alerts"
+            >
               <Bell className="w-4 h-4 text-brand-forest" />
-              <span className="w-2 h-2 rounded-full bg-red-500 absolute top-1.5 right-1.5" />
-            </div>
+              {(absentTrackedStaff.length > 0 || (dashboardData?.todayTasks?.pending ?? 0) > 0) && (
+                <span className="w-2 h-2 rounded-full bg-red-500 absolute top-1.5 right-1.5 animate-pulse" />
+              )}
+            </button>
           </div>
 
           {/* Search bar */}
@@ -2766,13 +2804,14 @@ export default function SupervisorPage() {
           {/* Date Selector */}
           <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-border-subtle shadow-sm">
             <div className="flex items-center gap-2 text-xs font-bold text-brand-forest">
-              <Calendar className="w-4 h-4 text-brand-forest" />
-              <span>{new Date(attendanceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+              <Calendar className={`w-4 h-4 text-brand-forest ${isDateLoading ? 'animate-spin' : ''}`} />
+              <span>{new Date(selectedDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+              {isDateLoading && <span className="text-[10px] text-content-muted font-normal animate-pulse">(updating...)</span>}
             </div>
             <input
               type="date"
-              value={attendanceDate}
-              onChange={(e) => setAttendanceDate(e.target.value)}
+              value={selectedDate}
+              onChange={(e) => handleDateChange(e.target.value)}
               className="text-xs font-bold text-brand-forest border rounded-lg px-2 py-1 bg-surface-cream"
             />
           </div>
@@ -3325,6 +3364,82 @@ export default function SupervisorPage() {
           checkOutAt={viewingAttendancePhoto.checkOutAt}
           checkOutPhotoPath={viewingAttendancePhoto.checkOutPhotoPath}
         />
+      )}
+
+      {/* ─── Supervisor Notifications & Alerts Modal ─── */}
+      {isNotificationsOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-clay border border-border-subtle space-y-4 animate-scale-up">
+            <div className="flex items-center justify-between border-b border-border-subtle pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-50 text-brand-forest">
+                  <Bell className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-brand-forest">Shop Alerts</h3>
+                  <p className="text-[10px] text-content-muted">{activeShopName || 'Branch'} • {new Date(selectedDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsNotificationsOpen(false)}
+                className="p-1.5 rounded-xl hover:bg-surface-cream text-content-muted hover:text-brand-forest"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+              {/* Absent Staff Alert */}
+              {absentTrackedStaff.length > 0 ? (
+                <div className="p-3 rounded-2xl bg-red-50 border border-red-100 flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <div className="text-xs">
+                    <span className="font-bold text-red-900 block">{absentTrackedStaff.length} Staff Absent Today</span>
+                    <p className="text-[11px] text-red-700 font-medium">
+                      {absentTrackedStaff.map((s) => s.staffMember.fullName).join(', ')}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center gap-2 text-xs text-emerald-800 font-bold">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>All tracked staff are present on duty!</span>
+                </div>
+              )}
+
+              {/* Pending Tasks Alert */}
+              {(dashboardData?.todayTasks?.pending ?? 0) > 0 ? (
+                <div className="p-3 rounded-2xl bg-amber-50 border border-amber-100 flex items-start gap-2.5">
+                  <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                  <div className="text-xs">
+                    <span className="font-bold text-amber-900 block">Pending Task Units ({dashboardData?.todayTasks?.pending})</span>
+                    <p className="text-[11px] text-amber-800 font-medium">
+                      {dashboardData?.todayTasks?.completed} of {dashboardData?.todayTasks?.total} units completed so far.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-2xl bg-surface-cream border border-border-subtle flex items-center gap-2 text-xs text-brand-forest font-bold">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>No pending tasks waiting.</span>
+                </div>
+              )}
+
+              {/* On Floor Presence */}
+              <div className="p-3 rounded-2xl bg-surface-cream border border-border-subtle flex items-center justify-between text-xs">
+                <span className="text-content-muted font-bold">Active On Floor</span>
+                <span className="font-black text-emerald-800">{activeOnFloorStaff.length} Staff</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setIsNotificationsOpen(false)}
+              className="w-full py-2.5 rounded-xl bg-brand-forest hover:bg-emerald-900 text-white text-xs font-black transition-all shadow-sm"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
