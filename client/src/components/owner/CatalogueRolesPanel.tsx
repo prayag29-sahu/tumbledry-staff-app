@@ -89,7 +89,7 @@ export function CatalogueRolesPanel({ shops, activities, workflowProfiles, onCha
     if (!roleShopId) return;
     setIsLoadingRoles(true);
     try {
-      const res = await apiRequest<{ categories: PositionCategory[] }>(`/api/config/shops/${roleShopId}/position-categories`);
+      const res = await apiRequest<{ categories: PositionCategory[] }>(`/api/config/shops/${roleShopId}/position-categories?includeInactive=1`);
       setRoles(res.categories || []);
     } catch {
       setRoles([]);
@@ -173,17 +173,17 @@ export function CatalogueRolesPanel({ shops, activities, workflowProfiles, onCha
     }
   };
 
-  const deactivateRole = async (role: PositionCategory) => {
-    if (!confirm(`Remove job role "${role.name}"? Staff already using it must be moved to another role first.`)) return;
+  const toggleRoleActive = async (role: PositionCategory) => {
+    const next = role.isActive === false;
     try {
       await apiRequest(`/api/config/shops/${roleShopId}/position-categories/${role.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ isActive: false }),
+        body: JSON.stringify({ isActive: next }),
       });
-      await fetchRoles();
+      setRoles((prev) => prev.map((r) => (r.id === role.id ? { ...r, isActive: next } : r)));
       onChanged?.();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to remove job role.');
+      alert(err instanceof Error ? err.message : 'Failed to update job role status.');
     }
   };
 
@@ -345,29 +345,47 @@ export function CatalogueRolesPanel({ shops, activities, workflowProfiles, onCha
             <div className="py-8 text-center text-xs text-content-muted">No job roles yet. Click “Add Job Role”.</div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {roles.map((role) => (
-                <div key={role.id} className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Briefcase className="w-4 h-4 text-brand-forest shrink-0" />
-                      <h4 className="text-sm font-extrabold text-brand-forest truncate">{role.name}</h4>
+              {roles.map((role) => {
+                const isInactive = role.isActive === false;
+                return (
+                  <div key={role.id} className={`bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 space-y-2 transition-all ${isInactive ? 'opacity-65 bg-surface-cream/40' : ''}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Briefcase className="w-4 h-4 text-brand-forest shrink-0" />
+                        <h4 className="text-sm font-extrabold text-brand-forest truncate">{role.name}</h4>
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider shrink-0 ${isInactive ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'}`}>
+                          {isInactive ? 'Inactive' : 'Active'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button onClick={() => openRoleModal('edit', role)} title="Edit" className="p-1.5 rounded-lg bg-surface-cream border border-border-subtle hover:bg-surface-hover text-brand-forest">
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => toggleRoleActive(role)}
+                          title={isInactive ? 'Activate role' : 'Deactivate role'}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
+                            isInactive
+                              ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100'
+                              : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
+                          }`}
+                        >
+                          {isInactive ? 'Activate' : 'Deactivate'}
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button onClick={() => openRoleModal('edit', role)} title="Edit" className="p-1.5 rounded-lg bg-surface-cream border border-border-subtle hover:bg-surface-hover text-brand-forest">
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button onClick={() => deactivateRole(role)} title="Remove" className="p-1.5 rounded-lg bg-red-50 border border-red-200 hover:bg-red-100 text-red-600">
-                        <Power className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    <span className="inline-block px-2 py-0.5 rounded-lg clay-badge-gold text-[10px] font-bold">
+                      {workflowLabel(role.workflowProfile)}
+                    </span>
+                    {role.description && <p className="text-xs text-content-muted">{role.description}</p>}
+                    {isInactive ? (
+                      <p className="text-[10px] font-bold text-amber-800">Deactivated — hidden from new staff role selection</p>
+                    ) : !role.shopId ? (
+                      <p className="text-[10px] text-content-muted">Shared by all shops</p>
+                    ) : null}
                   </div>
-                  <span className="inline-block px-2 py-0.5 rounded-lg clay-badge-gold text-[10px] font-bold">
-                    {workflowLabel(role.workflowProfile)}
-                  </span>
-                  {role.description && <p className="text-xs text-content-muted">{role.description}</p>}
-                  {!role.shopId && <p className="text-[10px] text-content-muted">Shared by all shops</p>}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

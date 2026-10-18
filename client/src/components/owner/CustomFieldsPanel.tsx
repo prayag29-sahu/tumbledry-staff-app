@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiRequest } from '../../lib/api';
 import { Shop, PositionCategory, CustomFieldDefinition } from '../../types';
-import { PlusCircle, Trash2, Pencil, X, Info, Users } from 'lucide-react';
+import { PlusCircle, Trash2, Pencil, X, Info, Users, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 
 const FIELD_TYPE_INFO: Record<CustomFieldDefinition['fieldType'], { label: string; hint: string }> = {
   TEXT: { label: 'Short text', hint: 'Any words, e.g. blood group, uniform size' },
@@ -45,8 +45,8 @@ export function CustomFieldsPanel({ shops }: Props) {
     setIsLoading(true);
     try {
       const [f, r] = await Promise.all([
-        apiRequest<{ fields: CustomFieldDefinition[] }>(`/api/config/shops/${shopId}/custom-fields`),
-        apiRequest<{ categories: PositionCategory[] }>(`/api/config/shops/${shopId}/position-categories`),
+        apiRequest<{ fields: CustomFieldDefinition[] }>(`/api/config/shops/${shopId}/custom-fields?includeInactive=1`),
+        apiRequest<{ categories: PositionCategory[] }>(`/api/config/shops/${shopId}/position-categories?includeInactive=1`),
       ]);
       setFields(f.fields || []);
       setRoles(r.categories || []);
@@ -62,6 +62,19 @@ export function CustomFieldsPanel({ shops }: Props) {
   }, [load]);
 
   const roleName = useMemo(() => new Map(roles.map((r) => [r.id, r.name])), [roles]);
+
+  const toggleFieldActive = async (f: CustomFieldDefinition) => {
+    const next = f.isActive === false;
+    try {
+      await apiRequest(`/api/config/shops/${shopId}/custom-fields/${f.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: next }),
+      });
+      setFields((prev) => prev.map((x) => (x.id === f.id ? { ...x, isActive: next } : x)));
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to update field status.');
+    }
+  };
 
   const resetForm = () => {
     setEditing(null);
@@ -183,10 +196,16 @@ export function CustomFieldsPanel({ shops }: Props) {
         )}
       </div>
 
-      <div className="p-3.5 rounded-2xl bg-brand-forest/[0.04] border border-brand-forest/15 text-[11px] text-brand-forest leading-relaxed flex gap-2">
-        <Info className="w-4 h-4 shrink-0 mt-0.5" />
-        <div>
-          <strong>How it works:</strong> 1) Create a field here and choose which job roles it is for. 2) Open any staff member → <strong>Extra Details</strong> and fill the answer. Only staff whose job role matches will see that field.
+      <div className="p-3.5 rounded-2xl bg-brand-forest/[0.04] border border-brand-forest/15 text-[11px] text-brand-forest leading-relaxed space-y-2">
+        <div className="flex gap-2">
+          <Info className="w-4 h-4 shrink-0 mt-0.5" />
+          <div>
+            <strong>How Staff Data is Structured:</strong>
+            <ul className="list-disc list-inside mt-1 space-y-0.5 text-content-muted">
+              <li><strong className="text-brand-forest">Core Profile Fields (Always Active):</strong> Full Name, Mobile Number, Job Role, Access Level (Login Username/Password), and Profile Photo are permanent system fields.</li>
+              <li><strong className="text-brand-forest">Operational Custom Fields (DB-Centric):</strong> Aadhaar, Emergency Contact, Blood Group, Uniform Size, Driving Licence, etc. You can rename labels, toggle required/optional, scope to specific roles, or <strong>Hide/Unhide</strong> them anytime without deleting data.</li>
+            </ul>
+          </div>
         </div>
       </div>
 
@@ -310,12 +329,16 @@ export function CustomFieldsPanel({ shops }: Props) {
             <div className="space-y-2">
               {visibleFields.map((f) => {
                 const scope = f.positionCategoryIds || [];
+                const isHidden = f.isActive === false;
                 return (
-                  <div key={f.id} className="p-3 rounded-xl bg-surface-cream/50 border border-border-subtle flex items-center justify-between gap-3 text-xs">
+                  <div key={f.id} className={`p-3 rounded-xl border border-border-subtle flex items-center justify-between gap-3 text-xs transition-all ${isHidden ? 'bg-surface-cream/30 opacity-60' : 'bg-surface-cream/50'}`}>
                     <div className="space-y-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-extrabold text-brand-forest">{f.label}</span>
                         <span className="px-1.5 py-0.5 rounded bg-surface-card border text-[10px] font-mono text-content-muted">{f.key}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider ${isHidden ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'}`}>
+                          {isHidden ? 'Hidden' : 'Active'}
+                        </span>
                         {f.isRequired && <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-bold">Required</span>}
                       </div>
                       <p className="text-[11px] text-content-muted">
@@ -326,8 +349,23 @@ export function CustomFieldsPanel({ shops }: Props) {
                         <Users className="w-3 h-3" />
                         {scope.length === 0 ? 'All staff' : scope.map((id) => roleName.get(id) || 'Removed role').join(', ')}
                       </p>
+                      {isHidden && (
+                        <p className="text-[10px] font-bold text-amber-800">Hidden from staff profiles (stored data is preserved)</p>
+                      )}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => toggleFieldActive(f)}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold border flex items-center gap-1 transition-colors ${
+                          isHidden
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100'
+                            : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
+                        }`}
+                        title={isHidden ? 'Unhide for staff' : 'Hide from staff'}
+                      >
+                        {isHidden ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                        <span>{isHidden ? 'Unhide' : 'Hide'}</span>
+                      </button>
                       <button onClick={() => startEdit(f)} className="p-1.5 rounded-lg bg-surface-card border border-border-subtle hover:bg-surface-hover text-brand-forest" title="Edit">
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
