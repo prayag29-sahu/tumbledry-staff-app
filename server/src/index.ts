@@ -1,3 +1,8 @@
+// Business timezone for all "day" calculations (attendance / tasks / dashboards).
+// Hosting providers default to UTC, which shifts Indian calendar days by 5h30m.
+// Override with BUSINESS_TIMEZONE (or TZ) in the environment if a shop runs elsewhere.
+process.env.TZ = process.env['BUSINESS_TIMEZONE'] || process.env['TZ'] || 'Asia/Kolkata';
+
 import { app } from './app';
 import { env } from './config/env';
 import { logger } from './config/logger';

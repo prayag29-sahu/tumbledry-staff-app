@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { allowedOrigins, env } from './config/env';
 import { logger } from './config/logger';
 import { errorHandler, notFound } from './middleware/errorHandler';
+import { invalidateAuthCache } from './middleware/auth';
 
 // Route modules
 import { authRouter } from './modules/auth/auth.router';
@@ -17,8 +18,13 @@ import { taskRouter } from './modules/tasks/task.router';
 import { attendanceRouter } from './modules/attendance/attendance.router';
 import { damageRouter } from './modules/damage/damage.router';
 import { configRouter } from './modules/config/config.router';
+import { mediaRouter } from './modules/media/media.router';
 
 const app = express();
+
+// Behind Vercel rewrite + Render load balancer: use X-Forwarded-For for the real client IP.
+// Without this every user shares the proxy IP and therefore ONE rate-limit bucket.
+app.set('trust proxy', true);
 
 // ─── Security headers ─────────────────────────────────────────────────────────
 app.use(helmet({
@@ -61,14 +67,20 @@ const loginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: { code: 'RATE_LIMIT', message: 'Too many attempts. Please try again later.', requestId: '' } },
+  validate: { trustProxy: false, xForwardedForHeader: false },
 });
 
-// General API: lenient
+// General API: lenient, counted per logged-in session (falls back to client IP)
 const generalLimiter = rateLimit({
   windowMs: 60_000,
-  max: 300,
+  max: 600,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false, xForwardedForHeader: false },
+  keyGenerator: (req) => {
+    const auth = req.headers['authorization'];
+    return auth && auth.length > 20 ? `t:${auth.slice(-32)}` : `ip:${req.ip ?? 'unknown'}`;
+  },
 });
 
 // ─── Health endpoint (no auth) ────────────────────────────────────────────────
@@ -82,8 +94,18 @@ app.get('/api/health', (_req, res) => {
 });
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
-app.use('/api/auth', loginLimiter);
+// Writes that can change permissions / memberships / sessions → drop cached auth context
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && /^\/api\/(auth|config|shops\/[^/]+\/staff|shops\/?$|shops\/[^/]+\/?$)/.test(req.path)) {
+    res.on('finish', () => invalidateAuthCache());
+  }
+  next();
+});
+// Strict limiter only for credential attempts (refresh / me / logout must never be throttled)
+app.use('/api/auth/login', loginLimiter);
 app.use('/api/auth', authRouter);
+// Signed, cacheable photo URLs (selfies, staff photos) — served outside JSON payloads
+app.use('/api/media', mediaRouter);
 app.use(generalLimiter);
 
 app.use('/api/shops', shopsRouter);        // /api/shops & /api/shops/:shopId

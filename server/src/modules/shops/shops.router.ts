@@ -4,6 +4,8 @@ import { authenticate, AuthenticatedRequest, requireOwner } from '../../middlewa
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
 import { logAudit } from '../../lib/audit';
+import { dayBounds } from '../../lib/dateRange';
+import { attendancePhotoPresence, mediaUrlIf } from '../../lib/media';
 
 export const shopsRouter = Router();
 
@@ -261,37 +263,54 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
   if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
 
   const dateStr = req.query['date'] as string;
-  let startOfDay: Date;
-  let endOfDay: Date;
-  if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    const [y, m, d] = dateStr.split('-').map(Number);
-    startOfDay = new Date(y, m - 1, d, 0, 0, 0, 0);
-    endOfDay = new Date(y, m - 1, d, 23, 59, 59, 999);
-  } else {
-    const now = new Date();
-    startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-  }
+  const { startOfDay, endOfDay } = dayBounds(dateStr);
 
-  // 1. Active staff memberships of this shop
-  const staffMemberships = await prisma.shopMembership.findMany({
-    where: { shopId, isActive: true },
-    include: {
-      staffMember: { select: { id: true, fullName: true, mobile: true, profilePhotoPath: true } },
-      positionCategory: { select: { id: true, name: true } },
-    },
-    orderBy: { staffMember: { fullName: 'asc' } },
-  });
-
-  // 2. Attendance on targetDate
-  const attendanceSessions = await prisma.attendanceSession.findMany({
-    where: {
-      shopId,
-      checkInAt: { gte: startOfDay, lte: endOfDay },
-    },
-    orderBy: { checkInAt: 'desc' },
-    select: { staffMemberId: true, checkInAt: true, checkInPhotoPath: true, checkOutAt: true, checkOutPhotoPath: true, status: true, durationMinutes: true },
-  });
+  // All independent reads in ONE parallel batch (each sequential DB round-trip added ~100ms+)
+  const [staffMemberships, attendanceSessions, assignments, serviceCatalogue] = await Promise.all([
+    // 1. Active staff memberships of this shop
+    prisma.shopMembership.findMany({
+      where: { shopId, isActive: true },
+      include: {
+        staffMember: { select: { id: true, fullName: true, mobile: true } },
+        positionCategory: { select: { id: true, name: true } },
+      },
+      orderBy: { staffMember: { fullName: 'asc' } },
+    }),
+    // 2. Attendance on targetDate (photo columns NOT loaded — served via signed media URLs)
+    prisma.attendanceSession.findMany({
+      where: {
+        shopId,
+        checkInAt: { gte: startOfDay, lte: endOfDay },
+      },
+      orderBy: { checkInAt: 'desc' },
+      select: { id: true, staffMemberId: true, checkInAt: true, checkOutAt: true, status: true, durationMinutes: true },
+    }),
+    // 3. Tasks on targetDate
+    prisma.taskAssignment.findMany({
+      where: {
+        shopId,
+        assignmentDate: { gte: startOfDay, lte: endOfDay },
+        status: 'ACTIVE',
+      },
+      select: {
+        id: true,
+        staffMemberId: true,
+        pieceCount: true,
+        serviceTypeId: true,
+        serviceType: { select: { code: true, name: true } },
+        taskUnits: {
+          where: { status: { not: 'CANCELLED' } },
+          select: { status: true, activityCode: true, unitType: true },
+        },
+      },
+    }),
+    // 4. Full active service catalogue (so new services show up automatically)
+    prisma.serviceType.findMany({
+      where: { isActive: true },
+      select: { id: true, code: true, name: true },
+      orderBy: { displayOrder: 'asc' },
+    }),
+  ]);
 
   const sessionMap = new Map<string, typeof attendanceSessions[0]>();
   for (const s of attendanceSessions) {
@@ -299,6 +318,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
       sessionMap.set(s.staffMemberId, s);
     }
   }
+  const photoPresence = await attendancePhotoPresence(Array.from(sessionMap.values()).map((s) => s.id));
 
   // Only count staff whose attendance tracking is enabled
   const attendanceTrackedStaff = staffMemberships.filter(
@@ -330,32 +350,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
     .filter((m) => (m as typeof m & { attendanceEnabled?: boolean }).attendanceEnabled === false)
     .map((m) => ({ staffId: m.staffMemberId, fullName: m.staffMember.fullName, position: m.positionCategory?.name || 'Staff' }));
 
-  // 3. Tasks on targetDate + full service catalogue (so new services show up automatically)
-  const [assignments, serviceCatalogue] = await Promise.all([
-    prisma.taskAssignment.findMany({
-      where: {
-        shopId,
-        assignmentDate: { gte: startOfDay, lte: endOfDay },
-        status: 'ACTIVE',
-      },
-      select: {
-        id: true,
-        staffMemberId: true,
-        pieceCount: true,
-        serviceTypeId: true,
-        serviceType: { select: { code: true, name: true } },
-        taskUnits: {
-          where: { status: { not: 'CANCELLED' } },
-          select: { status: true, activityCode: true, unitType: true },
-        },
-      },
-    }),
-    prisma.serviceType.findMany({
-      where: { isActive: true },
-      select: { id: true, code: true, name: true },
-      orderBy: { displayOrder: 'asc' },
-    }),
-  ]);
+  // 3. Tasks + service catalogue already loaded in the parallel batch above
 
   // Per-service KPI: orders, pieces and task units (done / total) for the selected day
   type ServiceKpi = { id: string; code: string; name: string; orders: number; pieces: number; totalUnits: number; completedUnits: number; percentage: number };
@@ -484,9 +479,9 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
         ? 'COMPLETED'
         : 'ABSENT',
       checkInAt: session?.checkInAt || null,
-      checkInPhotoPath: session?.checkInPhotoPath || null,
+      checkInPhotoPath: session ? mediaUrlIf(photoPresence.withIn.has(session.id), 'att-in', session.id) : null,
       checkOutAt: session?.checkOutAt || null,
-      checkOutPhotoPath: session?.checkOutPhotoPath || null,
+      checkOutPhotoPath: session ? mediaUrlIf(photoPresence.withOut.has(session.id), 'att-out', session.id) : null,
     };
   });
 

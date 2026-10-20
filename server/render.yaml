@@ -18,6 +18,8 @@ services:
         value: production
       - key: PORT
         value: 4000
+      - key: BUSINESS_TIMEZONE
+        value: Asia/Kolkata
       # All secret values must be set in Render dashboard, NOT here:
       # DATABASE_URL, DIRECT_DATABASE_URL, JWT_SECRET, JWT_REFRESH_SECRET,
       # CORS_ORIGIN, SUPABASE_STORAGE_URL, SUPABASE_SERVICE_ROLE_KEY

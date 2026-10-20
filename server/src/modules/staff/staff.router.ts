@@ -5,6 +5,8 @@ import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
 import { hashPassword } from '../auth/auth.service';
 import { logAudit } from '../../lib/audit';
+import { dayBounds } from '../../lib/dateRange';
+import { attendancePhotoPresence, staffPhotoPresence, mediaUrlIf } from '../../lib/media';
 
 export const staffRouter = Router();
 
@@ -25,81 +27,67 @@ staffRouter.get(
     const { search, status, positionCategoryId, page = '1', limit = '50' } = req.query as Record<string, string>;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const memberships = await prisma.shopMembership.findMany({
-      where: {
-        shopId,
-        isActive: status !== 'inactive',
-        ...(positionCategoryId ? { positionCategoryId } : {}),
-        ...(search
-          ? {
-              staffMember: {
-                OR: [
-                  { fullName: { contains: search, mode: 'insensitive' } },
-                  { mobile: { contains: search } },
-                  { account: { username: { contains: search, mode: 'insensitive' } } },
-                ],
-              },
-            }
-          : {}),
-      },
-      include: {
-        staffMember: {
-          select: {
-            id: true,
-            fullName: true,
-            mobile: true,
-            address: true,
-            profilePhotoPath: true,
-            employmentStatus: true,
-            customFieldValues: {
-              include: {
-                customFieldDefinition: { select: { id: true, label: true, key: true } },
-              },
+    // Attendance day (supports ?date=YYYY-MM-DD, business-timezone day)
+    const { startOfDay, endOfDay } = dayBounds(req.query['date'] as string | undefined);
+
+    // All independent reads in parallel (each DB round-trip costs ~50-100ms from the API host)
+    const [memberships, total, todaySessions] = await Promise.all([
+      prisma.shopMembership.findMany({
+        where: {
+          shopId,
+          isActive: status !== 'inactive',
+          ...(positionCategoryId ? { positionCategoryId } : {}),
+          ...(search
+            ? {
+                staffMember: {
+                  OR: [
+                    { fullName: { contains: search, mode: 'insensitive' } },
+                    { mobile: { contains: search } },
+                    { account: { username: { contains: search, mode: 'insensitive' } } },
+                  ],
+                },
+              }
+            : {}),
+        },
+        include: {
+          // NOTE: profile photo + custom field values are NOT loaded here (can be large base64 blobs).
+          // Photo → signed URL below; extra details → GET /staff/:id/custom-fields on demand.
+          staffMember: {
+            select: {
+              id: true,
+              fullName: true,
+              mobile: true,
+              address: true,
+              employmentStatus: true,
             },
           },
-        },
-        positionCategory: {
-          select: {
-            id: true,
-            name: true,
-            workflowProfile: { select: { id: true, name: true, workflowType: true, allowedActivities: true } },
+          positionCategory: {
+            select: {
+              id: true,
+              name: true,
+              workflowProfile: { select: { id: true, name: true, workflowType: true, allowedActivities: true } },
+            },
           },
+          workflowProfile: { select: { id: true, name: true, workflowType: true, allowedActivities: true } },
+          permissionProfile: { select: { id: true, name: true } },
+          account: { select: { id: true, username: true, status: true } },
         },
-        workflowProfile: { select: { id: true, name: true, workflowType: true, allowedActivities: true } },
-        permissionProfile: { select: { id: true, name: true } },
-        account: { select: { id: true, username: true, status: true } },
-      },
-      skip,
-      take: parseInt(limit),
-      orderBy: { staffMember: { fullName: 'asc' } },
-    });
-
-    const total = await prisma.shopMembership.count({
-      where: { shopId, isActive: status !== 'inactive' },
-    });
-
-    // Fetch attendance sessions to attach presence status (supports ?date=YYYY-MM-DD)
-    const dateStr = req.query['date'] as string;
-    let startOfDay: Date;
-    let endOfDay: Date;
-    if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-      const [y, m, d] = dateStr.split('-').map(Number);
-      startOfDay = new Date(y, m - 1, d, 0, 0, 0, 0);
-      endOfDay = new Date(y, m - 1, d, 23, 59, 59, 999);
-    } else {
-      const now = new Date();
-      startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-    }
-
-    const todaySessions = await prisma.attendanceSession.findMany({
-      where: {
-        shopId,
-        checkInAt: { gte: startOfDay, lte: endOfDay },
-      },
-      orderBy: { checkInAt: 'desc' },
-      select: { staffMemberId: true, checkInAt: true, checkInPhotoPath: true, checkOutAt: true, checkOutPhotoPath: true, status: true },
-    });
+        skip,
+        take: parseInt(limit),
+        orderBy: { staffMember: { fullName: 'asc' } },
+      }),
+      prisma.shopMembership.count({
+        where: { shopId, isActive: status !== 'inactive' },
+      }),
+      prisma.attendanceSession.findMany({
+        where: {
+          shopId,
+          checkInAt: { gte: startOfDay, lte: endOfDay },
+        },
+        orderBy: { checkInAt: 'desc' },
+        select: { id: true, staffMemberId: true, checkInAt: true, checkOutAt: true, status: true },
+      }),
+    ]);
 
     const sessionMap = new Map<string, typeof todaySessions[0]>();
     for (const s of todaySessions) {
@@ -107,6 +95,11 @@ staffRouter.get(
         sessionMap.set(s.staffMemberId, s);
       }
     }
+
+    const [photoPresence, staffPhotos] = await Promise.all([
+      attendancePhotoPresence(Array.from(sessionMap.values()).map((s) => s.id)),
+      staffPhotoPresence(memberships.map((m) => m.staffMemberId)),
+    ]);
 
     const enrichedStaff = memberships.map((m) => {
       const session = sessionMap.get(m.staffMemberId);
@@ -118,6 +111,10 @@ staffRouter.get(
 
       return {
         ...m,
+        staffMember: {
+          ...m.staffMember,
+          profilePhotoPath: mediaUrlIf(staffPhotos.has(m.staffMemberId), 'staff-photo', m.staffMemberId),
+        },
         attendanceEnabled: isAttEnabled,
         attendanceToday: session ? {
           isPresent: true,
@@ -125,8 +122,8 @@ staffRouter.get(
           isShiftCompleted,
           checkInAt: session.checkInAt,
           checkOutAt: session.checkOutAt,
-          checkInPhotoPath: session.checkInPhotoPath,
-          checkOutPhotoPath: session.checkOutPhotoPath,
+          checkInPhotoPath: mediaUrlIf(photoPresence.withIn.has(session.id), 'att-in', session.id),
+          checkOutPhotoPath: mediaUrlIf(photoPresence.withOut.has(session.id), 'att-out', session.id),
           status: session.status,
         } : {
           isPresent: false,

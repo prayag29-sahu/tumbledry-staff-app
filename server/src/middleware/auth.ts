@@ -47,6 +47,22 @@ export async function authenticate(
     return next(new AppError(401, 'UNAUTHORIZED', 'Session expired or invalid. Please log in again.'));
   }
 
+  // Short-lived cache of the account permission context. Every API call used to run
+  // 3-4 sequential DB round-trips here (account → memberships → profile → capabilities).
+  // Revocation still works: tokenVersion is compared on every request and the entry
+  // expires after AUTH_CACHE_TTL_MS; call invalidateAuthCache() after permission edits.
+  const cached = authCache.get(payload.sub);
+  if (cached && cached.expiresAt > Date.now()) {
+    if (cached.status !== 'ACTIVE') {
+      return next(new AppError(401, 'UNAUTHORIZED', 'Account not found or disabled.'));
+    }
+    if (cached.auth.tokenVersion === payload.tokenVersion) {
+      (req as AuthenticatedRequest).auth = cached.auth;
+      return next();
+    }
+    authCache.delete(payload.sub);
+  }
+
   // Validate token version to allow server-side invalidation (logout all sessions)
   const account = await prisma.account.findUnique({
     where: { id: payload.sub },
@@ -78,7 +94,7 @@ export async function authenticate(
     return next(new AppError(401, 'UNAUTHORIZED', 'Session has been revoked. Please log in again.'));
   }
 
-  (req as AuthenticatedRequest).auth = {
+  const authContext: AuthenticatedRequest['auth'] = {
     accountId: account.id,
     isOwner: account.isOwner,
     tokenVersion: account.tokenVersion,
@@ -88,8 +104,20 @@ export async function authenticate(
       capabilities: m.permissionProfile.capabilities.map((c) => c.capability),
     })),
   };
+  if (authCache.size > 5000) authCache.clear(); // simple memory bound
+  authCache.set(account.id, { auth: authContext, status: account.status, expiresAt: Date.now() + AUTH_CACHE_TTL_MS });
+  (req as AuthenticatedRequest).auth = authContext;
 
   next();
+}
+
+const AUTH_CACHE_TTL_MS = 20_000;
+const authCache = new Map<string, { auth: AuthenticatedRequest['auth']; status: string; expiresAt: number }>();
+
+/** Drop cached permission context (one account, or everyone when omitted). */
+export function invalidateAuthCache(accountId?: string): void {
+  if (accountId) authCache.delete(accountId);
+  else authCache.clear();
 }
 
 /**

@@ -5,9 +5,31 @@ import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
 import { logAudit } from '../../lib/audit';
 import { dayBounds, anchorTimeForDay } from '../../lib/dateRange';
+import { attendancePhotoPresence, mediaUrlIf } from '../../lib/media';
 
 /** A closed session of up to 4 hours (240 min) is a half day. */
 const HALF_DAY_MAX_MINUTES = 240;
+
+/** Session columns WITHOUT the heavy photo blobs (photos are served via signed media URLs). */
+const SESSION_LIGHT_SELECT = {
+  id: true,
+  shopId: true,
+  staffMemberId: true,
+  checkInAt: true,
+  checkOutAt: true,
+  durationMinutes: true,
+  status: true,
+} as const;
+
+/** Attach signed checkIn/checkOut photo URLs to light session rows. */
+async function withPhotoUrls<T extends { id: string }>(sessions: T[]) {
+  const presence = await attendancePhotoPresence(sessions.map((s) => s.id));
+  return sessions.map((s) => ({
+    ...s,
+    checkInPhotoPath: mediaUrlIf(presence.withIn.has(s.id), 'att-in', s.id),
+    checkOutPhotoPath: mediaUrlIf(presence.withOut.has(s.id), 'att-out', s.id),
+  }));
+}
 
 export const attendanceRouter = Router();
 
@@ -160,9 +182,10 @@ attendanceRouter.get(
         checkInAt: { gte: startOfDay, lte: endOfDay },
       },
       orderBy: { checkInAt: 'desc' },
+      select: SESSION_LIGHT_SELECT,
     });
 
-    res.json({ session });
+    res.json({ session: session ? (await withPhotoUrls([session]))[0] : null });
   }
 );
 
@@ -185,13 +208,14 @@ attendanceRouter.get(
         shopId,
         checkInAt: { gte: startOfDay, lte: endOfDay },
       },
-      include: {
+      select: {
+        ...SESSION_LIGHT_SELECT,
         staffMember: { select: { id: true, fullName: true, mobile: true } },
       },
       orderBy: { checkInAt: 'desc' },
     });
 
-    res.json({ sessions });
+    res.json({ sessions: await withPhotoUrls(sessions) });
   }
 );
 
@@ -308,6 +332,12 @@ attendanceRouter.post(
 
     const bounds = dayBounds(body.date);
     const { startOfDay, endOfDay } = bounds;
+
+    // Attendance can only be recorded for the CURRENT day (business timezone).
+    // Past/future days are read-only to prevent back-dated or proxy attendance.
+    if (!bounds.isToday) {
+      return next(new AppError(422, 'DATE_LOCKED', 'Attendance can only be marked for today. Past and future dates are view-only.'));
+    }
 
     const markedStaff = await prisma.staffMember.findUnique({
       where: { id: body.staffMemberId },
