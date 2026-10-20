@@ -76,6 +76,7 @@ export interface AuthAccountResponse {
     id: string;
     fullName: string;
     mobile?: string | null;
+    address?: string | null;
     profilePhotoPath?: string | null;
   } | null;
   shopMemberships: Array<{
@@ -85,6 +86,9 @@ export interface AuthAccountResponse {
     roleName: string;
     capabilities: string[];
     positionCategory?: string | null;
+    joiningDate?: string | null;
+    dutyTimingNotes?: string | null;
+    monthlySalary?: number | null;
   }>;
 }
 
@@ -102,6 +106,7 @@ export async function getAccountProfile(accountId: string): Promise<AuthAccountR
           id: true,
           fullName: true,
           mobile: true,
+          address: true,
           profilePhotoPath: true,
         },
       },
@@ -117,6 +122,9 @@ export async function getAccountProfile(accountId: string): Promise<AuthAccountR
             },
           },
           positionCategory: { select: { name: true } },
+          joiningDate: true,
+          dutyTimingNotes: true,
+          monthlySalary: true,
         },
       },
     },
@@ -131,6 +139,9 @@ export async function getAccountProfile(accountId: string): Promise<AuthAccountR
     roleName: string;
     capabilities: string[];
     positionCategory?: string | null;
+    joiningDate?: string | null;
+    dutyTimingNotes?: string | null;
+    monthlySalary?: number | null;
   }> = [];
 
   if (account.isOwner) {
@@ -146,6 +157,9 @@ export async function getAccountProfile(accountId: string): Promise<AuthAccountR
       roleName: 'Owner',
       capabilities: ['*'],
       positionCategory: 'Owner',
+      joiningDate: null,
+      dutyTimingNotes: null,
+      monthlySalary: null,
     }));
   } else {
     shopMemberships = account.shopMemberships.map((m) => ({
@@ -155,6 +169,9 @@ export async function getAccountProfile(accountId: string): Promise<AuthAccountR
       roleName: m.permissionProfile.name,
       capabilities: m.permissionProfile.capabilities.map((c) => c.capability),
       positionCategory: m.positionCategory?.name ?? null,
+      joiningDate: m.joiningDate ? m.joiningDate.toISOString() : null,
+      dutyTimingNotes: m.dutyTimingNotes ?? null,
+      monthlySalary: m.monthlySalary ? Number(m.monthlySalary) : null,
     }));
   }
 

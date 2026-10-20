@@ -688,9 +688,13 @@ staffRouter.patch(
 
     if (!auth.isOwner) {
       if (targetMembership.accountId === auth.accountId) {
-        return next(new AppError(403, 'FORBIDDEN', 'Supervisors cannot modify their own record. Contact the Owner.'));
-      }
-      if (targetMembership.permissionProfile?.isOwnerOnly) {
+        // Staff/managers can only modify their personal contact details, not salary, permissions or roles
+        const restricted = ['permissionProfileId', 'monthlySalary', 'workflowProfileId', 'securityDeposit', 'incentiveAmount', 'joiningDate'];
+        const attempted = Object.keys(req.body || {}).filter((k) => restricted.includes(k));
+        if (attempted.length > 0) {
+          return next(new AppError(403, 'FORBIDDEN', 'You cannot modify your own role, permissions, or salary. Contact the Owner.'));
+        }
+      } else if (targetMembership.permissionProfile?.isOwnerOnly) {
         return next(new AppError(403, 'FORBIDDEN', 'Supervisors cannot modify Owner records.'));
       }
     }

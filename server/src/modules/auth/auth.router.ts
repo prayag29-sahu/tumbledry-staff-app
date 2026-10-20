@@ -2,6 +2,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { env } from '../../config/env';
 import { authenticate, AuthenticatedRequest } from '../../middleware/auth';
+import { prisma } from '../../db/prisma';
+import { AppError } from '../../middleware/errorHandler';
 import {
   loginWithPassword,
   refreshTokens,
@@ -119,3 +121,60 @@ authRouter.post(
     res.json({ message: 'Password changed. Please log in again.' });
   }
 );
+
+// PATCH /api/auth/profile — update logged-in user's own contact & personal details
+authRouter.patch(
+  '/profile',
+  authenticate as unknown as (req: Request, res: Response, next: NextFunction) => void,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const auth = (req as AuthenticatedRequest).auth;
+      const schema = z.object({
+        fullName: z.string().min(1).max(200).optional(),
+        mobile: z.string().max(20).nullable().optional(),
+        address: z.string().max(500).nullable().optional(),
+        dutyTimingNotes: z.string().max(200).nullable().optional(),
+        shopId: z.string().optional(),
+      });
+      const body = schema.parse(req.body);
+
+      const account = await prisma.account.findUnique({
+        where: { id: auth.accountId },
+        include: { staffMember: true },
+      });
+
+      if (!account) {
+        return next(new AppError(404, 'NOT_FOUND', 'Account not found.'));
+      }
+
+      if (account.staffMember) {
+        await prisma.staffMember.update({
+          where: { id: account.staffMember.id },
+          data: {
+            ...(body.fullName ? { fullName: body.fullName } : {}),
+            ...(body.mobile !== undefined ? { mobile: body.mobile } : {}),
+            ...(body.address !== undefined ? { address: body.address } : {}),
+          },
+        });
+      }
+
+      if (body.dutyTimingNotes !== undefined && body.shopId) {
+        await prisma.shopMembership.updateMany({
+          where: {
+            accountId: auth.accountId,
+            shopId: body.shopId,
+          },
+          data: {
+            dutyTimingNotes: body.dutyTimingNotes,
+          },
+        });
+      }
+
+      const updated = await getAccountProfile(auth.accountId);
+      res.json({ account: updated, message: 'Profile details updated successfully.' });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
