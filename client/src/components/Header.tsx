@@ -4,11 +4,13 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
-import { Building2, ChevronDown, User, ShieldCheck } from 'lucide-react';
+import { Building2, ChevronDown, User, ShieldCheck, Download } from 'lucide-react';
 import { Logo } from './Logo';
+import { usePwa } from './PwaProvider';
 
 export function Header() {
   const { user, activeShopId, activeRole, setActiveShopId } = useAuth();
+  const { isInstallable, isStandalone, promptInstall } = usePwa();
 
   const pathname = usePathname();
   if (!user || pathname === '/login' || pathname === '/supervisor' || pathname === '/manager') return null;
@@ -56,6 +58,19 @@ export function Header() {
               <span className="truncate max-w-[120px]">{currentShop.shopName}</span>
             </div>
           ) : null}
+
+          {/* PWA Install Button */}
+          {isInstallable && !isStandalone && (
+            <button
+              onClick={promptInstall}
+              type="button"
+              className="px-2.5 py-1.5 rounded-xl bg-brand-lime hover:bg-[#96d63d] text-brand-forest font-black text-xs flex items-center gap-1.5 shadow-clay-sm transition-all"
+              title="Install App on Device"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Install App</span>
+            </button>
+          )}
 
           {/* Profile link */}
           <Link

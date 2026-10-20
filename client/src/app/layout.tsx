@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { AuthProvider } from '../contexts/AuthContext';
+import { PwaProvider } from '../components/PwaProvider';
 import { Header } from '../components/Header';
 import { BottomNav } from '../components/BottomNav';
 
@@ -44,11 +45,13 @@ export default function RootLayout({
     <html lang="en">
       <body className="bg-surface-cream text-content-primary antialiased min-h-screen flex flex-col">
         <AuthProvider>
-          <Header />
-          <main className="flex-1 pb-20 max-w-4xl w-full mx-auto p-4 sm:p-6">
-            {children}
-          </main>
-          <BottomNav />
+          <PwaProvider>
+            <Header />
+            <main className="flex-1 pb-20 max-w-4xl w-full mx-auto p-4 sm:p-6">
+              {children}
+            </main>
+            <BottomNav />
+          </PwaProvider>
         </AuthProvider>
       </body>
     </html>

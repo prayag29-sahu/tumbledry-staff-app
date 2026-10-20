@@ -3,12 +3,14 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../contexts/AuthContext';
-import { Lock, User, Eye, EyeOff, ArrowRight } from 'lucide-react';
+import { Lock, User, Eye, EyeOff, ArrowRight, Download } from 'lucide-react';
 import { Logo } from '../../components/Logo';
+import { usePwa } from '../../components/PwaProvider';
 
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
+  const { isInstallable, isStandalone, promptInstall } = usePwa();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -137,6 +139,20 @@ export default function LoginPage() {
             </div>
           </form>
         </div>
+
+        {/* PWA Install Action */}
+        {isInstallable && !isStandalone && (
+          <div className="text-center pt-1">
+            <button
+              type="button"
+              onClick={promptInstall}
+              className="w-full py-2.5 px-4 rounded-2xl bg-white hover:bg-surface-cream border border-border-subtle text-brand-forest font-bold text-xs flex items-center justify-center gap-2 shadow-clay-sm transition-all"
+            >
+              <Download className="w-4 h-4 text-brand-lime" />
+              <span>Install Tumbledry App (1-Tap Home Screen)</span>
+            </button>
+          </div>
+        )}
 
         {/* Informational note */}
         <p className="text-center text-[11px] text-content-muted font-medium">
