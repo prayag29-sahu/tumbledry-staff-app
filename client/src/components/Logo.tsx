@@ -35,10 +35,10 @@ export function Logo({
   };
 
   const sizeMap = {
-    sm: { icon: 'w-7 h-7 text-xs', height: 28, text: 'text-sm' },
-    md: { icon: 'w-9 h-9 text-base', height: 36, text: 'text-base' },
-    lg: { icon: 'w-14 h-14 text-2xl', height: 56, text: 'text-2xl' },
-    xl: { icon: 'w-20 h-20 text-4xl', height: 80, text: 'text-3xl' },
+    sm: { container: 'h-7 w-auto max-w-[120px]', fallback: 'w-7 h-7 text-xs', text: 'text-sm' },
+    md: { container: 'h-9 w-auto max-w-[160px]', fallback: 'w-9 h-9 text-base', text: 'text-base' },
+    lg: { container: 'h-16 w-auto max-w-[280px]', fallback: 'w-14 h-14 text-2xl', text: 'text-2xl' },
+    xl: { container: 'h-24 w-auto max-w-[380px]', fallback: 'w-20 h-20 text-4xl', text: 'text-3xl' },
   };
 
   const currentSize = sizeMap[size] || sizeMap.md;
@@ -47,19 +47,19 @@ export function Logo({
     <div className={`inline-flex items-center gap-2.5 select-none ${className}`}>
       {/* Logo Image or Stylish Fallback */}
       {!hasError ? (
-        <div className={`relative ${currentSize.icon} shrink-0 flex items-center justify-center`}>
+        <div className={`relative ${currentSize.container} shrink-0 flex items-center justify-start`}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={currentSrc}
             alt={alt}
             onError={handleImageError}
-            className="w-full h-full object-contain drop-shadow-sm"
+            className="h-full w-auto max-h-full object-contain"
           />
         </div>
       ) : (
         /* Fallback SVG / Styled Brand Badge if image is not yet uploaded */
         <div
-          className={`${currentSize.icon} shrink-0 rounded-2xl bg-gradient-to-br from-brand-lime to-[#6DA322] flex items-center justify-center shadow-clay-sm border border-white/50 text-white font-black tracking-wider`}
+          className={`${currentSize.fallback} shrink-0 rounded-2xl bg-gradient-to-br from-brand-lime to-[#6DA322] flex items-center justify-center shadow-clay-sm border border-white/50 text-white font-black tracking-wider`}
         >
           <span>T</span>
         </div>

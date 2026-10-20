@@ -20,15 +20,12 @@ export function Header() {
     <header className="sticky top-0 z-40 w-full bg-[#FFFDF7]/90 backdrop-blur-md border-b border-[#E4E4D8]/80 shadow-sm px-4 py-3">
       <div className="max-w-4xl mx-auto flex items-center justify-between">
         {/* Brand & Active Role */}
-        <Link href="/" className="flex items-center gap-2.5">
+        <Link href="/" className="flex items-center gap-3">
           <Logo size="md" showWordmark={false} />
-          <div>
-            <h1 className="text-base font-bold text-brand-forest leading-tight tracking-tight">
-              Tumbledry
-            </h1>
+          <div className="pl-2.5 border-l border-border-subtle/80 flex flex-col justify-center">
             <div className="flex items-center gap-1.5">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-brand-lime animate-pulse"></span>
-              <span className="text-[11px] font-semibold text-content-muted uppercase tracking-wider">
+              <span className="inline-block w-2 h-2 rounded-full bg-brand-lime animate-pulse"></span>
+              <span className="text-xs font-black text-brand-forest uppercase tracking-wider">
                 {activeRole}
               </span>
             </div>

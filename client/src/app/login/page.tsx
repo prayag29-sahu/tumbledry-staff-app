@@ -51,9 +51,9 @@ export default function LoginPage() {
       <div className="w-full max-w-sm space-y-6">
         {/* Brand Banner matching Screen 1 */}
         <div className="text-center space-y-2 flex flex-col items-center">
-          <Logo size="lg" showWordmark={true} />
+          <Logo size="lg" showWordmark={false} />
           <p className="text-[11px] font-extrabold tracking-[0.25em] text-[#B88728] uppercase">
-            LAUNDRY | DRY CLEAN
+            OPERATIONS & FLOOR MANAGEMENT
           </p>
         </div>
 
