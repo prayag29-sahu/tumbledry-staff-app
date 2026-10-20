@@ -30,12 +30,21 @@ staffRouter.get(
     // Attendance day (supports ?date=YYYY-MM-DD, business-timezone day)
     const { startOfDay, endOfDay } = dayBounds(req.query['date'] as string | undefined);
 
+    const isActiveFilter =
+      status === 'active'
+        ? { isActive: true }
+        : status === 'inactive'
+        ? { isActive: false }
+        : status === 'all' || auth.isOwner
+        ? {}
+        : { isActive: true };
+
     // All independent reads in parallel (each DB round-trip costs ~50-100ms from the API host)
     const [memberships, total, todaySessions] = await Promise.all([
       prisma.shopMembership.findMany({
         where: {
           shopId,
-          isActive: status !== 'inactive',
+          ...isActiveFilter,
           ...(positionCategoryId ? { positionCategoryId } : {}),
           ...(search
             ? {
@@ -77,7 +86,7 @@ staffRouter.get(
         orderBy: { staffMember: { fullName: 'asc' } },
       }),
       prisma.shopMembership.count({
-        where: { shopId, isActive: status !== 'inactive' },
+        where: { shopId, ...isActiveFilter },
       }),
       prisma.attendanceSession.findMany({
         where: {
@@ -796,6 +805,82 @@ staffRouter.patch(
       success: true,
       attendanceEnabled: updated.attendanceEnabled,
       message: `Attendance tracking ${attendanceEnabled ? 'enabled' : 'disabled'} for this staff member.`,
+    });
+  }
+);
+
+// ─── PATCH /api/shops/:shopId/staff/:staffId/status ──────────────────────────
+// Dedicated endpoint for Owner to activate or deactivate a staff member
+staffRouter.patch(
+  '/shops/:shopId/staff/:staffId/status',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
+    const { shopId, staffId } = req.params as { shopId: string; staffId: string };
+
+    const hasAccess =
+      auth.isOwner ||
+      auth.shopMemberships.some((m) => m.shopId === shopId && m.capabilities.includes('staff.update'));
+    if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Permission denied.'));
+
+    const { status } = z
+      .object({
+        status: z.enum(['ACTIVE', 'INACTIVE']),
+      })
+      .parse(req.body);
+
+    const membership = await prisma.shopMembership.findFirst({
+      where: { staffMemberId: staffId, shopId },
+      include: { staffMember: true, account: true },
+    });
+    if (!membership) return next(new AppError(404, 'NOT_FOUND', 'Staff membership not found.'));
+
+    // Prevent deactivating own account
+    if (membership.accountId === auth.accountId) {
+      return next(new AppError(400, 'BAD_REQUEST', 'You cannot deactivate your own account.'));
+    }
+
+    const isActive = status === 'ACTIVE';
+
+    await prisma.$transaction(async (tx) => {
+      await tx.staffMember.update({
+        where: { id: staffId },
+        data: { employmentStatus: status },
+      });
+
+      await tx.shopMembership.update({
+        where: { id: membership.id },
+        data: { isActive },
+      });
+
+      if (membership.accountId) {
+        await tx.account.update({
+          where: { id: membership.accountId },
+          data: {
+            status: isActive ? 'ACTIVE' : 'DISABLED',
+            ...(isActive ? {} : { tokenVersion: { increment: 1 } }),
+          },
+        });
+      }
+    });
+
+    await logAudit({
+      action: isActive ? 'staff.activated' : 'staff.deactivated',
+      entityType: 'StaffMember',
+      entityId: staffId,
+      actorAccountId: auth.accountId,
+      shopId,
+      metadata: {
+        fullName: membership.staffMember.fullName,
+        username: membership.account?.username,
+        status,
+      },
+    });
+
+    res.json({
+      success: true,
+      status,
+      isActive,
+      message: `Staff member ${membership.staffMember.fullName} is now ${status.toLowerCase()}.`,
     });
   }
 );
