@@ -935,13 +935,12 @@ function ManagerPageInner() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-brand-forest mb-1">Pickup Location / Address *</label>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">Pickup Location / Address (Optional)</label>
                       <input
                         type="text"
-                        placeholder="e.g. Hotel Grand, Chandmari / Client Residence"
+                        placeholder="e.g. Hotel Grand, Chandmari / Client Residence (Optional)"
                         value={taskPickupLocation}
                         onChange={(e) => setTaskPickupLocation(e.target.value)}
-                        required
                         className="w-full px-3 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
                       />
                     </div>
