@@ -290,7 +290,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
       checkInAt: { gte: startOfDay, lte: endOfDay },
     },
     orderBy: { checkInAt: 'desc' },
-    select: { staffMemberId: true, checkInAt: true, checkInPhotoPath: true, checkOutAt: true, checkOutPhotoPath: true, status: true },
+    select: { staffMemberId: true, checkInAt: true, checkInPhotoPath: true, checkOutAt: true, checkOutPhotoPath: true, status: true, durationMinutes: true },
   });
 
   const sessionMap = new Map<string, typeof attendanceSessions[0]>();
@@ -308,6 +308,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
   let activeOnFloorCount = 0;
   let completedShiftCount = 0;
   let presentCount = 0;
+  let halfDayCount = 0;
 
   for (const m of attendanceTrackedStaff) {
     const session = sessionMap.get(m.staffMemberId);
@@ -317,6 +318,8 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
         activeOnFloorCount++;
       } else {
         completedShiftCount++;
+        const mins = session.durationMinutes ?? 0;
+        if (mins > 0 && mins <= 240) halfDayCount++;
       }
     }
   }
@@ -499,6 +502,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
     presentCount,
     activeOnFloorCount,
     completedShiftCount,
+    halfDayCount,
     absentCount,
     todayTasks: {
       total: todayTotalUnits,

@@ -58,7 +58,14 @@ staffRouter.get(
             },
           },
         },
-        positionCategory: { select: { id: true, name: true } },
+        positionCategory: {
+          select: {
+            id: true,
+            name: true,
+            workflowProfile: { select: { id: true, name: true, workflowType: true, allowedActivities: true } },
+          },
+        },
+        workflowProfile: { select: { id: true, name: true, workflowType: true, allowedActivities: true } },
         permissionProfile: { select: { id: true, name: true } },
         account: { select: { id: true, username: true, status: true } },
       },

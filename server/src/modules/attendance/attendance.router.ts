@@ -4,6 +4,10 @@ import { authenticate, AuthenticatedRequest } from '../../middleware/auth';
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
 import { logAudit } from '../../lib/audit';
+import { dayBounds, anchorTimeForDay } from '../../lib/dateRange';
+
+/** A closed session of up to 4 hours (240 min) is a half day. */
+const HALF_DAY_MAX_MINUTES = 240;
 
 export const attendanceRouter = Router();
 
@@ -147,12 +151,7 @@ attendanceRouter.get(
       return;
     }
 
-    const dateStr = req.query['date'] as string;
-    const targetDate = dateStr ? new Date(dateStr) : new Date();
-    const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    const { startOfDay, endOfDay } = dayBounds(req.query['date'] as string | undefined);
 
     const session = await prisma.attendanceSession.findFirst({
       where: {
@@ -179,12 +178,7 @@ attendanceRouter.get(
     );
     if (!hasTeamView) return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
 
-    const dateStr = req.query['date'] as string;
-    const targetDate = dateStr ? new Date(dateStr) : new Date();
-    const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    const { startOfDay, endOfDay } = dayBounds(req.query['date'] as string | undefined);
 
     const sessions = await prisma.attendanceSession.findMany({
       where: {
@@ -256,7 +250,7 @@ attendanceRouter.get(
     });
 
     const enrichedSessions = sessions.map((s) => {
-      const isHalfDay = (s.durationMinutes || 0) > 0 && (s.durationMinutes || 0) < 240 && s.status !== 'OPEN';
+      const isHalfDay = (s.durationMinutes || 0) > 0 && (s.durationMinutes || 0) <= HALF_DAY_MAX_MINUTES && s.status !== 'OPEN';
       return {
         ...s,
         isHalfDay,
@@ -312,11 +306,8 @@ attendanceRouter.post(
     });
     const body = schema.parse(req.body);
 
-    const targetDate = body.date ? new Date(body.date) : new Date();
-    const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    const bounds = dayBounds(body.date);
+    const { startOfDay, endOfDay } = bounds;
 
     const markedStaff = await prisma.staffMember.findUnique({
       where: { id: body.staffMemberId },
@@ -331,7 +322,7 @@ attendanceRouter.post(
       metadata: {
         fullName: markedStaff?.fullName ?? null,
         status: body.status,
-        date: body.date ?? targetDate.toISOString().split('T')[0],
+        date: bounds.dateKey,
       },
     });
 
@@ -349,7 +340,7 @@ attendanceRouter.post(
           data: {
             shopId,
             staffMemberId: body.staffMemberId,
-            checkInAt: new Date(),
+            checkInAt: anchorTimeForDay(bounds),
             status: 'OPEN',
           },
         });
@@ -369,7 +360,8 @@ attendanceRouter.post(
       });
 
       if (openSession && openSession.checkInAt) {
-        const checkOutAt = new Date();
+        // For a past day, never record a checkout later than the end of that day
+        const checkOutAt = bounds.isToday ? new Date() : new Date(Math.min(endOfDay.getTime(), openSession.checkInAt.getTime() + 8 * 60 * 60 * 1000));
         const durationMinutes = Math.floor((checkOutAt.getTime() - openSession.checkInAt.getTime()) / 60000);
         await prisma.attendanceSession.update({
           where: { id: openSession.id },
@@ -392,15 +384,15 @@ attendanceRouter.post(
         },
       });
 
-      const checkInAt = new Date();
-      const checkOutAt = new Date(checkInAt.getTime() + 4 * 60 * 60 * 1000);
+      const checkInAt = session?.checkInAt ?? anchorTimeForDay(bounds);
+      const checkOutAt = new Date(checkInAt.getTime() + HALF_DAY_MAX_MINUTES * 60 * 1000);
 
       if (session) {
         await prisma.attendanceSession.update({
           where: { id: session.id },
           data: {
             checkOutAt,
-            durationMinutes: 240,
+            durationMinutes: HALF_DAY_MAX_MINUTES,
             status: 'CLOSED',
           },
         });
@@ -411,7 +403,7 @@ attendanceRouter.post(
             staffMemberId: body.staffMemberId,
             checkInAt,
             checkOutAt,
-            durationMinutes: 240,
+            durationMinutes: HALF_DAY_MAX_MINUTES,
             status: 'CLOSED',
           },
         });
