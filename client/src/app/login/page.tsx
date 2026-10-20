@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../contexts/AuthContext';
 import { Lock, User, Eye, EyeOff, ArrowRight } from 'lucide-react';
+import { Logo } from '../../components/Logo';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -49,16 +50,8 @@ export default function LoginPage() {
     <div className="min-h-[85vh] flex flex-col items-center justify-center py-6 px-3">
       <div className="w-full max-w-sm space-y-6">
         {/* Brand Banner matching Screen 1 */}
-        <div className="text-center space-y-1">
-          <div className="flex items-center justify-center gap-1.5 mb-1">
-            <h1 className="text-3xl font-black text-brand-forest tracking-tight flex items-baseline">
-              <span>tumble</span>
-              <span className="text-[#84C42C] relative">
-                d<span className="absolute -top-1.5 left-1/2 -translate-x-1/2 text-xs font-bold">..</span>
-              </span>
-              <span>ry</span>
-            </h1>
-          </div>
+        <div className="text-center space-y-2 flex flex-col items-center">
+          <Logo size="lg" showWordmark={true} />
           <p className="text-[11px] font-extrabold tracking-[0.25em] text-[#B88728] uppercase">
             LAUNDRY | DRY CLEAN
           </p>

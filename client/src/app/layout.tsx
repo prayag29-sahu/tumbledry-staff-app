@@ -8,6 +8,11 @@ export const metadata: Metadata = {
   title: 'Tumbledry Operations',
   description: 'Multi-shop laundry and dry cleaning operations platform',
   manifest: '/manifest.json',
+  icons: {
+    icon: '/logo.png',
+    shortcut: '/logo.png',
+    apple: '/logo.png',
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import { Building2, ChevronDown, User, ShieldCheck } from 'lucide-react';
+import { Logo } from './Logo';
 
 export function Header() {
   const { user, activeShopId, activeRole, setActiveShopId } = useAuth();
@@ -20,9 +21,7 @@ export function Header() {
       <div className="max-w-4xl mx-auto flex items-center justify-between">
         {/* Brand & Active Role */}
         <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-lime to-[#6DA322] flex items-center justify-center shadow-md border border-white/40">
-            <span className="text-white font-extrabold text-base tracking-wider">T</span>
-          </div>
+          <Logo size="md" showWordmark={false} />
           <div>
             <h1 className="text-base font-bold text-brand-forest leading-tight tracking-tight">
               Tumbledry
