@@ -6,9 +6,7 @@ import { AppError } from '../../middleware/errorHandler';
 import { logAudit } from '../../lib/audit';
 import { dayBounds, anchorTimeForDay } from '../../lib/dateRange';
 import { attendancePhotoPresence, mediaUrlIf } from '../../lib/media';
-
-/** A closed session of up to 4 hours (240 min) is a half day. */
-const HALF_DAY_MAX_MINUTES = 240;
+import { evaluateAttendance } from '../../lib/attendanceEvaluation';
 
 /** Session columns WITHOUT the heavy photo blobs (photos are served via signed media URLs). */
 const SESSION_LIGHT_SELECT = {
@@ -19,6 +17,8 @@ const SESSION_LIGHT_SELECT = {
   checkOutAt: true,
   durationMinutes: true,
   status: true,
+  attendanceType: true,
+  notes: true,
 } as const;
 
 /** Attach signed checkIn/checkOut photo URLs to light session rows. */
@@ -43,10 +43,18 @@ attendanceRouter.post(
     const auth = (req as AuthenticatedRequest).auth;
     const { shopId } = req.params as { shopId: string };
 
-    // Find staff membership
+    // Find staff membership with shift timing configurations
     const membership = await prisma.shopMembership.findFirst({
       where: { accountId: auth.accountId, shopId, isActive: true },
-      select: { staffMemberId: true },
+      select: {
+        staffMemberId: true,
+        shiftStartTime: true,
+        shiftEndTime: true,
+        lateThreshold: true,
+        halfDayThreshold: true,
+        halfDayMinHours: true,
+        fullDayMinHours: true,
+      },
     });
     if (!membership) {
       return next(new AppError(403, 'FORBIDDEN', 'No active membership in this shop.'));
@@ -75,20 +83,35 @@ attendanceRouter.post(
       return next(new AppError(422, 'VALIDATION_ERROR', 'A photo is required for check-in.'));
     }
 
+    const checkInAt = new Date(); // server timestamp
+    const evaluation = evaluateAttendance(
+      { checkInAt, status: 'OPEN' },
+      membership
+    );
+
     const session = await prisma.attendanceSession.create({
       data: {
         shopId,
         staffMemberId: membership.staffMemberId,
-        checkInAt: new Date(), // server timestamp
+        checkInAt,
         checkInPhotoPath: photoPath,
         status: 'OPEN',
+        attendanceType: evaluation.attendanceType,
+        notes: evaluation.statusReason,
       },
     });
 
     res.status(201).json({
       sessionId: session.id,
       checkInAt: session.checkInAt,
-      message: 'Checked in successfully.',
+      attendanceType: session.attendanceType,
+      isLate: evaluation.isLate,
+      delayMinutes: evaluation.delayMinutes,
+      statusReason: evaluation.statusReason,
+      checkInTimeIST: evaluation.checkInTimeIST,
+      message: evaluation.isLate
+        ? `Checked in (Late by ${evaluation.delayMinutes} mins).`
+        : 'Checked in successfully.',
     });
   }
 );
@@ -102,7 +125,15 @@ attendanceRouter.post(
 
     const membership = await prisma.shopMembership.findFirst({
       where: { accountId: auth.accountId, shopId, isActive: true },
-      select: { staffMemberId: true },
+      select: {
+        staffMemberId: true,
+        shiftStartTime: true,
+        shiftEndTime: true,
+        lateThreshold: true,
+        halfDayThreshold: true,
+        halfDayMinHours: true,
+        fullDayMinHours: true,
+      },
     });
     if (!membership) {
       return next(new AppError(403, 'FORBIDDEN', 'No active membership in this shop.'));
@@ -137,6 +168,16 @@ attendanceRouter.post(
       return next(new AppError(409, 'CONFLICT', 'Check-out time cannot precede check-in time.'));
     }
 
+    const evaluation = evaluateAttendance(
+      {
+        checkInAt: openSession.checkInAt,
+        checkOutAt,
+        durationMinutes,
+        status: 'CLOSED',
+      },
+      membership
+    );
+
     const updated = await prisma.attendanceSession.update({
       where: { id: openSession.id },
       data: {
@@ -144,6 +185,8 @@ attendanceRouter.post(
         checkOutPhotoPath: photoPath,
         durationMinutes,
         status: 'CLOSED',
+        attendanceType: evaluation.attendanceType,
+        notes: evaluation.statusReason,
       },
     });
 
@@ -152,6 +195,11 @@ attendanceRouter.post(
       checkInAt: updated.checkInAt,
       checkOutAt: updated.checkOutAt,
       durationMinutes: updated.durationMinutes,
+      attendanceType: updated.attendanceType,
+      isHalfDay: evaluation.isHalfDay,
+      statusReason: evaluation.statusReason,
+      checkInTimeIST: evaluation.checkInTimeIST,
+      checkOutTimeIST: evaluation.checkOutTimeIST,
       message: 'Checked out successfully.',
     });
   }
@@ -253,6 +301,18 @@ attendanceRouter.get(
       }
     }
 
+    const staffMembership = await prisma.shopMembership.findFirst({
+      where: { staffMemberId: staffId, shopId, isActive: true },
+      select: {
+        shiftStartTime: true,
+        shiftEndTime: true,
+        lateThreshold: true,
+        halfDayThreshold: true,
+        halfDayMinHours: true,
+        fullDayMinHours: true,
+      },
+    });
+
     const startOfMonth = new Date(year, month - 1, 1);
     const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999);
 
@@ -269,22 +329,39 @@ attendanceRouter.get(
         checkOutAt: true,
         durationMinutes: true,
         status: true,
-        // Photo paths are NOT returned — access is via separate signed-URL endpoint
+        attendanceType: true,
+        notes: true,
       },
     });
 
     const enrichedSessions = sessions.map((s) => {
-      const isHalfDay = (s.durationMinutes || 0) > 0 && (s.durationMinutes || 0) <= HALF_DAY_MAX_MINUTES && s.status !== 'OPEN';
+      const evaluation = evaluateAttendance(
+        {
+          checkInAt: s.checkInAt,
+          checkOutAt: s.checkOutAt,
+          durationMinutes: s.durationMinutes,
+          status: s.status,
+        },
+        staffMembership
+      );
+      const attendanceType = s.attendanceType || evaluation.attendanceType;
       return {
         ...s,
-        isHalfDay,
-        attendanceType: isHalfDay ? 'HALF_DAY' : (s.status === 'OPEN' ? 'ON_FLOOR' : 'FULL_DAY'),
+        attendanceType,
+        isLate: evaluation.isLate,
+        isHalfDay: attendanceType === 'HALF_DAY',
+        delayMinutes: evaluation.delayMinutes,
+        statusReason: s.notes || evaluation.statusReason,
+        checkInTimeIST: evaluation.checkInTimeIST,
+        checkOutTimeIST: evaluation.checkOutTimeIST,
       };
     });
 
-    const halfDayCount = enrichedSessions.filter((s) => s.isHalfDay).length;
-    const fullDayCount = enrichedSessions.filter((s) => !s.isHalfDay && (s.status === 'OPEN' || s.status === 'CLOSED')).length;
-    const totalPresentDays = fullDayCount + halfDayCount;
+    const halfDayCount = enrichedSessions.filter((s) => s.attendanceType === 'HALF_DAY').length;
+    const lateCount = enrichedSessions.filter((s) => s.attendanceType === 'LATE' || s.isLate).length;
+    const fullDayCount = enrichedSessions.filter((s) => s.attendanceType === 'PRESENT').length;
+    const onFloorCount = enrichedSessions.filter((s) => s.attendanceType === 'ON_FLOOR' || s.status === 'OPEN').length;
+    const totalPresentDays = fullDayCount + lateCount + halfDayCount + onFloorCount;
 
     const now = new Date();
     const daysInMonth = (year === now.getFullYear() && month === (now.getMonth() + 1))
@@ -294,12 +371,22 @@ attendanceRouter.get(
 
     res.json({
       sessions: enrichedSessions,
+      shiftSchedule: staffMembership ? {
+        shiftStartTime: staffMembership.shiftStartTime,
+        shiftEndTime: staffMembership.shiftEndTime,
+        lateThreshold: staffMembership.lateThreshold,
+        halfDayThreshold: staffMembership.halfDayThreshold,
+        halfDayMinHours: staffMembership.halfDayMinHours ? Number(staffMembership.halfDayMinHours) : null,
+        fullDayMinHours: staffMembership.fullDayMinHours ? Number(staffMembership.fullDayMinHours) : null,
+      } : null,
       summary: {
         presentCount: fullDayCount,
         fullDayCount,
+        lateCount,
+        halfDayCount,
+        onFloorCount,
         totalPresentDays,
         absentCount,
-        halfDayCount,
       },
       year,
       month,
@@ -334,15 +421,29 @@ attendanceRouter.post(
     const { startOfDay, endOfDay } = bounds;
 
     // Attendance can only be recorded for the CURRENT day (business timezone).
-    // Past/future days are read-only to prevent back-dated or proxy attendance.
+    // Past/future dates are read-only to prevent back-dated or proxy attendance.
     if (!bounds.isToday) {
       return next(new AppError(422, 'DATE_LOCKED', 'Attendance can only be marked for today. Past and future dates are view-only.'));
     }
 
-    const markedStaff = await prisma.staffMember.findUnique({
-      where: { id: body.staffMemberId },
-      select: { fullName: true },
-    });
+    const [markedStaff, staffMembership] = await Promise.all([
+      prisma.staffMember.findUnique({
+        where: { id: body.staffMemberId },
+        select: { fullName: true },
+      }),
+      prisma.shopMembership.findFirst({
+        where: { staffMemberId: body.staffMemberId, shopId, isActive: true },
+        select: {
+          shiftStartTime: true,
+          shiftEndTime: true,
+          lateThreshold: true,
+          halfDayThreshold: true,
+          halfDayMinHours: true,
+          fullDayMinHours: true,
+        },
+      }),
+    ]);
+
     await logAudit({
       action: `attendance.marked_${body.status.toLowerCase()}`,
       entityType: 'AttendanceSession',
@@ -365,13 +466,26 @@ attendanceRouter.post(
         },
       });
 
+      const checkInAt = session?.checkInAt ?? anchorTimeForDay(bounds);
+      const evalResult = evaluateAttendance({ checkInAt, status: 'OPEN' }, staffMembership);
+
       if (!session) {
         session = await prisma.attendanceSession.create({
           data: {
             shopId,
             staffMemberId: body.staffMemberId,
-            checkInAt: anchorTimeForDay(bounds),
+            checkInAt,
             status: 'OPEN',
+            attendanceType: evalResult.attendanceType,
+            notes: evalResult.statusReason,
+          },
+        });
+      } else {
+        session = await prisma.attendanceSession.update({
+          where: { id: session.id },
+          data: {
+            attendanceType: evalResult.attendanceType,
+            notes: evalResult.statusReason,
           },
         });
       }
@@ -392,13 +506,19 @@ attendanceRouter.post(
       if (openSession && openSession.checkInAt) {
         // For a past day, never record a checkout later than the end of that day
         const checkOutAt = bounds.isToday ? new Date() : new Date(Math.min(endOfDay.getTime(), openSession.checkInAt.getTime() + 8 * 60 * 60 * 1000));
-        const durationMinutes = Math.floor((checkOutAt.getTime() - openSession.checkInAt.getTime()) / 60000);
+        const durationMinutes = Math.max(1, Math.floor((checkOutAt.getTime() - openSession.checkInAt.getTime()) / 60000));
+        const evalResult = evaluateAttendance(
+          { checkInAt: openSession.checkInAt, checkOutAt, durationMinutes, status: 'CLOSED' },
+          staffMembership
+        );
         await prisma.attendanceSession.update({
           where: { id: openSession.id },
           data: {
             checkOutAt,
-            durationMinutes: Math.max(1, durationMinutes),
+            durationMinutes,
             status: 'CLOSED',
+            attendanceType: evalResult.attendanceType,
+            notes: evalResult.statusReason,
           },
         });
       }
@@ -414,16 +534,22 @@ attendanceRouter.post(
         },
       });
 
+      const halfDayDuration = staffMembership?.halfDayMinHours
+        ? Math.round(Number(staffMembership.halfDayMinHours) * 60)
+        : 240;
+
       const checkInAt = session?.checkInAt ?? anchorTimeForDay(bounds);
-      const checkOutAt = new Date(checkInAt.getTime() + HALF_DAY_MAX_MINUTES * 60 * 1000);
+      const checkOutAt = new Date(checkInAt.getTime() + halfDayDuration * 60 * 1000);
 
       if (session) {
         await prisma.attendanceSession.update({
           where: { id: session.id },
           data: {
             checkOutAt,
-            durationMinutes: HALF_DAY_MAX_MINUTES,
+            durationMinutes: halfDayDuration,
             status: 'CLOSED',
+            attendanceType: 'HALF_DAY',
+            notes: 'Marked Half Day by supervisor/owner',
           },
         });
       } else {
@@ -433,8 +559,10 @@ attendanceRouter.post(
             staffMemberId: body.staffMemberId,
             checkInAt,
             checkOutAt,
-            durationMinutes: HALF_DAY_MAX_MINUTES,
+            durationMinutes: halfDayDuration,
             status: 'CLOSED',
+            attendanceType: 'HALF_DAY',
+            notes: 'Marked Half Day by supervisor/owner',
           },
         });
       }

@@ -85,10 +85,31 @@ interface EnrichedStaffItem {
   securityDeposit?: number | null;
   dutyTimingNotes?: string | null;
   incentiveAmount?: number | null;
+  shiftStartTime?: string | null;
+  shiftEndTime?: string | null;
+  lateThreshold?: string | null;
+  halfDayThreshold?: string | null;
+  halfDayMinHours?: number | null;
+  fullDayMinHours?: number | null;
+  shiftSchedule?: {
+    shiftStartTime: string | null;
+    shiftEndTime: string | null;
+    lateThreshold: string | null;
+    halfDayThreshold: string | null;
+    halfDayMinHours: number | null;
+    fullDayMinHours: number | null;
+  } | null;
   attendanceToday: {
     isPresent: boolean;
     isOnFloor?: boolean;
     isShiftCompleted?: boolean;
+    attendanceType?: 'PRESENT' | 'LATE' | 'HALF_DAY' | 'ABSENT' | null;
+    isLate?: boolean;
+    isHalfDay?: boolean;
+    delayMinutes?: number;
+    statusReason?: string | null;
+    checkInTimeIST?: string | null;
+    checkOutTimeIST?: string | null;
     checkInAt: string | null;
     checkOutAt: string | null;
     checkInPhotoPath?: string | null;
@@ -174,14 +195,33 @@ interface AttendanceSessionItem {
   checkOutAt?: string | null;
   durationMinutes?: number | null;
   status: string;
+  attendanceType?: 'PRESENT' | 'LATE' | 'HALF_DAY' | 'ABSENT' | 'ON_FLOOR' | null;
+  isLate?: boolean;
+  isHalfDay?: boolean;
+  delayMinutes?: number;
+  statusReason?: string | null;
+  checkInTimeIST?: string | null;
+  checkOutTimeIST?: string | null;
 }
 
 interface AttendanceHistoryResponse {
   sessions: AttendanceSessionItem[];
+  shiftSchedule?: {
+    shiftStartTime: string | null;
+    shiftEndTime: string | null;
+    lateThreshold: string | null;
+    halfDayThreshold: string | null;
+    halfDayMinHours: number | null;
+    fullDayMinHours: number | null;
+  } | null;
   summary: {
     presentCount: number;
-    absentCount: number;
+    fullDayCount?: number;
+    lateCount?: number;
     halfDayCount: number;
+    onFloorCount?: number;
+    totalPresentDays?: number;
+    absentCount: number;
   };
   year: number;
   month: number;
@@ -308,6 +348,12 @@ export default function SupervisorPage() {
   const [addSecurityDeposit, setAddSecurityDeposit] = useState('');
   const [addDutyTiming, setAddDutyTiming] = useState('');
   const [addIncentive, setAddIncentive] = useState('');
+  const [addShiftStartTime, setAddShiftStartTime] = useState('');
+  const [addShiftEndTime, setAddShiftEndTime] = useState('');
+  const [addLateThreshold, setAddLateThreshold] = useState('');
+  const [addHalfDayThreshold, setAddHalfDayThreshold] = useState('');
+  const [addHalfDayMinHours, setAddHalfDayMinHours] = useState('');
+  const [addFullDayMinHours, setAddFullDayMinHours] = useState('');
   const [isSubmittingStaff, setIsSubmittingStaff] = useState(false);
   const [addStaffSuccess, setAddStaffSuccess] = useState<{ name: string; username: string; password: string } | null>(null);
 
@@ -324,6 +370,12 @@ export default function SupervisorPage() {
   const [editDutyTiming, setEditDutyTiming] = useState('');
   const [editIncentive, setEditIncentive] = useState('');
   const [editWorkflowProfileId, setEditWorkflowProfileId] = useState('');
+  const [editShiftStartTime, setEditShiftStartTime] = useState('');
+  const [editShiftEndTime, setEditShiftEndTime] = useState('');
+  const [editLateThreshold, setEditLateThreshold] = useState('');
+  const [editHalfDayThreshold, setEditHalfDayThreshold] = useState('');
+  const [editHalfDayMinHours, setEditHalfDayMinHours] = useState('');
+  const [editFullDayMinHours, setEditFullDayMinHours] = useState('');
   const [isSavingEditStaff, setIsSavingEditStaff] = useState(false);
   const [editStaffError, setEditStaffError] = useState<string | null>(null);
 
@@ -612,6 +664,12 @@ export default function SupervisorPage() {
     setAddSecurityDeposit('');
     setAddDutyTiming('');
     setAddIncentive('');
+    setAddShiftStartTime('');
+    setAddShiftEndTime('');
+    setAddLateThreshold('');
+    setAddHalfDayThreshold('');
+    setAddHalfDayMinHours('');
+    setAddFullDayMinHours('');
     setAddStaffSuccess(null);
   };
 
@@ -636,6 +694,12 @@ export default function SupervisorPage() {
         securityDeposit: addSecurityDeposit ? parseFloat(addSecurityDeposit) : undefined,
         dutyTimingNotes: addDutyTiming.trim() || undefined,
         incentiveAmount: addIncentive ? parseFloat(addIncentive) : undefined,
+        shiftStartTime: addShiftStartTime || undefined,
+        shiftEndTime: addShiftEndTime || undefined,
+        lateThreshold: addLateThreshold || undefined,
+        halfDayThreshold: addHalfDayThreshold || undefined,
+        halfDayMinHours: addHalfDayMinHours ? parseFloat(addHalfDayMinHours) : undefined,
+        fullDayMinHours: addFullDayMinHours ? parseFloat(addFullDayMinHours) : undefined,
         customFieldValues: addCustomFieldDraft,
       };
 
@@ -689,6 +753,24 @@ export default function SupervisorPage() {
     setEditSecurityDeposit(staff.securityDeposit != null ? String(staff.securityDeposit) : '');
     setEditDutyTiming(staff.dutyTimingNotes || '');
     setEditIncentive(staff.incentiveAmount != null ? String(staff.incentiveAmount) : '');
+    setEditShiftStartTime(staff.shiftStartTime || staff.shiftSchedule?.shiftStartTime || '');
+    setEditShiftEndTime(staff.shiftEndTime || staff.shiftSchedule?.shiftEndTime || '');
+    setEditLateThreshold(staff.lateThreshold || staff.shiftSchedule?.lateThreshold || '');
+    setEditHalfDayThreshold(staff.halfDayThreshold || staff.shiftSchedule?.halfDayThreshold || '');
+    setEditHalfDayMinHours(
+      staff.halfDayMinHours != null
+        ? String(staff.halfDayMinHours)
+        : staff.shiftSchedule?.halfDayMinHours != null
+        ? String(staff.shiftSchedule.halfDayMinHours)
+        : ''
+    );
+    setEditFullDayMinHours(
+      staff.fullDayMinHours != null
+        ? String(staff.fullDayMinHours)
+        : staff.shiftSchedule?.fullDayMinHours != null
+        ? String(staff.shiftSchedule.fullDayMinHours)
+        : ''
+    );
     setEditStaffError(null);
     setIsEditStaffModalOpen(true);
   };
@@ -717,6 +799,12 @@ export default function SupervisorPage() {
         securityDeposit: editSecurityDeposit ? parseFloat(editSecurityDeposit) : null,
         dutyTimingNotes: editDutyTiming.trim() || null,
         incentiveAmount: editIncentive ? parseFloat(editIncentive) : null,
+        shiftStartTime: editShiftStartTime || null,
+        shiftEndTime: editShiftEndTime || null,
+        lateThreshold: editLateThreshold || null,
+        halfDayThreshold: editHalfDayThreshold || null,
+        halfDayMinHours: editHalfDayMinHours ? parseFloat(editHalfDayMinHours) : null,
+        fullDayMinHours: editFullDayMinHours ? parseFloat(editFullDayMinHours) : null,
       };
 
       await apiRequest(`/api/shops/${activeShopId}/staff/${editStaffTarget.staffMember.id}`, {
@@ -739,6 +827,20 @@ export default function SupervisorPage() {
         securityDeposit: editSecurityDeposit ? parseFloat(editSecurityDeposit) : null,
         dutyTimingNotes: editDutyTiming.trim() || null,
         incentiveAmount: editIncentive ? parseFloat(editIncentive) : null,
+        shiftStartTime: editShiftStartTime || null,
+        shiftEndTime: editShiftEndTime || null,
+        lateThreshold: editLateThreshold || null,
+        halfDayThreshold: editHalfDayThreshold || null,
+        halfDayMinHours: editHalfDayMinHours ? parseFloat(editHalfDayMinHours) : null,
+        fullDayMinHours: editFullDayMinHours ? parseFloat(editFullDayMinHours) : null,
+        shiftSchedule: {
+          shiftStartTime: editShiftStartTime || null,
+          shiftEndTime: editShiftEndTime || null,
+          lateThreshold: editLateThreshold || null,
+          halfDayThreshold: editHalfDayThreshold || null,
+          halfDayMinHours: editHalfDayMinHours ? parseFloat(editHalfDayMinHours) : null,
+          fullDayMinHours: editFullDayMinHours ? parseFloat(editFullDayMinHours) : null,
+        },
       };
 
       setSelectedStaff(updatedStaff);
@@ -1248,6 +1350,79 @@ export default function SupervisorPage() {
                         onChange={(e) => setAddIncentive(e.target.value)}
                         className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs focus:ring-2 focus:ring-brand-forest font-semibold"
                       />
+                    </div>
+
+                    {/* Shift & Attendance Policy (IST Timings) */}
+                    <div className="p-3 rounded-2xl bg-surface-cream/80 border border-emerald-900/10 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-black text-brand-forest uppercase tracking-wider flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-brand-forest" />
+                          Shift & Attendance Timings (IST)
+                        </span>
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                          Optional
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-brand-forest mb-0.5">Shift Start</label>
+                          <input
+                            type="time"
+                            value={addShiftStartTime}
+                            onChange={(e) => setAddShiftStartTime(e.target.value)}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-border-subtle text-xs font-semibold text-brand-forest"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-brand-forest mb-0.5">Shift End</label>
+                          <input
+                            type="time"
+                            value={addShiftEndTime}
+                            onChange={(e) => setAddShiftEndTime(e.target.value)}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-border-subtle text-xs font-semibold text-brand-forest"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Late Cutoff</label>
+                          <input
+                            type="time"
+                            value={addLateThreshold}
+                            onChange={(e) => setAddLateThreshold(e.target.value)}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-amber-50/70 border border-amber-300 text-xs font-semibold text-amber-950"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-orange-950 mb-0.5">Half-Day Cutoff</label>
+                          <input
+                            type="time"
+                            value={addHalfDayThreshold}
+                            onChange={(e) => setAddHalfDayThreshold(e.target.value)}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-orange-50/70 border border-orange-300 text-xs font-semibold text-orange-950"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-brand-forest mb-0.5">Min Half-Day (Hrs)</label>
+                          <input
+                            type="number" step="0.5" min="1" max="12" placeholder="4.0"
+                            value={addHalfDayMinHours}
+                            onChange={(e) => setAddHalfDayMinHours(e.target.value)}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-border-subtle text-xs font-semibold text-brand-forest"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-brand-forest mb-0.5">Min Full-Day (Hrs)</label>
+                          <input
+                            type="number" step="0.5" min="1" max="16" placeholder="8.0"
+                            value={addFullDayMinHours}
+                            onChange={(e) => setAddFullDayMinHours(e.target.value)}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-border-subtle text-xs font-semibold text-brand-forest"
+                          />
+                        </div>
+                      </div>
                     </div>
 
                     {/* Dynamic Custom Fields fetched from Database */}
@@ -2238,6 +2413,112 @@ export default function SupervisorPage() {
                 </div>
               </div>
 
+              {/* Individual Shift & Attendance Policy (IST) */}
+              <div className="p-3.5 rounded-2xl bg-surface-cream/80 border border-emerald-900/10 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-brand-forest" />
+                    <span className="text-xs font-black text-brand-forest uppercase tracking-wider">
+                      Shift & Attendance Policy (IST)
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                    Live Evaluation
+                  </span>
+                </div>
+                <p className="text-[10px] text-content-muted leading-tight">
+                  Evaluated strictly in Indian Standard Time (IST). Check-in after Late Cutoff is evaluated as LATE; check-in after Half-Day Cutoff or less worked duration is evaluated as HALF DAY.
+                </p>
+
+                {/* Shift Hours */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-bold text-brand-forest mb-1">
+                      Shift Start (IST)
+                    </label>
+                    <input
+                      type="time"
+                      value={editShiftStartTime}
+                      onChange={(e) => setEditShiftStartTime(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-border-subtle text-xs font-bold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-brand-forest mb-1">
+                      Shift End (IST)
+                    </label>
+                    <input
+                      type="time"
+                      value={editShiftEndTime}
+                      onChange={(e) => setEditShiftEndTime(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-border-subtle text-xs font-bold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                    />
+                  </div>
+                </div>
+
+                {/* Late & Half-Day Cutoffs */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-bold text-amber-900 mb-1">
+                      Late Cutoff (IST)
+                    </label>
+                    <input
+                      type="time"
+                      value={editLateThreshold}
+                      onChange={(e) => setEditLateThreshold(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-amber-50/70 border border-amber-300 text-xs font-bold text-amber-950 focus:ring-2 focus:ring-amber-500"
+                    />
+                    <span className="text-[9px] text-amber-800/80 block mt-0.5">Late if clock-in &gt; this</span>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-orange-950 mb-1">
+                      Half-Day Cutoff (IST)
+                    </label>
+                    <input
+                      type="time"
+                      value={editHalfDayThreshold}
+                      onChange={(e) => setEditHalfDayThreshold(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-orange-50/70 border border-orange-300 text-xs font-bold text-orange-950 focus:ring-2 focus:ring-orange-500"
+                    />
+                    <span className="text-[9px] text-orange-900/80 block mt-0.5">Half Day if clock-in &gt; this</span>
+                  </div>
+                </div>
+
+                {/* Minimum Worked Hours (Half Day & Full Day) */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-bold text-brand-forest mb-1">
+                      Min Half-Day (Hrs)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="1"
+                      max="12"
+                      placeholder="4.0"
+                      value={editHalfDayMinHours}
+                      onChange={(e) => setEditHalfDayMinHours(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-border-subtle text-xs font-bold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-brand-forest mb-1">
+                      Min Full-Day (Hrs)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="1"
+                      max="16"
+                      placeholder="8.0"
+                      value={editFullDayMinHours}
+                      onChange={(e) => setEditFullDayMinHours(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-border-subtle text-xs font-bold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Action Buttons */}
               <div className="flex items-center gap-3 pt-3 border-t border-border-subtle">
                 <button
@@ -3148,14 +3429,47 @@ export default function SupervisorPage() {
                               <span>{staff.staffMember.mobile}</span>
                             </p>
                           )}
+                          {/* Shift Timings Display */}
+                          {staff.shiftSchedule?.shiftStartTime ? (
+                            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-brand-forest font-semibold flex-wrap">
+                              <Clock className="w-3 h-3 text-brand-forest shrink-0" />
+                              <span>Shift: {staff.shiftSchedule.shiftStartTime} – {staff.shiftSchedule.shiftEndTime || 'Flexible'} IST</span>
+                              {staff.shiftSchedule.lateThreshold && (
+                                <span className="text-[9px] text-amber-800 font-bold bg-amber-50 px-1 rounded border border-amber-200">
+                                  Late &gt; {staff.shiftSchedule.lateThreshold}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span className="text-[10px] text-content-muted italic">No shift timings configured</span>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditStaff(staff)}
+                                className="text-[10px] text-emerald-800 font-bold underline hover:text-emerald-950"
+                              >
+                                Set Timings
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
 
-                      {/* Presence Badge */}
+                      {/* Presence Badge (DB-Evaluated Status) */}
                       <div className="text-right space-y-0.5">
                         {staff.attendanceEnabled === false ? (
                           <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-800 border border-amber-200">
                             Exempt
+                          </span>
+                        ) : staff.attendanceToday?.attendanceType === 'LATE' || staff.attendanceToday?.isLate ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-yellow-100 text-yellow-900 border border-yellow-300">
+                            <Clock className="w-3 h-3 text-yellow-700" />
+                            Late {staff.attendanceToday?.delayMinutes ? `(${staff.attendanceToday.delayMinutes}m)` : ''}
+                          </span>
+                        ) : staff.attendanceToday?.attendanceType === 'HALF_DAY' || staff.attendanceToday?.isHalfDay ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-orange-100 text-orange-900 border border-orange-300" title={staff.attendanceToday?.statusReason || 'Half Day'}>
+                            <Clock className="w-3 h-3 text-orange-700" />
+                            Half Day
                           </span>
                         ) : isOnFloor ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
@@ -3172,33 +3486,51 @@ export default function SupervisorPage() {
                             ○ Absent
                           </span>
                         )}
+
                         {staff.attendanceToday?.checkInAt && (
                           <span className="block text-[10px] text-content-muted font-mono">
-                            In: {new Date(staff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                            In: {staff.attendanceToday.checkInTimeIST || new Date(staff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         )}
                         {staff.attendanceToday?.checkOutAt && (
                           <span className="block text-[10px] text-blue-700 font-mono">
-                            Out: {new Date(staff.attendanceToday.checkOutAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                            Out: {staff.attendanceToday.checkOutTimeIST || new Date(staff.attendanceToday.checkOutAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         )}
-                        {staff.attendanceToday?.checkInPhotoPath && (
+                        {staff.attendanceToday?.statusReason && (
+                          <span className="block text-[9px] text-amber-900/80 font-medium max-w-[140px] truncate" title={staff.attendanceToday.statusReason}>
+                            {staff.attendanceToday.statusReason}
+                          </span>
+                        )}
+
+                        <div className="flex items-center justify-end gap-1 mt-1">
                           <button
                             type="button"
-                            onClick={() => setViewingAttendancePhoto({
-                              staffName: staff.staffMember.fullName,
-                              role: staff.positionCategory?.name || staff.role,
-                              checkInAt: staff.attendanceToday?.checkInAt,
-                              checkInPhotoPath: staff.attendanceToday?.checkInPhotoPath,
-                              checkOutAt: staff.attendanceToday?.checkOutAt,
-                              checkOutPhotoPath: staff.attendanceToday?.checkOutPhotoPath,
-                            })}
-                            className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-bold shadow-sm"
+                            onClick={() => handleOpenEditStaff(staff)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-cream hover:bg-emerald-50 text-brand-forest border border-border-subtle text-[10px] font-bold shadow-sm"
+                            title="Edit Staff & Shift Timings"
                           >
-                            <Camera className="w-3 h-3 text-emerald-700" />
-                            <span>View Selfie</span>
+                            <SlidersHorizontal className="w-3 h-3 text-brand-forest" />
+                            <span>Shift</span>
                           </button>
-                        )}
+                          {staff.attendanceToday?.checkInPhotoPath && (
+                            <button
+                              type="button"
+                              onClick={() => setViewingAttendancePhoto({
+                                staffName: staff.staffMember.fullName,
+                                role: staff.positionCategory?.name || staff.role,
+                                checkInAt: staff.attendanceToday?.checkInAt,
+                                checkInPhotoPath: staff.attendanceToday?.checkInPhotoPath,
+                                checkOutAt: staff.attendanceToday?.checkOutAt,
+                                checkOutPhotoPath: staff.attendanceToday?.checkOutPhotoPath,
+                              })}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-bold shadow-sm"
+                            >
+                              <Camera className="w-3 h-3 text-emerald-700" />
+                              <span>Selfie</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
 

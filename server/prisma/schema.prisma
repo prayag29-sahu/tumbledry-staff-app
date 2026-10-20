@@ -136,6 +136,15 @@ model ShopMembership {
   incentiveAmount      Decimal?  @map("incentive_amount") @db.Decimal(10, 2)
   attendanceEnabled    Boolean   @default(true) @map("attendance_enabled")
   isActive             Boolean   @default(true) @map("is_active")
+
+  // Attendance & Shift Schedule (Configured per staff member by Owner/Supervisor, IST timezone)
+  shiftStartTime       String?   @map("shift_start_time")        // e.g. "09:30" (IST HH:mm)
+  shiftEndTime         String?   @map("shift_end_time")          // e.g. "19:30" (IST HH:mm)
+  lateThreshold        String?   @map("late_threshold")          // e.g. "09:45" (IST check-in after this is LATE)
+  halfDayThreshold     String?   @map("half_day_threshold")      // e.g. "12:00" (IST check-in after this is HALF DAY)
+  halfDayMinHours      Decimal?  @map("half_day_min_hours") @db.Decimal(4, 2) // e.g. 4.0 hours (worked duration < this = HALF DAY)
+  fullDayMinHours      Decimal?  @map("full_day_min_hours") @db.Decimal(4, 2) // e.g. 8.0 hours
+
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -473,6 +482,8 @@ model AttendanceSession {
   checkOutPhotoPath  String?           @map("check_out_photo_path")
   durationMinutes    Int?              @map("duration_minutes") // calculated on checkout
   status             AttendanceStatus  @default(OPEN)
+  attendanceType     String?           @map("attendance_type") // calculated/audited: PRESENT, LATE, HALF_DAY
+  notes              String?
   correctionHistory  Json?             @map("correction_history") // array of audited corrections
   createdAt          DateTime          @default(now()) @map("created_at")
   updatedAt          DateTime          @updatedAt @map("updated_at")

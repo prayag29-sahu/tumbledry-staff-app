@@ -7,6 +7,7 @@ import { hashPassword } from '../auth/auth.service';
 import { logAudit } from '../../lib/audit';
 import { dayBounds } from '../../lib/dateRange';
 import { attendancePhotoPresence, staffPhotoPresence, mediaUrlIf } from '../../lib/media';
+import { evaluateAttendance } from '../../lib/attendanceEvaluation';
 
 export const staffRouter = Router();
 
@@ -112,11 +113,25 @@ staffRouter.get(
 
     const enrichedStaff = memberships.map((m) => {
       const session = sessionMap.get(m.staffMemberId);
-      const isOnFloor = session ? (session.status === 'OPEN' && !session.checkOutAt) : false;
-      const isShiftCompleted = session ? (session.status === 'CLOSED' || !!session.checkOutAt) : false;
-
-      const mWithAtt = m as typeof m & { attendanceEnabled?: boolean };
+      const mWithAtt = m as typeof m & {
+        attendanceEnabled?: boolean;
+        shiftStartTime?: string | null;
+        shiftEndTime?: string | null;
+        lateThreshold?: string | null;
+        halfDayThreshold?: string | null;
+        halfDayMinHours?: unknown;
+        fullDayMinHours?: unknown;
+      };
       const isAttEnabled = mWithAtt.attendanceEnabled !== false;
+
+      const evalResult = evaluateAttendance(session, {
+        shiftStartTime: mWithAtt.shiftStartTime,
+        shiftEndTime: mWithAtt.shiftEndTime,
+        lateThreshold: mWithAtt.lateThreshold,
+        halfDayThreshold: mWithAtt.halfDayThreshold,
+        halfDayMinHours: mWithAtt.halfDayMinHours != null ? Number(mWithAtt.halfDayMinHours) : null,
+        fullDayMinHours: mWithAtt.fullDayMinHours != null ? Number(mWithAtt.fullDayMinHours) : null,
+      });
 
       return {
         ...m,
@@ -127,22 +142,52 @@ staffRouter.get(
         attendanceEnabled: isAttEnabled,
         attendanceToday: session ? {
           isPresent: true,
-          isOnFloor,
-          isShiftCompleted,
+          attendanceType: evalResult.attendanceType, // 'PRESENT' | 'LATE' | 'HALF_DAY'
+          isOnFloor: evalResult.isOnFloor,
+          isShiftCompleted: evalResult.isShiftCompleted,
+          isLate: evalResult.isLate,
+          isHalfDay: evalResult.isHalfDay,
+          delayMinutes: evalResult.delayMinutes,
+          statusReason: evalResult.statusReason,
           checkInAt: session.checkInAt,
           checkOutAt: session.checkOutAt,
+          checkInTimeIST: evalResult.checkInTimeIST,
+          checkOutTimeIST: evalResult.checkOutTimeIST,
           checkInPhotoPath: mediaUrlIf(photoPresence.withIn.has(session.id), 'att-in', session.id),
           checkOutPhotoPath: mediaUrlIf(photoPresence.withOut.has(session.id), 'att-out', session.id),
           status: session.status,
+          shiftSchedule: {
+            shiftStartTime: mWithAtt.shiftStartTime ?? null,
+            shiftEndTime: mWithAtt.shiftEndTime ?? null,
+            lateThreshold: mWithAtt.lateThreshold ?? null,
+            halfDayThreshold: mWithAtt.halfDayThreshold ?? null,
+            halfDayMinHours: mWithAtt.halfDayMinHours != null ? Number(mWithAtt.halfDayMinHours) : null,
+            fullDayMinHours: mWithAtt.fullDayMinHours != null ? Number(mWithAtt.fullDayMinHours) : null,
+          },
         } : {
           isPresent: false,
+          attendanceType: !isAttEnabled ? 'EXEMPT' : 'ABSENT',
           isOnFloor: false,
           isShiftCompleted: false,
+          isLate: false,
+          isHalfDay: false,
+          delayMinutes: 0,
+          statusReason: !isAttEnabled ? 'Attendance exempt' : 'No check-in recorded for today',
           checkInAt: null,
           checkOutAt: null,
+          checkInTimeIST: null,
+          checkOutTimeIST: null,
           checkInPhotoPath: null,
           checkOutPhotoPath: null,
           status: !isAttEnabled ? 'EXEMPT' : 'ABSENT',
+          shiftSchedule: {
+            shiftStartTime: mWithAtt.shiftStartTime ?? null,
+            shiftEndTime: mWithAtt.shiftEndTime ?? null,
+            lateThreshold: mWithAtt.lateThreshold ?? null,
+            halfDayThreshold: mWithAtt.halfDayThreshold ?? null,
+            halfDayMinHours: mWithAtt.halfDayMinHours != null ? Number(mWithAtt.halfDayMinHours) : null,
+            fullDayMinHours: mWithAtt.fullDayMinHours != null ? Number(mWithAtt.fullDayMinHours) : null,
+          },
         },
       };
     });
@@ -179,6 +224,12 @@ staffRouter.post(
       incentiveAmount: z.number().min(0).optional(),
       role: z.string().optional(),
       attendanceEnabled: z.boolean().optional(),
+      shiftStartTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
+      shiftEndTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
+      lateThreshold: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
+      halfDayThreshold: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
+      halfDayMinHours: z.number().min(0).max(24).nullable().optional(),
+      fullDayMinHours: z.number().min(0).max(24).nullable().optional(),
       customFieldValues: z.record(z.string(), z.string().nullable().optional()).optional(),
       customFields: z.array(z.object({ fieldId: z.string(), value: z.string().nullable().optional() })).optional(),
       // Account creation (optional — person can exist without login access)
@@ -303,6 +354,12 @@ staffRouter.post(
           dutyTimingNotes: body.dutyTimingNotes ?? null,
           incentiveAmount: body.incentiveAmount ?? null,
           attendanceEnabled: resolvedAttendanceEnabled,
+          shiftStartTime: body.shiftStartTime ?? null,
+          shiftEndTime: body.shiftEndTime ?? null,
+          lateThreshold: body.lateThreshold ?? null,
+          halfDayThreshold: body.halfDayThreshold ?? null,
+          halfDayMinHours: body.halfDayMinHours ?? null,
+          fullDayMinHours: body.fullDayMinHours ?? null,
         },
       });
 
@@ -720,6 +777,12 @@ staffRouter.patch(
       securityDeposit: z.number().min(0).nullable().optional(),
       dutyTimingNotes: z.string().max(200).nullable().optional(),
       incentiveAmount: z.number().min(0).nullable().optional(),
+      shiftStartTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
+      shiftEndTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
+      lateThreshold: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
+      halfDayThreshold: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
+      halfDayMinHours: z.number().min(0).max(24).nullable().optional(),
+      fullDayMinHours: z.number().min(0).max(24).nullable().optional(),
     });
 
     const body = schema.parse(req.body);
@@ -747,6 +810,12 @@ staffRouter.patch(
           ...(body.securityDeposit !== undefined ? { securityDeposit: body.securityDeposit } : {}),
           ...(body.dutyTimingNotes !== undefined ? { dutyTimingNotes: body.dutyTimingNotes } : {}),
           ...(body.incentiveAmount !== undefined ? { incentiveAmount: body.incentiveAmount } : {}),
+          ...(body.shiftStartTime !== undefined ? { shiftStartTime: body.shiftStartTime } : {}),
+          ...(body.shiftEndTime !== undefined ? { shiftEndTime: body.shiftEndTime } : {}),
+          ...(body.lateThreshold !== undefined ? { lateThreshold: body.lateThreshold } : {}),
+          ...(body.halfDayThreshold !== undefined ? { halfDayThreshold: body.halfDayThreshold } : {}),
+          ...(body.halfDayMinHours !== undefined ? { halfDayMinHours: body.halfDayMinHours } : {}),
+          ...(body.fullDayMinHours !== undefined ? { fullDayMinHours: body.fullDayMinHours } : {}),
         },
       });
     });
