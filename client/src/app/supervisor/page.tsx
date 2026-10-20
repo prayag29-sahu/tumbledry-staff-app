@@ -2574,7 +2574,7 @@ export default function SupervisorPage() {
                   My Supervisor Profile & Credentials
                 </h3>
                 <p className="text-[11px] text-content-muted font-medium">
-                  @{user?.username} • Operational Roles & Account
+                  {user?.staffMember?.fullName || 'Supervisor'} • Operational Roles & Account
                 </p>
               </div>
             </div>
@@ -2698,9 +2698,8 @@ export default function SupervisorPage() {
               </div>
               <div>
                 <h3 className="text-base font-extrabold text-brand-forest">
-                  {user?.staffMember?.fullName || user?.username}
+                  {user?.staffMember?.fullName || 'Supervisor'}
                 </h3>
-                <p className="text-xs text-content-muted font-medium">@{user?.username}</p>
                 <div className="flex items-center gap-2 mt-1.5">
                   <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black bg-brand-forest text-brand-lime uppercase tracking-wider">
                     Supervisor
@@ -3135,7 +3134,7 @@ export default function SupervisorPage() {
                 {presentTrackedStaff.length} <span className="text-xs font-normal text-content-muted">Staff</span>
               </span>
               <span className="text-[10px] font-medium text-content-muted block">
-                Supervisor: {user?.username}
+                Supervisor: {user?.staffMember?.fullName || 'Supervisor'}
               </span>
             </div>
 
@@ -3251,7 +3250,7 @@ export default function SupervisorPage() {
               </span>
               <button
                 onClick={() => {
-                  const summaryText = `*Tumbledry (${activeShopName || 'Branch'}) - Operations Summary*\nDate: ${attendanceDate}\nSupervisor: ${user?.username}\nStaff on Floor: ${presentTrackedStaff.length}/${attendanceTrackedStaff.length}\nGarments Handled: ${dashboardData?.todayTasks.completed ?? 0}/${dashboardData?.todayTasks.total ?? 0} pieces\nDamages: 0 reported`;
+                  const summaryText = `*Tumbledry (${activeShopName || 'Branch'}) - Operations Summary*\nDate: ${attendanceDate}\nSupervisor: ${user?.staffMember?.fullName || 'Supervisor'}\nStaff on Floor: ${presentTrackedStaff.length}/${attendanceTrackedStaff.length}\nGarments Handled: ${dashboardData?.todayTasks.completed ?? 0}/${dashboardData?.todayTasks.total ?? 0} pieces\nDamages: 0 reported`;
                   navigator.clipboard.writeText(summaryText);
                   alert('Shift summary copied to clipboard! Ready to share with Owner.');
                 }}

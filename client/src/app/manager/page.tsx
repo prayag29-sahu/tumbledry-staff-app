@@ -34,6 +34,8 @@ import {
   Send,
   AlertTriangle,
   X,
+  Pencil,
+  Briefcase,
 } from 'lucide-react';
 import {
   DamageIncidentViewerModal,
@@ -42,6 +44,26 @@ import {
 import { LiveCameraModal } from '../../components/LiveCameraModal';
 import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
 import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
+
+/** Human-understandable representation of system permissions */
+const HUMAN_CAPABILITIES: Record<string, { label: string; desc: string; icon: string }> = {
+  'staff.read': { label: 'View Staff Team', desc: 'Can view staff directory and employee profiles', icon: '👥' },
+  'staff.create': { label: 'Add New Staff', desc: 'Can register new staff members to this store', icon: '➕' },
+  'staff.update': { label: 'Edit Staff Details', desc: 'Can update staff profiles and work schedules', icon: '✏️' },
+  'staff.archive': { label: 'Deactivate Staff', desc: 'Can remove or deactivate staff accounts', icon: '📁' },
+  'tasks.read_team': { label: 'View Team Tasks', desc: 'Can view all garment tasks across the workshop', icon: '📋' },
+  'tasks.assign': { label: 'Assign Daily Tasks', desc: 'Can assign garment processing tasks to floor staff', icon: '✍️' },
+  'tasks.read_self': { label: 'View Own Tasks', desc: 'Can view personal assigned tasks', icon: '👤' },
+  'tasks.complete': { label: 'Complete Tasks', desc: 'Can mark tasks and garments as finished', icon: '✅' },
+  'attendance.self': { label: 'Self Attendance Clock-In', desc: 'Can clock in/out with front-camera live selfie', icon: '📸' },
+  'attendance.read_team': { label: 'Team Attendance', desc: 'Can view and verify staff attendance records', icon: '📅' },
+  'damage.read': { label: 'View Damage Reports', desc: 'Can inspect reported garment damage with photos', icon: '🔍' },
+  'damage.report': { label: 'Report Damaged Clothes', desc: 'Can file damage incident reports for review', icon: '⚠️' },
+  'reports.read': { label: 'Operations & Daily Reports', desc: 'Can view daily summaries, output and store metrics', icon: '📊' },
+  'custom_fields.manage': { label: 'Manage Custom Fields', desc: 'Can configure job roles and custom data fields', icon: '⚙️' },
+  '*': { label: 'Full Store Administration', desc: 'Complete access to all store operations and settings', icon: '👑' },
+};
+
 
 interface StaffTaskMonthlySummary {
   total: number;
@@ -190,7 +212,7 @@ interface StaffAssignment {
 
 function ManagerPageInner() {
   const router = useRouter();
-  const { user, activeShopId, activeRole, isLoading: isAuthLoading, logout, hasCapability } = useAuth();
+  const { user, activeShopId, activeShopName, activeRole, isLoading: isAuthLoading, logout, hasCapability, refreshUser } = useAuth();
 
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => {
@@ -296,6 +318,16 @@ function ManagerPageInner() {
     status?: string;
   } | null>(null);
   const [attendanceSuccessToast, setAttendanceSuccessToast] = useState<string | null>(null);
+
+  // Edit Personal Details Modal State
+  const [isEditDetailsOpen, setIsEditDetailsOpen] = useState(false);
+  const [editFullName, setEditFullName] = useState('');
+  const [editMobile, setEditMobile] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editDutyTiming, setEditDutyTiming] = useState('');
+  const [isSavingDetails, setIsSavingDetails] = useState(false);
+  const [editDetailsError, setEditDetailsError] = useState<string | null>(null);
+  const [editDetailsSuccess, setEditDetailsSuccess] = useState<string | null>(null);
 
   const lastManagerFetchRef = useRef<number>(0);
 
@@ -672,10 +704,47 @@ function ManagerPageInner() {
   const isShowingStaleDate = isRefreshing && !!dashboardData?.date && dashboardData.date !== selectedDate;
 
   // Manager identity — straight from the logged-in account / membership in DB
-  const managerDisplayName = user?.staffMember?.fullName || user?.username || '';
+  const myMembership = user?.shopMemberships.find((m) => m.shopId === activeShopId) ?? null;
+  const managerDisplayName = user?.staffMember?.fullName || 'Manager';
   const managerRoleLabel = activeRole || (user?.isOwner ? 'Owner' : '');
   const myStaffRecord = staffList.find((s) => s.staffMemberId === user?.staffMember?.id) ?? null;
-  const myCapabilities = user?.shopMemberships.find((m) => m.shopId === activeShopId)?.capabilities ?? [];
+  const managerMobile = user?.staffMember?.mobile || myStaffRecord?.staffMember?.mobile || 'Not provided';
+  const managerAddress = user?.staffMember?.address || myStaffRecord?.staffMember?.address || 'Not provided';
+  const managerRole = myStaffRecord?.positionCategory?.name || myMembership?.positionCategory || managerRoleLabel || 'Store Manager';
+  const managerJoiningDate = myStaffRecord?.joiningDate || myMembership?.joiningDate;
+  const managerDutyTiming = myStaffRecord?.dutyTimingNotes || myMembership?.dutyTimingNotes || 'Not specified';
+  const managerSalary = myStaffRecord?.monthlySalary ?? myMembership?.monthlySalary ?? null;
+  const myCapabilities = myMembership?.capabilities ?? [];
+
+  const handleSavePersonalDetails = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingDetails(true);
+    setEditDetailsError(null);
+    try {
+      await apiRequest('/api/auth/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          fullName: editFullName.trim(),
+          mobile: editMobile.trim() || null,
+          address: editAddress.trim() || null,
+          dutyTimingNotes: editDutyTiming.trim() || null,
+          shopId: activeShopId || undefined,
+        }),
+      });
+      await refreshUser();
+      await fetchData(true);
+      setEditDetailsSuccess('Personal details updated successfully!');
+      setTimeout(() => {
+        setEditDetailsSuccess(null);
+        setIsEditDetailsOpen(false);
+      }, 1200);
+    } catch (err: unknown) {
+      setEditDetailsError(err instanceof Error ? err.message : 'Failed to save personal details.');
+    } finally {
+      setIsSavingDetails(false);
+    }
+  };
+
   const reportDateLabel = selectedDate
     ? new Date(`${selectedDate}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
     : '';
@@ -2361,13 +2430,15 @@ function ManagerPageInner() {
           {/* Profile Identity Card matching Screen 10 */}
           <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm flex flex-col items-center text-center space-y-3">
             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-brand-lime to-[#6DA322] flex items-center justify-center font-black text-white text-2xl shadow-clay-sm border-2 border-white">
-              {user?.staffMember?.fullName?.charAt(0) || user?.username?.charAt(0).toUpperCase() || 'M'}
+              {user?.staffMember?.fullName?.charAt(0) || 'M'}
             </div>
             <div>
               <h2 className="text-lg font-black text-brand-forest">
                 {user?.staffMember?.fullName || 'Manager'}
               </h2>
-              <p className="text-xs text-content-muted font-mono font-medium">@{user?.username}</p>
+              <p className="text-xs text-content-muted font-semibold mt-0.5">
+                {managerRole} • {activeShopName || 'Branch'}
+              </p>
             </div>
 
             {/* Contact details row matching Screen 10 */}
@@ -2375,26 +2446,26 @@ function ManagerPageInner() {
               <div className="p-2.5 rounded-xl bg-surface-cream/50">
                 <span className="text-[10px] text-content-muted block">Mobile</span>
                 <span className="font-bold text-brand-forest">
-                  {user?.staffMember?.mobile || 'Not provided'}
+                  {managerMobile}
                 </span>
               </div>
               <div className="p-2.5 rounded-xl bg-surface-cream/50">
                 <span className="text-[10px] text-content-muted block">Role</span>
                 <span className="font-bold text-brand-forest truncate block">
-                  {myStaffRecord?.positionCategory?.name || managerRoleLabel || 'Not provided'}
+                  {managerRole}
                 </span>
               </div>
               <div className="p-2.5 rounded-xl bg-surface-cream/50">
                 <span className="text-[10px] text-content-muted block">Joining Date</span>
                 <span className="font-bold text-brand-forest">
-                  {myStaffRecord?.joiningDate
-                    ? new Date(myStaffRecord.joiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                  {managerJoiningDate
+                    ? new Date(managerJoiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
                     : 'Not provided'}
                 </span>
               </div>
               <div className="p-2.5 rounded-xl bg-surface-cream/50">
                 <span className="text-[10px] text-content-muted block">Duty Timing</span>
-                <span className="font-bold text-brand-forest">{myStaffRecord?.dutyTimingNotes || 'Not specified'}</span>
+                <span className="font-bold text-brand-forest">{managerDutyTiming}</span>
               </div>
             </div>
           </div>
@@ -2524,22 +2595,141 @@ function ManagerPageInner() {
 
           {/* SUBTAB 2: PROFILE DETAILS */}
           {managerProfileSubtab === 'details' && (
-            <div className="space-y-3">
-              <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3 text-xs">
-                <h3 className="text-xs font-black text-brand-forest">My Permissions in this Shop</h3>
-                <p className="text-[10px] text-content-muted">Set by the Owner (Owner &gt; Roles &amp; Permissions). Changes apply on next login/refresh.</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {user?.isOwner && (
-                    <span className="px-2 py-1 rounded-lg bg-brand-forest text-white text-[10px] font-bold">Full owner access</span>
+            <div className="space-y-4">
+              {/* Personal & Employment Details Card */}
+              <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xs font-black text-brand-forest">Personal & Employment Details</h3>
+                    <p className="text-[10px] text-content-muted">Your verified profile details in this store</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditFullName(user?.staffMember?.fullName || '');
+                      setEditMobile(managerMobile !== 'Not provided' ? managerMobile : (user?.staffMember?.mobile || ''));
+                      setEditAddress(managerAddress !== 'Not provided' ? managerAddress : (user?.staffMember?.address || ''));
+                      setEditDutyTiming(managerDutyTiming !== 'Not specified' ? managerDutyTiming : '');
+                      setEditDetailsError(null);
+                      setEditDetailsSuccess(null);
+                      setIsEditDetailsOpen(true);
+                    }}
+                    className="px-2.5 py-1.5 rounded-xl bg-brand-forest text-white text-[11px] font-black hover:opacity-90 transition-opacity flex items-center gap-1 shadow-sm"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    <span>Edit Details</span>
+                  </button>
+                </div>
+
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
+                    <span className="text-content-muted text-[11px] flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-brand-forest" />
+                      Full Name
+                    </span>
+                    <span className="font-bold text-brand-forest">{user?.staffMember?.fullName || 'Manager'}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
+                    <span className="text-content-muted text-[11px] flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-brand-forest" />
+                      Mobile Number
+                    </span>
+                    <span className="font-bold text-brand-forest">{managerMobile}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
+                    <span className="text-content-muted text-[11px] flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-brand-forest" />
+                      Address
+                    </span>
+                    <span className="font-bold text-brand-forest text-right max-w-[200px] truncate" title={managerAddress}>
+                      {managerAddress}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
+                    <span className="text-content-muted text-[11px] flex items-center gap-1.5">
+                      <Briefcase className="w-3.5 h-3.5 text-brand-forest" />
+                      Designation
+                    </span>
+                    <span className="font-bold text-brand-forest">{managerRole}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
+                    <span className="text-content-muted text-[11px] flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-brand-forest" />
+                      Duty Timings
+                    </span>
+                    <span className="font-bold text-brand-forest">{managerDutyTiming}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
+                    <span className="text-content-muted text-[11px] flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-brand-forest" />
+                      Joining Date
+                    </span>
+                    <span className="font-bold text-brand-forest">
+                      {managerJoiningDate
+                        ? new Date(managerJoiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                        : 'Not provided'}
+                    </span>
+                  </div>
+
+                  {managerSalary != null && (
+                    <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
+                      <span className="text-content-muted text-[11px] flex items-center gap-1.5">
+                        <CreditCard className="w-3.5 h-3.5 text-brand-forest" />
+                        Monthly Salary
+                      </span>
+                      <span className="font-bold text-brand-forest">₹ {managerSalary.toLocaleString('en-IN')}</span>
+                    </div>
                   )}
-                  {!user?.isOwner && myCapabilities.length === 0 && (
-                    <span className="text-content-muted">No permissions assigned.</span>
-                  )}
-                  {myCapabilities.map((c) => (
-                    <span key={c} className="px-2 py-1 rounded-lg bg-[#EAF5E9] text-brand-forest text-[10px] font-bold font-mono">{c}</span>
-                  ))}
                 </div>
               </div>
+
+              {/* My Permissions Card (Human Understandable) */}
+              <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3 text-xs">
+                <div>
+                  <h3 className="text-xs font-black text-brand-forest">My Permissions in this Shop</h3>
+                  <p className="text-[10px] text-content-muted">Set by Owner in Roles &amp; Permissions catalogue.</p>
+                </div>
+                {user?.isOwner ? (
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-surface-cream/50 border border-border-subtle">
+                    <span className="text-base select-none">👑</span>
+                    <div>
+                      <span className="font-black text-brand-forest text-xs">Full Owner Administration</span>
+                      <p className="text-[10px] text-content-muted">Unrestricted master access across all store systems &amp; staff.</p>
+                    </div>
+                  </div>
+                ) : myCapabilities.length === 0 ? (
+                  <p className="text-content-muted text-xs">No permissions assigned.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {myCapabilities.map((c) => {
+                      const meta = HUMAN_CAPABILITIES[c] || {
+                        label: c.replace(/_/g, ' ').replace(/\./g, ' › '),
+                        desc: 'Authorized operational action',
+                        icon: '✓',
+                      };
+                      return (
+                        <div key={c} className="flex items-start gap-2.5 p-2.5 rounded-xl bg-surface-cream/50 border border-border-subtle/80">
+                          <span className="text-base select-none mt-0.5">{meta.icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-black text-brand-forest text-xs">{meta.label}</span>
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Granted</span>
+                            </div>
+                            <p className="text-[10px] text-content-muted mt-0.5 leading-snug">{meta.desc}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Custom fields (Extra details) */}
               {activeShopId && user?.staffMember?.id && (
                 <StaffExtraDetails
                   key={user.staffMember.id}
@@ -2752,6 +2942,102 @@ function ManagerPageInner() {
             >
               Open Attendance
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Personal Details Modal */}
+      {isEditDetailsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl border border-border-subtle max-w-sm w-full p-5 space-y-4 shadow-clay-lg">
+            <div className="flex items-center justify-between border-b border-border-subtle pb-3">
+              <div>
+                <h3 className="text-sm font-black text-brand-forest">Edit Personal Details</h3>
+                <p className="text-[10px] text-content-muted">Update your contact &amp; shift information</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditDetailsOpen(false)}
+                className="p-1 rounded-lg text-content-muted hover:text-brand-forest hover:bg-surface-cream"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {editDetailsError && (
+              <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-bold">
+                {editDetailsError}
+              </div>
+            )}
+
+            {editDetailsSuccess && (
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold">
+                {editDetailsSuccess}
+              </div>
+            )}
+
+            <form onSubmit={handleSavePersonalDetails} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-brand-forest mb-1">Full Name *</label>
+                <input
+                  type="text"
+                  value={editFullName}
+                  onChange={(e) => setEditFullName(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-1 focus:ring-brand-forest"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-brand-forest mb-1">Mobile Number</label>
+                <input
+                  type="tel"
+                  placeholder="e.g. 9876543210"
+                  value={editMobile}
+                  onChange={(e) => setEditMobile(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-1 focus:ring-brand-forest"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-brand-forest mb-1">Residential Address</label>
+                <textarea
+                  rows={2}
+                  placeholder="Street, City, Pincode"
+                  value={editAddress}
+                  onChange={(e) => setEditAddress(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-1 focus:ring-brand-forest resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-brand-forest mb-1">Duty Timings / Working Hours</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 09:30 AM - 07:30 PM"
+                  value={editDutyTiming}
+                  onChange={(e) => setEditDutyTiming(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-1 focus:ring-brand-forest"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditDetailsOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-border-subtle bg-surface-cream text-content-muted text-xs font-bold hover:text-brand-forest"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingDetails}
+                  className="flex-1 py-2.5 rounded-xl bg-brand-forest text-white text-xs font-black shadow-clay hover:opacity-95 disabled:opacity-50"
+                >
+                  {isSavingDetails ? 'Saving...' : 'Save Details'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

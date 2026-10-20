@@ -14,6 +14,8 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<AccountSession>;
   logout: () => Promise<void>;
   hasCapability: (capability: string) => boolean;
+  refreshUser: () => Promise<AccountSession | null>;
+  updateUser: (updated: AccountSession) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -147,6 +149,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return currentMembership?.capabilities?.includes(capability) || false;
   };
 
+  const refreshUser = async (): Promise<AccountSession | null> => {
+    try {
+      const meData = await apiRequest<{ account: AccountSession }>('/api/auth/me');
+      if (meData?.account) {
+        setUser(meData.account);
+        localStorage.setItem('td_user', JSON.stringify(meData.account));
+        return meData.account;
+      }
+    } catch {
+      // ignore
+    }
+    return user;
+  };
+
+  const updateUser = (updated: AccountSession) => {
+    setUser(updated);
+    localStorage.setItem('td_user', JSON.stringify(updated));
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -159,6 +180,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         logout,
         hasCapability,
+        refreshUser,
+        updateUser,
       }}
     >
       {children}

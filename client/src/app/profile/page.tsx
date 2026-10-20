@@ -112,9 +112,8 @@ export default function ProfilePage() {
           </div>
           <div>
             <h3 className="text-base font-extrabold text-brand-forest">
-              {user?.staffMember?.fullName || user?.username}
+              {user?.staffMember?.fullName || activeRole}
             </h3>
-            <p className="text-xs text-content-muted font-medium">@{user?.username}</p>
             <div className="flex items-center gap-2 mt-1.5">
               <span className="px-2 py-0.5 rounded-lg clay-badge-lime text-[10px] font-bold">
                 {activeRole}

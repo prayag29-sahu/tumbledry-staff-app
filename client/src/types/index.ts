@@ -24,6 +24,7 @@ export interface AccountSession {
     id: string;
     fullName: string;
     mobile?: string | null;
+    address?: string | null;
     profilePhotoPath?: string | null;
   } | null;
   shopMemberships: {
@@ -33,6 +34,9 @@ export interface AccountSession {
     roleName: string;
     capabilities: string[];
     positionCategory?: string | null;
+    joiningDate?: string | null;
+    dutyTimingNotes?: string | null;
+    monthlySalary?: number | null;
   }[];
 }
 
