@@ -245,7 +245,11 @@ export default function SupervisorPage() {
   const [profileTab, setProfileTab] = useState<'overview' | 'tasks' | 'attendance' | 'performance'>('overview');
 
   // Selected operational date (synchronized across all tabs: Dashboard, Attendance & Tasks)
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    // Local calendar day (toISOString() is UTC → shows yesterday before 05:30 IST)
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
   const [isDateLoading, setIsDateLoading] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const dashboardDate = selectedDate;
@@ -2985,7 +2989,16 @@ export default function SupervisorPage() {
                       </div>
                     </div>
 
-                    {/* Quick Attendance Action Buttons */}
+                    {/* Quick Attendance Action Buttons (today only — past dates are view-only) */}
+                    {(() => {
+                      const n = new Date();
+                      const todayKey = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+                      return selectedDate !== todayKey;
+                    })() ? (
+                      <div className="pt-2 border-t border-border-subtle/50 text-[10px] font-bold text-content-muted text-center">
+                        View only — attendance can be marked only for today.
+                      </div>
+                    ) : (
                     <div className="pt-2 border-t border-border-subtle/50 flex items-center gap-2">
                       {!isPresent ? (
                         <>
@@ -3033,6 +3046,7 @@ export default function SupervisorPage() {
                         </>
                       )}
                     </div>
+                    )}
                   </div>
                 );
               })

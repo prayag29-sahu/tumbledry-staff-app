@@ -111,6 +111,8 @@ function localDateKey(d: Date = new Date()): string {
 type StaffPositionWithWorkflow = { id: string; name: string; workflowProfile?: WorkflowProfile | null };
 
 interface DashboardMetrics {
+  /** YYYY-MM-DD the numbers belong to (server business-timezone day) */
+  date?: string;
   totalStaff: number;
   totalEmployees?: number;
   presentCount: number;
@@ -299,40 +301,82 @@ function ManagerPageInner() {
 
   // Fetch Core Dashboard & Staff Data
   const hasLoadedStaticRef = useRef(false);
+  // Latest request wins: a slow response for an old date must never overwrite a newer date
+  const fetchSeqRef = useRef(0);
+  // Per-date cache → switching back to a date is instant while fresh data loads in background
+  const dayCacheRef = useRef<Map<string, { dash?: DashboardMetrics; staff?: ManagerStaffItem[] }>>(new Map());
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   const fetchData = useCallback(async (silent = false) => {
     // Not authenticated / not allowed / no shop yet → stop the spinner (guard handles redirect)
     if (!activeShopId || !isManagerAllowed) {
       if (!isAuthLoading) setIsLoading(false);
       return;
     }
-    if (!silent) setIsLoading(true);
-    try {
-      const loadStatic = !hasLoadedStaticRef.current;
-      const [dashRes, staffRes, svcRes, wfRes, sessRes] = await Promise.all([
-        apiRequest<DashboardMetrics>(`/api/shops/${activeShopId}/supervisor/dashboard?date=${selectedDate}`).catch(() => null),
-        apiRequest<{ staff: ManagerStaffItem[] }>(`/api/shops/${activeShopId}/staff?date=${selectedDate}`).catch(() => null),
-        loadStatic ? apiRequest<{ serviceTypes: ServiceType[] }>('/api/config/service-types').catch(() => null) : Promise.resolve(null),
-        loadStatic ? apiRequest<{ profiles: WorkflowProfile[] }>('/api/config/workflow-profiles').catch(() => null) : Promise.resolve(null),
-        apiRequest<{ session: { id: string; checkInAt: string; checkOutAt: string | null; status: string; checkInPhotoPath?: string | null } | null }>(`/api/shops/${activeShopId}/attendance/my-session?date=${selectedDate}`).catch(() => null),
-      ]);
+    const seq = ++fetchSeqRef.current;
+    const isCurrent = () => seq === fetchSeqRef.current;
+    const cacheKey = `${activeShopId}:${selectedDate}`;
 
-      if (dashRes) setDashboardData(dashRes);
-      if (staffRes?.staff) setStaffList(staffRes.staff);
-      if (svcRes?.serviceTypes) setServices(svcRes.serviceTypes.filter((s) => s.isActive !== false));
-      if (wfRes?.profiles) setWorkflowProfiles(wfRes.profiles);
-      if (svcRes && wfRes) hasLoadedStaticRef.current = true;
-      if (sessRes && sessRes.session !== undefined) setManagerSession(sessRes.session);
+    // Show cached numbers for this date immediately (if any)
+    const cached = dayCacheRef.current.get(cacheKey);
+    if (cached?.dash) setDashboardData(cached.dash);
+    if (cached?.staff) setStaffList(cached.staff);
+
+    if (!silent && !cached) setIsLoading(true);
+    setIsRefreshing(true);
+    lastManagerFetchRef.current = Date.now();
+
+    const loadStatic = !hasLoadedStaticRef.current;
+    // Each section updates as soon as ITS response arrives (no waiting for the slowest call)
+    const dashP = apiRequest<DashboardMetrics>(`/api/shops/${activeShopId}/supervisor/dashboard?date=${selectedDate}`)
+      .then((d) => {
+        if (!isCurrent() || !d) return;
+        setDashboardData(d);
+        dayCacheRef.current.set(cacheKey, { ...dayCacheRef.current.get(cacheKey), dash: d });
+        setIsLoading(false);
+      })
+      .catch(() => null);
+    const staffP = apiRequest<{ staff: ManagerStaffItem[] }>(`/api/shops/${activeShopId}/staff?date=${selectedDate}`)
+      .then((r) => {
+        if (!isCurrent() || !r?.staff) return;
+        setStaffList(r.staff);
+        dayCacheRef.current.set(cacheKey, { ...dayCacheRef.current.get(cacheKey), staff: r.staff });
+      })
+      .catch(() => null);
+    const sessP = apiRequest<{ session: { id: string; checkInAt: string; checkOutAt: string | null; status: string; checkInPhotoPath?: string | null; checkOutPhotoPath?: string | null } | null }>(
+      `/api/shops/${activeShopId}/attendance/my-session?date=${selectedDate}`
+    )
+      .then((r) => {
+        if (isCurrent() && r && r.session !== undefined) setManagerSession(r.session);
+      })
+      .catch(() => null);
+    const staticP = loadStatic
+      ? Promise.all([
+          apiRequest<{ serviceTypes: ServiceType[] }>('/api/config/service-types').catch(() => null),
+          apiRequest<{ profiles: WorkflowProfile[] }>('/api/config/workflow-profiles').catch(() => null),
+        ]).then(([svcRes, wfRes]) => {
+          if (svcRes?.serviceTypes) setServices(svcRes.serviceTypes.filter((s) => s.isActive !== false));
+          if (wfRes?.profiles) setWorkflowProfiles(wfRes.profiles);
+          if (svcRes && wfRes) hasLoadedStaticRef.current = true;
+        })
+      : Promise.resolve();
+
+    try {
+      await Promise.all([dashP, staffP, sessP, staticP]);
     } catch (err) {
       console.error('Failed to load manager workspace:', err);
     } finally {
-      setIsLoading(false);
+      if (isCurrent()) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, [activeShopId, isManagerAllowed, isAuthLoading, selectedDate]);
 
-  // Refetch when nav tab or selected date changes (silent after first load)
+  // Refetch when the shop or selected date changes (tab switches reuse the loaded data)
   useEffect(() => {
     fetchData(hasLoadedStaticRef.current);
-  }, [fetchData, currentNav, selectedDate]);
+  }, [fetchData]);
 
   // Auto-refresh when window receives focus or returns to view (throttled to 30s)
   useEffect(() => {
@@ -621,11 +665,11 @@ function ManagerPageInner() {
   const absentCount = dashboardData?.absentCount ?? Math.max(0, totalStaffCount - presentCount);
   const attendanceRate = totalStaffCount > 0 ? Math.round((presentCount / totalStaffCount) * 100) : 0;
 
-  // Task breakdown numbers
-  const washCount = dashboardData?.departmentBreakdown?.wash?.total ?? 0;
-  const ironCount = dashboardData?.departmentBreakdown?.iron?.total ?? 0;
-  const dryCleanCount = dashboardData?.departmentBreakdown?.dryClean?.total ?? 0;
-  const deliveryCount = dashboardData?.departmentBreakdown?.packaging?.total ?? 0;
+  // Today / staleness flags (dates are local calendar days)
+  const todayKey = localDateKey();
+  const isViewingToday = selectedDate === todayKey;
+  /** Numbers on screen belong to a different date than the one selected (new date still loading) */
+  const isShowingStaleDate = isRefreshing && !!dashboardData?.date && dashboardData.date !== selectedDate;
 
   // Manager identity — straight from the logged-in account / membership in DB
   const managerDisplayName = user?.staffMember?.fullName || user?.username || '';
@@ -656,6 +700,13 @@ function ManagerPageInner() {
 
   return (
     <div className="max-w-md mx-auto min-h-screen pb-24 bg-[#F8F9FA] text-[#1E293B] antialiased">
+      {/* Global refresh indicator (date change / background refresh) */}
+      {isRefreshing && (
+        <div className="fixed top-0 left-0 right-0 z-50 h-1 overflow-hidden bg-brand-forest/10" role="progressbar" aria-label="Loading">
+          <div className="h-full w-1/3 bg-brand-forest rounded-full animate-[managerLoadingBar_1s_ease-in-out_infinite]" />
+          <style>{`@keyframes managerLoadingBar { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }`}</style>
+        </div>
+      )}
       {user?.isOwner && (
         <div className="mx-4 mt-2 px-3.5 py-2.5 rounded-xl bg-brand-forest text-brand-lime text-xs font-bold flex items-center justify-between shadow-md">
           <div className="flex items-center gap-2">
@@ -1666,9 +1717,13 @@ function ManagerPageInner() {
           {/* Date Selector Row matching Screen 2 */}
           <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-border-subtle shadow-sm">
             <div className="flex items-center gap-2 text-xs font-bold text-brand-forest">
-              <Calendar className="w-4 h-4 text-brand-forest" />
+              {isRefreshing ? (
+                <span className="w-4 h-4 rounded-full border-2 border-brand-forest border-t-transparent animate-spin" aria-label="Loading" />
+              ) : (
+                <Calendar className="w-4 h-4 text-brand-forest" />
+              )}
               <span>
-                {new Date(selectedDate).toLocaleDateString('en-IN', {
+                {new Date(`${selectedDate}T00:00:00`).toLocaleDateString('en-IN', {
                   day: '2-digit',
                   month: 'short',
                   year: 'numeric',
@@ -1678,14 +1733,32 @@ function ManagerPageInner() {
             </div>
 
             <div className="flex items-center gap-1.5">
+              {!isViewingToday && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate(todayKey)}
+                  className="text-[10px] font-black px-2 py-1 rounded-lg bg-brand-forest text-white"
+                >
+                  Today
+                </button>
+              )}
               <input
                 type="date"
                 value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
+                max={todayKey}
+                onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
                 className="text-xs font-bold text-brand-forest border rounded-lg px-2 py-1 bg-surface-cream cursor-pointer"
               />
             </div>
           </div>
+
+          {isShowingStaleDate && (
+            <div className="px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-800 text-center">
+              Loading data for {reportDateLabel}…
+            </div>
+          )}
+
+          <div className={`space-y-4 transition-opacity duration-200 ${isShowingStaleDate ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
 
           {/* Stat Row 1: Staff status matching Screen 2 */}
           <div className="grid grid-cols-3 gap-2.5">
@@ -1703,7 +1776,7 @@ function ManagerPageInner() {
             </div>
           </div>
 
-          {/* Stat Row 2: Tasks status matching Screen 2 */}
+          {/* Stat Row 2: Task units for the selected date (1 unit = 1 piece × 1 work step) */}
           <div className="grid grid-cols-3 gap-2.5">
             <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
               <span className="text-xl font-black text-[#2563EB] block">
@@ -1724,6 +1797,9 @@ function ManagerPageInner() {
               <span className="text-[11px] font-bold text-red-500">Pending</span>
             </div>
           </div>
+          <p className="-mt-2 text-[10px] text-content-muted text-center font-medium">
+            Task count = pieces × work steps (e.g. 10 shirts × Wash + Iron = 20). Completed = steps staff have ticked done.
+          </p>
 
           {/* Attendance Overview Card with Donut Ring (Screen 2) */}
           <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
@@ -1772,27 +1848,41 @@ function ManagerPageInner() {
             </div>
           </div>
 
-          {/* Today's Tasks Breakdown Chips matching Screen 2 */}
+          {/* Services for the selected date — one card per active service in the DB catalogue */}
           <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
-            <h3 className="text-xs font-black text-brand-forest">Today&apos;s Tasks</h3>
-            <div className="grid grid-cols-4 gap-2 text-center">
-              <div className="bg-[#EEF5EF] p-2.5 rounded-xl border border-emerald-100">
-                <span className="text-[10px] font-bold text-brand-forest block truncate">Wash & Dry</span>
-                <span className="text-lg font-black text-brand-forest mt-0.5 block">{washCount}</span>
-              </div>
-              <div className="bg-[#E8F5E9] p-2.5 rounded-xl border border-emerald-100">
-                <span className="text-[10px] font-bold text-emerald-800 block truncate">Iron</span>
-                <span className="text-lg font-black text-emerald-800 mt-0.5 block">{ironCount}</span>
-              </div>
-              <div className="bg-[#FFF8E1] p-2.5 rounded-xl border border-amber-200">
-                <span className="text-[10px] font-bold text-amber-900 block truncate">Dry Clean</span>
-                <span className="text-lg font-black text-amber-900 mt-0.5 block">{dryCleanCount}</span>
-              </div>
-              <div className="bg-[#E3F2FD] p-2.5 rounded-xl border border-blue-100">
-                <span className="text-[10px] font-bold text-blue-800 block truncate">Delivery</span>
-                <span className="text-lg font-black text-blue-800 mt-0.5 block">{deliveryCount}</span>
-              </div>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-black text-brand-forest">
+                {isViewingToday ? 'Today\'s Tasks by Service' : `Tasks by Service — ${reportDateLabel}`}
+              </h3>
+              <span className="text-[10px] font-bold text-content-muted">done / total</span>
             </div>
+            {(dashboardData?.serviceBreakdown ?? []).length === 0 ? (
+              <p className="text-xs text-content-muted text-center py-2">No services configured. Owner can add services in Owner › Services.</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {(dashboardData?.serviceBreakdown ?? []).map((s) => (
+                  <div
+                    key={s.id}
+                    className={`p-3 rounded-xl border ${s.totalUnits > 0 ? 'bg-[#EEF5EF] border-emerald-100' : 'bg-surface-cream/40 border-border-subtle'}`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-[11px] font-bold text-brand-forest truncate" title={s.name}>{s.name}</span>
+                      <span className="text-[9px] font-mono font-bold text-content-muted shrink-0">{s.code}</span>
+                    </div>
+                    <div className="mt-1 flex items-baseline gap-1">
+                      <span className="text-lg font-black text-brand-forest">{s.completedUnits}</span>
+                      <span className="text-xs font-bold text-content-muted">/ {s.totalUnits}</span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-border-subtle overflow-hidden mt-1">
+                      <div className="h-full bg-emerald-600 rounded-full transition-all" style={{ width: `${s.percentage}%` }} />
+                    </div>
+                    <span className="text-[10px] text-content-muted font-medium block mt-1">
+                      {s.orders} orders • {s.pieces} pcs
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Recent Activity Stream matching Screen 2 */}
@@ -1802,6 +1892,7 @@ function ManagerPageInner() {
               {staffList.filter((s) => s.attendanceToday.checkInAt).length > 0 ? (
                 staffList
                   .filter((s) => s.attendanceToday.checkInAt)
+                  .sort((a, b) => new Date(b.attendanceToday.checkInAt!).getTime() - new Date(a.attendanceToday.checkInAt!).getTime())
                   .slice(0, 3)
                   .map((s) => (
                     <div key={s.id} className="flex items-center justify-between py-1.5 border-b border-border-subtle/40 last:border-0">
@@ -1818,10 +1909,11 @@ function ManagerPageInner() {
                   ))
               ) : (
                 <p className="text-xs text-content-muted text-center py-2 font-medium">
-                  No activity recorded for this shop branch yet today.
+                  No check-ins recorded for {isViewingToday ? 'today' : reportDateLabel}.
                 </p>
               )}
             </div>
+          </div>
           </div>
         </div>
       )}
@@ -1954,14 +2046,35 @@ function ManagerPageInner() {
       {!activeDrilldown && currentNav === 'attendance' && (
         <div className="p-4 space-y-4 animate-fade-in">
           <div className="flex items-center justify-between">
-            <h1 className="text-base font-black text-brand-forest">Floor Attendance</h1>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="text-xs font-bold text-brand-forest border rounded-lg px-2 py-1 bg-white"
-            />
+            <h1 className="text-base font-black text-brand-forest flex items-center gap-2">
+              Floor Attendance
+              {isRefreshing && <span className="w-3.5 h-3.5 rounded-full border-2 border-brand-forest border-t-transparent animate-spin" aria-label="Loading" />}
+            </h1>
+            <div className="flex items-center gap-1.5">
+              {!isViewingToday && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate(todayKey)}
+                  className="text-[10px] font-black px-2 py-1 rounded-lg bg-brand-forest text-white"
+                >
+                  Today
+                </button>
+              )}
+              <input
+                type="date"
+                value={selectedDate}
+                max={todayKey}
+                onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                className="text-xs font-bold text-brand-forest border rounded-lg px-2 py-1 bg-white"
+              />
+            </div>
           </div>
+
+          {!isViewingToday && (
+            <div className="px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-800 text-center">
+              Viewing {reportDateLabel} — past attendance is view-only. Attendance can be marked only for today.
+            </div>
+          )}
 
           <div className="grid grid-cols-3 gap-2.5">
             <div className="bg-emerald-50/50 p-3 rounded-2xl border border-emerald-200 text-center shadow-sm">
@@ -2039,7 +2152,19 @@ function ManagerPageInner() {
               )}
             </div>
 
-            {/* Action Buttons for Manager Self-Attendance with Live Camera */}
+            {/* Action Buttons for Manager Self-Attendance with Live Camera (today only) */}
+            {!isViewingToday ? (
+              <div className="flex items-center justify-between gap-2 rounded-xl bg-white/10 p-2.5 text-[11px] font-bold">
+                <span>Attendance can be marked only for today.</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate(todayKey)}
+                  className="px-2.5 py-1 rounded-lg bg-brand-lime text-brand-forest font-black shrink-0"
+                >
+                  Go to Today
+                </button>
+              </div>
+            ) : (
             <div className="flex gap-2">
               {managerSession?.status === 'OPEN' ? (
                 <button
@@ -2069,6 +2194,7 @@ function ManagerPageInner() {
                 </button>
               )}
             </div>
+            )}
           </div>
 
           <div className="bg-white p-4 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
@@ -2354,8 +2480,19 @@ function ManagerPageInner() {
                 )}
               </div>
 
-              {/* Check-In / Check-Out Actions */}
-              {managerSession?.status === 'OPEN' ? (
+              {/* Check-In / Check-Out Actions (today only) */}
+              {!isViewingToday ? (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-800 flex items-center justify-between gap-2">
+                  <span>Viewing {reportDateLabel}. Attendance can be marked only for today.</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDate(todayKey)}
+                    className="px-2.5 py-1 rounded-lg bg-brand-forest text-white font-black shrink-0"
+                  >
+                    Go to Today
+                  </button>
+                </div>
+              ) : managerSession?.status === 'OPEN' ? (
                 <button
                   type="button"
                   disabled={isProcessingAttendance}
