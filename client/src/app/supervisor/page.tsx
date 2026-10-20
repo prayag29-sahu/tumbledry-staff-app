@@ -1632,27 +1632,11 @@ export default function SupervisorPage() {
 
                               <div className="flex items-center gap-2 shrink-0">
                                 {unit && (
-                                  <button
-                                    type="button"
-                                    disabled={completingDirectiveId === unit.id}
-                                    onClick={async () => {
-                                      setCompletingDirectiveId(unit.id);
-                                      try {
-                                        await apiRequest(`/api/shops/${activeShopId}/task-units/${unit.id}/toggle`, {
-                                          method: 'PATCH',
-                                        });
-                                        fetchStaffDayTasks(selectedStaff.staffMember.id, staffTaskDate);
-                                        fetchAllData();
-                                      } catch (err) {
-                                        alert(err instanceof Error ? err.message : 'Failed to update task.');
-                                      } finally {
-                                        setCompletingDirectiveId(null);
-                                      }
-                                    }}
-                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                  <span
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
                                       isDone
-                                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
-                                        : 'clay-btn-lime'
+                                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                        : 'bg-amber-100 text-amber-800 border border-amber-300'
                                     }`}
                                   >
                                     {isDone ? (
@@ -1661,9 +1645,12 @@ export default function SupervisorPage() {
                                         <span>Done</span>
                                       </>
                                     ) : (
-                                      <span>Mark Done</span>
+                                      <>
+                                        <Clock className="w-3.5 h-3.5 text-amber-700" />
+                                        <span>Pending</span>
+                                      </>
                                     )}
-                                  </button>
+                                  </span>
                                 )}
                               </div>
                             </div>

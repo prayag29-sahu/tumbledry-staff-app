@@ -385,15 +385,21 @@ function ManagerPageInner() {
         if (!isCurrent() || !r?.staff) return;
         setStaffList(r.staff);
         dayCacheRef.current.set(cacheKey, { ...dayCacheRef.current.get(cacheKey), staff: r.staff });
-        if (!user?.staffMember?.id) {
-          const selfStaff = r.staff.find((s) => s.account?.id === user?.id);
-          if (selfStaff) {
-            apiRequest<{ assignments: StaffAssignment[] }>(`/api/shops/${activeShopId}/staff/${selfStaff.staffMember.id}/tasks?date=${selectedDate}`)
-              .then((res) => {
-                if (isCurrent() && res?.assignments) setMyDirectives(res.assignments);
-              })
-              .catch(() => null);
-          }
+
+        const matched =
+          (user?.staffMember?.id ? r.staff.find((s) => s.staffMember.id === user.staffMember?.id || s.staffMemberId === user.staffMember?.id) : null) ||
+          (user?.id ? r.staff.find((s) => s.account?.id === user.id) : null) ||
+          (user?.username ? r.staff.find((s) => s.account?.username?.toLowerCase() === user.username.toLowerCase()) : null) ||
+          (user?.staffMember?.fullName ? r.staff.find((s) => s.staffMember.fullName.toLowerCase() === user.staffMember!.fullName.toLowerCase()) : null) ||
+          r.staff.find((s) => s.role.toLowerCase().includes('manager') || s.positionCategory?.name?.toLowerCase().includes('manager'));
+
+        const targetId = user?.staffMember?.id || matched?.staffMember.id || matched?.staffMemberId;
+        if (targetId) {
+          apiRequest<{ assignments: StaffAssignment[] }>(`/api/shops/${activeShopId}/staff/${targetId}/tasks?date=${selectedDate}`)
+            .then((res) => {
+              if (isCurrent() && res?.assignments) setMyDirectives(res.assignments);
+            })
+            .catch(() => null);
         }
       })
       .catch(() => null);
@@ -404,18 +410,6 @@ function ManagerPageInner() {
         if (isCurrent() && r && r.session !== undefined) setManagerSession(r.session);
       })
       .catch(() => null);
-    const myStaffId = user?.staffMember?.id;
-    if (myStaffId) setIsLoadingMyDirectives(true);
-    const directivesP = myStaffId
-      ? apiRequest<{ assignments: StaffAssignment[] }>(`/api/shops/${activeShopId}/staff/${myStaffId}/tasks?date=${selectedDate}`)
-          .then((r) => {
-            if (isCurrent() && r?.assignments) setMyDirectives(r.assignments);
-          })
-          .catch(() => null)
-          .finally(() => {
-            if (isCurrent()) setIsLoadingMyDirectives(false);
-          })
-      : Promise.resolve();
     const staticP = loadStatic
       ? Promise.all([
         apiRequest<{ serviceTypes: ServiceType[] }>('/api/config/service-types').catch(() => null),
@@ -428,7 +422,7 @@ function ManagerPageInner() {
       : Promise.resolve();
 
     try {
-      await Promise.all([dashP, staffP, sessP, directivesP, staticP]);
+      await Promise.all([dashP, staffP, sessP, staticP]);
     } catch (err) {
       console.error('Failed to load manager workspace:', err);
     } finally {
@@ -787,7 +781,47 @@ function ManagerPageInner() {
   const myMembership = user?.shopMemberships.find((m) => m.shopId === activeShopId) ?? null;
   const managerDisplayName = user?.staffMember?.fullName || 'Manager';
   const managerRoleLabel = activeRole || (user?.isOwner ? 'Owner' : '');
-  const myStaffRecord = staffList.find((s) => s.staffMemberId === user?.staffMember?.id) ?? null;
+
+  const myStaffRecord = useMemo(() => {
+    return (
+      (user?.staffMember?.id
+        ? staffList.find((s) => s.staffMember.id === user.staffMember?.id || s.staffMemberId === user.staffMember?.id)
+        : null) ||
+      (user?.id ? staffList.find((s) => s.account?.id === user.id) : null) ||
+      (user?.username ? staffList.find((s) => s.account?.username?.toLowerCase() === user.username.toLowerCase()) : null) ||
+      (user?.staffMember?.fullName
+        ? staffList.find((s) => s.staffMember.fullName.toLowerCase() === user.staffMember!.fullName.toLowerCase())
+        : null) ||
+      staffList.find((s) => s.role?.toLowerCase().includes('manager') || s.positionCategory?.name?.toLowerCase().includes('manager')) ||
+      null
+    );
+  }, [staffList, user]);
+
+  const myStaffId = useMemo(() => {
+    return user?.staffMember?.id || myStaffRecord?.staffMember.id || myStaffRecord?.staffMemberId || '';
+  }, [user, myStaffRecord]);
+
+  const fetchMyDirectives = useCallback(async (staffIdParam?: string) => {
+    const targetId = staffIdParam || myStaffId;
+    if (!activeShopId || !targetId) return;
+    setIsLoadingMyDirectives(true);
+    try {
+      const res = await apiRequest<{ assignments: StaffAssignment[] }>(
+        `/api/shops/${activeShopId}/staff/${targetId}/tasks?date=${selectedDate}`
+      );
+      setMyDirectives(res?.assignments || []);
+    } catch {
+      setMyDirectives([]);
+    } finally {
+      setIsLoadingMyDirectives(false);
+    }
+  }, [activeShopId, myStaffId, selectedDate]);
+
+  useEffect(() => {
+    if (activeShopId && myStaffId) {
+      fetchMyDirectives(myStaffId);
+    }
+  }, [activeShopId, myStaffId, selectedDate, fetchMyDirectives]);
   const managerMobile = user?.staffMember?.mobile || myStaffRecord?.staffMember?.mobile || 'Not provided';
   const managerAddress = user?.staffMember?.address || myStaffRecord?.staffMember?.address || 'Not provided';
   const managerRole = myStaffRecord?.positionCategory?.name || myMembership?.positionCategory || managerRoleLabel || 'Store Manager';
@@ -2135,12 +2169,15 @@ function ManagerPageInner() {
                                 {directive.notes}
                               </p>
                             )}
-                            {unit?.completedAt && (
-                              <p className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1">
-                                <Check className="w-3 h-3" />
-                                Completed: {new Date(unit.completedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                              </p>
-                            )}
+                            <div className="flex items-center gap-3 pt-1 text-[10px] text-content-muted">
+                              <span>Target Date: {directive.createdAt ? new Date(directive.createdAt).toISOString().split('T')[0] : selectedDate}</span>
+                              {unit?.completedAt && (
+                                <span className="text-emerald-700 font-bold flex items-center gap-1">
+                                  <Check className="w-3 h-3" />
+                                  Completed at {new Date(unit.completedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              )}
+                            </div>
                           </div>
 
                           {unit && (
@@ -2153,24 +2190,18 @@ function ManagerPageInner() {
                                   await apiRequest(`/api/shops/${activeShopId}/task-units/${unit.id}/toggle`, {
                                     method: 'PATCH',
                                   });
+                                  await fetchMyDirectives();
                                   fetchData(true);
-                                  const selfStaffId = user?.staffMember?.id || staffList.find((s) => s.account?.id === user?.id)?.staffMember.id;
-                                  if (selfStaffId) {
-                                    const res = await apiRequest<{ assignments: StaffAssignment[] }>(
-                                      `/api/shops/${activeShopId}/staff/${selfStaffId}/tasks?date=${selectedDate}`
-                                    );
-                                    setMyDirectives(res.assignments || []);
-                                  }
                                 } catch (err) {
                                   alert(err instanceof Error ? err.message : 'Failed to update directive status.');
                                 } finally {
                                   setCompletingMyDirectiveId(null);
                                 }
                               }}
-                              className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                              className={`shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
                                 isDone
                                   ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
-                                  : 'clay-btn-lime'
+                                  : 'bg-[#245431] text-white hover:bg-[#1E4327] shadow-sm'
                               }`}
                             >
                               {isDone ? (
