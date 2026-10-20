@@ -33,6 +33,7 @@ import {
   Check,
   Send,
   AlertTriangle,
+  X,
 } from 'lucide-react';
 import {
   DamageIncidentViewerModal,
@@ -40,6 +41,7 @@ import {
 } from '../../components/DamageIncidentViewerModal';
 import { LiveCameraModal } from '../../components/LiveCameraModal';
 import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
+import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
 
 interface StaffTaskMonthlySummary {
   total: number;
@@ -86,7 +88,7 @@ interface ManagerStaffItem {
     profilePhotoPath?: string | null;
     employmentStatus: string;
   };
-  positionCategory?: { id: string; name: string } | null;
+  positionCategory?: StaffPositionWithWorkflow | null;
   account?: { id: string; username: string; status: string } | null;
   joiningDate?: string | null;
   monthlySalary?: number | null;
@@ -94,7 +96,19 @@ interface ManagerStaffItem {
   incentiveAmount?: number | null;
   attendanceEnabled?: boolean;
   attendanceToday: StaffAttendance;
+  /** Work-counting rule set directly on this staff member (Owner > Workforce) */
+  workflowProfile?: WorkflowProfile | null;
 }
+
+/** Roles / capabilities that may open the Manager terminal */
+const MANAGER_CAPABILITIES = ['tasks.assign', 'attendance.read_team'];
+
+/** Local calendar day as YYYY-MM-DD (toISOString() is UTC and shows yesterday before 05:30 IST) */
+function localDateKey(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+type StaffPositionWithWorkflow = { id: string; name: string; workflowProfile?: WorkflowProfile | null };
 
 interface DashboardMetrics {
   totalStaff: number;
@@ -102,6 +116,7 @@ interface DashboardMetrics {
   presentCount: number;
   activeOnFloorCount?: number;
   completedShiftCount?: number;
+  halfDayCount?: number;
   absentCount: number;
   todayTasks: {
     total: number;
@@ -114,7 +129,20 @@ interface DashboardMetrics {
     iron: { name: string; total: number; completed: number; percentage: number };
     dryClean: { name: string; total: number; completed: number; percentage: number };
     packaging: { name: string; total: number; completed: number; percentage: number };
+    pickup?: { name: string; total: number; completed: number; percentage: number };
   };
+  /** Per-service KPI built from the shop's DB service catalogue */
+  serviceBreakdown?: Array<{
+    id: string;
+    code: string;
+    name: string;
+    orders: number;
+    pieces: number;
+    totalUnits: number;
+    completedUnits: number;
+    percentage: number;
+  }>;
+  exemptCount?: number;
   staffPerformance: Array<{
     staffId: string;
     fullName: string;
@@ -160,15 +188,46 @@ interface StaffAssignment {
 
 function ManagerPageInner() {
   const router = useRouter();
-  const { user, activeShopId, logout } = useAuth();
+  const { user, activeShopId, activeRole, isLoading: isAuthLoading, logout, hasCapability } = useAuth();
 
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
+  // ─── Access control: only Owner / Manager / Supervisor (or users holding manager
+  // capabilities in the ACTIVE shop) may open this terminal. Everyone else is sent
+  // to their own dashboard; logged-out users go to /login.
+  const isManagerAllowed = useMemo(() => {
+    if (!user) return false;
+    if (user.isOwner) return true;
+    const role = (activeRole || '').toLowerCase();
+    if (role.includes('supervisor')) return false; // Supervisor has its own console
+    if (role.includes('manager')) return true;
+    // Custom (Owner-created) roles: allowed when their DB permission profile grants manager capabilities
+    const membership = user.shopMemberships?.find((m) => m.shopId === activeShopId);
+    return !!membership?.capabilities?.some((c) => MANAGER_CAPABILITIES.includes(c));
+  }, [user, activeRole, activeShopId]);
+
+  useEffect(() => {
+    if (isAuthLoading) return;
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
+    if (!isManagerAllowed) {
+      const role = (activeRole || '').toLowerCase();
+      if (role.includes('supervisor')) router.replace('/supervisor');
+      else if (role.includes('iron')) router.replace('/ironman');
+      else if (role.includes('wash')) router.replace('/washerman');
+      else if (role.includes('deliver')) router.replace('/delivery');
+      else router.replace('/');
+    }
+  }, [isAuthLoading, user, isManagerAllowed, activeRole, router]);
+
   // Navigation State (5 Main Screens via Bottom Nav)
   const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'reports' | 'profile'>('dashboard');
+  const [isAlertsOpen, setIsAlertsOpen] = useState(false);
 
   // Damage Incident Viewer
   const [viewingDamageIncident, setViewingDamageIncident] = useState<DamageIncidentRecord | null>(null);
@@ -186,7 +245,7 @@ function ManagerPageInner() {
   const [managerProfileSubtab, setManagerProfileSubtab] = useState<'attendance' | 'details'>('attendance');
 
   // Shared Filters & Dates
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState<string>(localDateKey);
   const [staffSearchQuery, setStaffSearchQuery] = useState('');
   const [selectedRoleFilter, setSelectedRoleFilter] = useState('ALL');
 
@@ -198,17 +257,17 @@ function ManagerPageInner() {
   const [isLoading, setIsLoading] = useState(true);
 
   // Staff Tasks Tab State (Screen 9)
-  const [staffTaskDate, setStaffTaskDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [staffTaskDate, setStaffTaskDate] = useState<string>(localDateKey);
   const [staffDayAssignments, setStaffDayAssignments] = useState<StaffAssignment[]>([]);
   const [staffMonthlySummary, setStaffMonthlySummary] = useState<StaffTaskMonthlySummary | null>(null);
   const [isLoadingStaffData, setIsLoadingStaffData] = useState(false);
 
   // Create Task Wizard State (Screens 5, 6, 7, 8)
-  const [taskCreateDate, setTaskCreateDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [taskCreateDate, setTaskCreateDate] = useState<string>(localDateKey);
   const [taskOrderId, setTaskOrderId] = useState('');
   const [taskPieces, setTaskPieces] = useState<number | ''>('');
   const [taskServiceTypeId, setTaskServiceTypeId] = useState('');
-  const [taskSelectedActivities, setTaskSelectedActivities] = useState<string[]>(['WASH', 'DRY']);
+  const [taskSelectedActivities, setTaskSelectedActivities] = useState<string[]>([]);
   const [deliveryType, setDeliveryType] = useState<'DELIVERY' | 'PICKUP'>('DELIVERY');
   const [taskPickupCount, setTaskPickupCount] = useState<number | ''>('');
   const [taskPickupLocation, setTaskPickupLocation] = useState('');
@@ -239,33 +298,40 @@ function ManagerPageInner() {
   const lastManagerFetchRef = useRef<number>(0);
 
   // Fetch Core Dashboard & Staff Data
+  const hasLoadedStaticRef = useRef(false);
   const fetchData = useCallback(async (silent = false) => {
-    if (!activeShopId) return;
-    if (!silent && !dashboardData) setIsLoading(true);
+    // Not authenticated / not allowed / no shop yet → stop the spinner (guard handles redirect)
+    if (!activeShopId || !isManagerAllowed) {
+      if (!isAuthLoading) setIsLoading(false);
+      return;
+    }
+    if (!silent) setIsLoading(true);
     try {
+      const loadStatic = !hasLoadedStaticRef.current;
       const [dashRes, staffRes, svcRes, wfRes, sessRes] = await Promise.all([
         apiRequest<DashboardMetrics>(`/api/shops/${activeShopId}/supervisor/dashboard?date=${selectedDate}`).catch(() => null),
         apiRequest<{ staff: ManagerStaffItem[] }>(`/api/shops/${activeShopId}/staff?date=${selectedDate}`).catch(() => null),
-        services.length > 0 ? Promise.resolve(null) : apiRequest<{ serviceTypes: ServiceType[] }>('/api/config/service-types').catch(() => null),
-        workflowProfiles.length > 0 ? Promise.resolve(null) : apiRequest<{ profiles: WorkflowProfile[] }>('/api/config/workflow-profiles').catch(() => null),
+        loadStatic ? apiRequest<{ serviceTypes: ServiceType[] }>('/api/config/service-types').catch(() => null) : Promise.resolve(null),
+        loadStatic ? apiRequest<{ profiles: WorkflowProfile[] }>('/api/config/workflow-profiles').catch(() => null) : Promise.resolve(null),
         apiRequest<{ session: { id: string; checkInAt: string; checkOutAt: string | null; status: string; checkInPhotoPath?: string | null } | null }>(`/api/shops/${activeShopId}/attendance/my-session?date=${selectedDate}`).catch(() => null),
       ]);
 
       if (dashRes) setDashboardData(dashRes);
       if (staffRes?.staff) setStaffList(staffRes.staff);
-      if (svcRes?.serviceTypes) setServices(svcRes.serviceTypes);
+      if (svcRes?.serviceTypes) setServices(svcRes.serviceTypes.filter((s) => s.isActive !== false));
       if (wfRes?.profiles) setWorkflowProfiles(wfRes.profiles);
+      if (svcRes && wfRes) hasLoadedStaticRef.current = true;
       if (sessRes && sessRes.session !== undefined) setManagerSession(sessRes.session);
     } catch (err) {
       console.error('Failed to load manager workspace:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [activeShopId, selectedDate, dashboardData, services.length, workflowProfiles.length]);
+  }, [activeShopId, isManagerAllowed, isAuthLoading, selectedDate]);
 
-  // Refetch when nav tab or selected date changes (silent)
+  // Refetch when nav tab or selected date changes (silent after first load)
   useEffect(() => {
-    fetchData(true);
+    fetchData(hasLoadedStaticRef.current);
   }, [fetchData, currentNav, selectedDate]);
 
   // Auto-refresh when window receives focus or returns to view (throttled to 30s)
@@ -325,6 +391,49 @@ function ManagerPageInner() {
     }
   }, [selectedStaff, staffTaskDate, fetchStaffDetails]);
 
+  /**
+   * Resolve how a staff member's work is counted — 100% from the database:
+   *   1. Rule set directly on the staff membership (Owner > Workforce)
+   *   2. Rule inherited from the staff member's Job Role (Owner > Catalogues)
+   * No name-based guessing: if neither is set, the Create Task wizard shows a
+   * banner asking the Owner to configure "How is their daily work counted?".
+   */
+  const resolveStaffWorkflow = useCallback((staff: ManagerStaffItem | null): WorkflowProfile | null => {
+    if (!staff) return null;
+    const direct = staff.workflowProfile ?? staff.positionCategory?.workflowProfile ?? null;
+    if (!direct) return null;
+    // Prefer the full record from the catalogue (has latest allowedActivities)
+    return workflowProfiles.find((w) => w.id === direct.id) ?? direct;
+  }, [workflowProfiles]);
+
+  const selectedStaffWorkflow = useMemo(() => resolveStaffWorkflow(selectedStaff), [resolveStaffWorkflow, selectedStaff]);
+  const isOrderBasedStaff =
+    selectedStaffWorkflow?.workflowType === 'PER_ORDER' || selectedStaffWorkflow?.workflowType === 'COUNT_BASED';
+  const perOrderProfile = useMemo(
+    () => (selectedStaffWorkflow?.workflowType === 'PER_ORDER' ? selectedStaffWorkflow : workflowProfiles.find((w) => w.workflowType === 'PER_ORDER') ?? null),
+    [selectedStaffWorkflow, workflowProfiles]
+  );
+  const countBasedProfile = useMemo(
+    () => (selectedStaffWorkflow?.workflowType === 'COUNT_BASED' ? selectedStaffWorkflow : workflowProfiles.find((w) => w.workflowType === 'COUNT_BASED') ?? null),
+    [selectedStaffWorkflow, workflowProfiles]
+  );
+
+  /** Work steps offered = steps allowed by the staff's rule ∩ steps of the chosen service (Owner > Catalogues). */
+  const availableActivities = useMemo(() => {
+    if (!selectedStaffWorkflow || isOrderBasedStaff) return [] as string[];
+    const allowed = selectedStaffWorkflow.allowedActivities || [];
+    const svc = services.find((s) => s.id === taskServiceTypeId);
+    const svcSteps = svc?.activityMappings?.map((m) => m.activityType.code) ?? [];
+    if (svcSteps.length === 0) return allowed;
+    const both = allowed.filter((a) => svcSteps.includes(a));
+    return both.length > 0 ? both : allowed;
+  }, [selectedStaffWorkflow, isOrderBasedStaff, services, taskServiceTypeId]);
+
+  // Pre-tick every available step whenever the staff member or service changes
+  useEffect(() => {
+    setTaskSelectedActivities(availableActivities);
+  }, [availableActivities]);
+
   // Open Create Task drilldown for a specific staff member
   const handleOpenCreateTask = (staff: ManagerStaffItem) => {
     setSelectedStaff(staff);
@@ -336,18 +445,8 @@ function ManagerPageInner() {
     setTaskPickupLocation('');
     setTaskNotes('');
 
-    const roleName = (staff.positionCategory?.name || staff.role || '').toLowerCase();
-    if (roleName.includes('iron')) {
-      setTaskSelectedActivities(['IRON', 'FOLD', 'PACK']);
-      setDeliveryType('DELIVERY');
-    } else if (roleName.includes('deliver')) {
-      setDeliveryType('DELIVERY');
-      setTaskSelectedActivities(['DELIVERY']);
-    } else {
-      // Default Washerman
-      setTaskSelectedActivities(['WASH', 'DRY']);
-      setDeliveryType('DELIVERY');
-    }
+    const wf = resolveStaffWorkflow(staff);
+    setDeliveryType(wf?.workflowType === 'COUNT_BASED' ? 'PICKUP' : 'DELIVERY');
 
     if (services.length > 0) {
       setTaskServiceTypeId(services[0].id);
@@ -365,20 +464,15 @@ function ManagerPageInner() {
     setIsSubmittingTask(true);
 
     try {
-      const roleName = (selectedStaff.positionCategory?.name || selectedStaff.role || '').toLowerCase();
       let workflowProfileId = '';
 
-      if (roleName.includes('deliver')) {
-        if (deliveryType === 'DELIVERY') {
-          const wf = workflowProfiles.find((w) => w.workflowType === 'PER_ORDER');
-          workflowProfileId = wf?.id || 'wfp-per-order';
-        } else {
-          const wf = workflowProfiles.find((w) => w.workflowType === 'COUNT_BASED');
-          workflowProfileId = wf?.id || 'wfp-count-based';
-        }
+      if (isOrderBasedStaff) {
+        const wf = deliveryType === 'DELIVERY' ? perOrderProfile : countBasedProfile;
+        if (!wf) throw new Error(`No "${deliveryType === 'DELIVERY' ? 'Per Order' : 'Count Based'}" work-counting rule exists. Ask the Owner to add it in Catalogues.`);
+        workflowProfileId = wf.id;
       } else {
-        const wf = workflowProfiles.find((w) => w.workflowType === 'PIECE_ACTIVITY');
-        workflowProfileId = wf?.id || 'wfp-piece-activity';
+        if (!selectedStaffWorkflow) throw new Error('This staff member has no work-counting rule. Ask the Owner to set it in Catalogues > Job Roles.');
+        workflowProfileId = selectedStaffWorkflow.id;
       }
 
       const idempotencyKey = `mgr-task-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
@@ -389,7 +483,7 @@ function ManagerPageInner() {
         idempotencyKey,
       };
 
-      if (roleName.includes('deliver')) {
+      if (isOrderBasedStaff) {
         if (deliveryType === 'DELIVERY') {
           if (!taskOrderId.trim()) throw new Error('Order ID is required for delivery.');
           payload.orderId = taskOrderId.trim();
@@ -532,9 +626,27 @@ function ManagerPageInner() {
   const ironCount = dashboardData?.departmentBreakdown?.iron?.total ?? 0;
   const dryCleanCount = dashboardData?.departmentBreakdown?.dryClean?.total ?? 0;
   const deliveryCount = dashboardData?.departmentBreakdown?.packaging?.total ?? 0;
-  const pickupCount = (dashboardData?.departmentBreakdown as unknown as { pickup?: { total: number } })?.pickup?.total ?? 0;
 
-  if (!isMounted || (isLoading && !dashboardData)) {
+  // Manager identity — straight from the logged-in account / membership in DB
+  const managerDisplayName = user?.staffMember?.fullName || user?.username || '';
+  const managerRoleLabel = activeRole || (user?.isOwner ? 'Owner' : '');
+  const myStaffRecord = staffList.find((s) => s.staffMemberId === user?.staffMember?.id) ?? null;
+  const myCapabilities = user?.shopMemberships.find((m) => m.shopId === activeShopId)?.capabilities ?? [];
+  const reportDateLabel = selectedDate
+    ? new Date(`${selectedDate}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+    : '';
+  const departmentRows = dashboardData
+    ? (Object.values(dashboardData.departmentBreakdown).filter(Boolean) as Array<{ name: string; total: number; completed: number; percentage: number }>)
+    : [];
+  const serviceRows = (dashboardData?.serviceBreakdown ?? []).filter((s) => s.orders > 0 || s.totalUnits > 0);
+
+  const absentStaffList = attendanceTrackedStaff.filter((s) => !s.attendanceToday.isPresent);
+  const halfDayCount = dashboardData?.halfDayCount ?? 0;
+  const pendingUnits = dashboardData?.todayTasks?.pending ?? 0;
+  const hasAlerts = absentStaffList.length > 0 || pendingUnits > 0;
+
+  // Auth still resolving, redirecting an unauthorized user, or first data load
+  if (!isMounted || isAuthLoading || !user || !isManagerAllowed || (isLoading && !dashboardData)) {
     return (
       <div className="min-h-screen bg-surface-cream flex items-center justify-center p-4">
         <div className="w-8 h-8 rounded-full border-2 border-brand-forest border-t-transparent animate-spin" />
@@ -624,7 +736,7 @@ function ManagerPageInner() {
             </div>
 
             {/* SCREEN 7 & 8: DELIVERY BOY VARIANT */}
-            {(selectedStaff.positionCategory?.name || selectedStaff.role || '').toLowerCase().includes('deliver') ? (
+            {isOrderBasedStaff ? (
               <>
                 {/* Service Type Radio: Delivery vs Pickup */}
                 <div>
@@ -765,13 +877,21 @@ function ManagerPageInner() {
                   </select>
                 </div>
 
-                {/* Role Specific Checkboxes */}
+                {/* Work steps — loaded from DB: staff's work-counting rule ∩ selected service's steps */}
                 <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-2">Process Activities *</label>
-                  {(selectedStaff.positionCategory?.name || selectedStaff.role || '').toLowerCase().includes('iron') ? (
-                    /* Screen 6 Ironman Checkboxes: Iron, Fold, Pack */
-                    <div className="flex items-center gap-3">
-                      {['IRON', 'FOLD', 'PACK'].map((act) => {
+                  <label className="block text-xs font-bold text-brand-forest mb-2">
+                    Process Activities *
+                    {selectedStaffWorkflow && (
+                      <span className="ml-1 text-[10px] font-semibold text-content-muted">({selectedStaffWorkflow.name})</span>
+                    )}
+                  </label>
+                  {availableActivities.length === 0 ? (
+                    <p className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                      No work steps are configured for this staff member. Ask the Owner to set a work-counting rule in Catalogues &gt; Job Roles.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {availableActivities.map((act) => {
                         const isChecked = taskSelectedActivities.includes(act);
                         return (
                           <button
@@ -779,30 +899,6 @@ function ManagerPageInner() {
                             type="button"
                             onClick={() => toggleActivity(act)}
                             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
-                              isChecked
-                                ? 'bg-brand-forest text-white border-brand-forest shadow-sm'
-                                : 'bg-surface-cream text-content-muted border-border-subtle'
-                            }`}
-                          >
-                            <span className={`w-3.5 h-3.5 rounded flex items-center justify-center text-[10px] ${isChecked ? 'bg-brand-lime text-brand-forest' : 'border border-content-muted'}`}>
-                              {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
-                            </span>
-                            <span className="capitalize">{act.toLowerCase()}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    /* Screen 5 Washerman Checkboxes: Wash, Dry */
-                    <div className="flex items-center gap-3">
-                      {['WASH', 'DRY'].map((act) => {
-                        const isChecked = taskSelectedActivities.includes(act);
-                        return (
-                          <button
-                            key={act}
-                            type="button"
-                            onClick={() => toggleActivity(act)}
-                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
                               isChecked
                                 ? 'bg-brand-forest text-white border-brand-forest shadow-sm'
                                 : 'bg-surface-cream text-content-muted border-border-subtle'
@@ -1048,6 +1144,16 @@ function ManagerPageInner() {
                 </div>
               </div>
 
+              {/* Extra details (Owner-defined custom fields, DB-driven; hidden fields never sent) */}
+              {activeShopId && (
+                <StaffExtraDetails
+                  key={selectedStaff.staffMember.id}
+                  shopId={activeShopId}
+                  staffMemberId={selectedStaff.staffMember.id}
+                  canEdit={hasCapability('staff.update')}
+                />
+              )}
+
               {/* Monthly Summary Card (Screen 4 Donut) */}
               <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-4">
                 <h3 className="text-xs font-black text-brand-forest">
@@ -1122,9 +1228,9 @@ function ManagerPageInner() {
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => {
-                      const prev = new Date(staffTaskDate);
+                      const prev = new Date(`${staffTaskDate}T00:00:00`);
                       prev.setDate(prev.getDate() - 1);
-                      setStaffTaskDate(prev.toISOString().split('T')[0]);
+                      setStaffTaskDate(localDateKey(prev));
                     }}
                     className="p-1 rounded-lg hover:bg-surface-cream"
                   >
@@ -1139,9 +1245,9 @@ function ManagerPageInner() {
                   </span>
                   <button
                     onClick={() => {
-                      const next = new Date(staffTaskDate);
+                      const next = new Date(`${staffTaskDate}T00:00:00`);
                       next.setDate(next.getDate() + 1);
-                      setStaffTaskDate(next.toISOString().split('T')[0]);
+                      setStaffTaskDate(localDateKey(next));
                     }}
                     className="p-1 rounded-lg hover:bg-surface-cream"
                   >
@@ -1547,11 +1653,12 @@ function ManagerPageInner() {
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setCurrentNav('profile')}
-                className="relative p-2 rounded-xl bg-white border border-border-subtle shadow-sm"
+                onClick={() => setIsAlertsOpen(true)}
+                className="relative p-2 rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-cream transition-all"
+                title="Shop Alerts"
               >
                 <Bell className="w-4 h-4 text-brand-forest" />
-                <span className="w-2 h-2 rounded-full bg-red-500 absolute top-1.5 right-1.5" />
+                {hasAlerts && <span className="w-2 h-2 rounded-full bg-red-500 absolute top-1.5 right-1.5 animate-pulse" />}
               </button>
             </div>
           </div>
@@ -1658,8 +1765,8 @@ function ManagerPageInner() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                  <span className="text-content-muted font-medium">On Leave</span>
-                  <span className="font-extrabold text-brand-forest ml-auto">0</span>
+                  <span className="text-content-muted font-medium">Half Day</span>
+                  <span className="font-extrabold text-brand-forest ml-auto">{halfDayCount}</span>
                 </div>
               </div>
             </div>
@@ -1879,11 +1986,11 @@ function ManagerPageInner() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center font-black text-sm text-brand-lime shadow-inner">
-                  {user?.username?.charAt(0).toUpperCase() || 'M'}
+                  {managerDisplayName.charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <span className="text-[10px] font-bold text-brand-lime uppercase tracking-wider block">Branch Manager</span>
-                  <h3 className="text-sm font-black">{user?.username || 'Store Manager'}</h3>
+                  <span className="text-[10px] font-bold text-brand-lime uppercase tracking-wider block">{managerRoleLabel}</span>
+                  <h3 className="text-sm font-black">{managerDisplayName}</h3>
                 </div>
               </div>
               <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
@@ -1916,8 +2023,8 @@ function ManagerPageInner() {
                 <button
                   type="button"
                   onClick={() => setViewingAttendancePhoto({
-                    staffName: user?.username || 'Branch Manager',
-                    role: 'Store Manager',
+                    staffName: managerDisplayName,
+                    role: managerRoleLabel,
                     photoUrl: managerSession.checkInPhotoPath!,
                     checkOutPhotoUrl: managerSession.checkOutPhotoPath || undefined,
                     timestamp: managerSession.checkInAt,
@@ -2036,63 +2143,62 @@ function ManagerPageInner() {
         <div className="p-4 space-y-4 animate-fade-in">
           <div className="flex items-center justify-between">
             <h1 className="text-base font-black text-brand-forest">Operations Reports</h1>
-            <span className="text-xs font-bold text-content-muted">Today&apos;s Summary</span>
+            <span className="text-xs font-bold text-content-muted">{reportDateLabel}</span>
+          </div>
+
+          {/* Overall completion for the selected day */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-clay-sm text-center">
+              <span className="text-[10px] font-bold text-content-muted block">Total Units</span>
+              <span className="text-lg font-black text-brand-forest">{dashboardData?.todayTasks?.total ?? 0}</span>
+            </div>
+            <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-clay-sm text-center">
+              <span className="text-[10px] font-bold text-content-muted block">Completed</span>
+              <span className="text-lg font-black text-emerald-700">{dashboardData?.todayTasks?.completed ?? 0}</span>
+            </div>
+            <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-clay-sm text-center">
+              <span className="text-[10px] font-bold text-content-muted block">Pending</span>
+              <span className="text-lg font-black text-amber-600">{dashboardData?.todayTasks?.pending ?? 0}</span>
+            </div>
           </div>
 
           <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-4">
-            <h3 className="text-xs font-black text-brand-forest">Department Piece Counts</h3>
+            <h3 className="text-xs font-black text-brand-forest">Department Progress</h3>
             <div className="space-y-3 text-xs">
-              <div>
-                <div className="flex justify-between mb-1 font-bold">
-                  <span className="text-brand-forest">Washing & Cleaning</span>
-                  <span>{washCount} units</span>
-                </div>
-                <div className="w-full h-2 rounded-full bg-border-subtle overflow-hidden">
-                  <div className="h-full bg-emerald-600 rounded-full" style={{ width: `${Math.min(100, washCount * 2)}%` }} />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between mb-1 font-bold">
-                  <span className="text-brand-forest">Steam Press & Ironing</span>
-                  <span>{ironCount} units</span>
-                </div>
-                <div className="w-full h-2 rounded-full bg-border-subtle overflow-hidden">
-                  <div className="h-full bg-[#84C42C] rounded-full" style={{ width: `${Math.min(100, ironCount * 2)}%` }} />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between mb-1 font-bold">
-                  <span className="text-brand-forest">Dry Clean & Delicate</span>
-                  <span>{dryCleanCount} units</span>
-                </div>
-                <div className="w-full h-2 rounded-full bg-border-subtle overflow-hidden">
-                  <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.min(100, dryCleanCount * 5)}%` }} />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between mb-1 font-bold">
-                  <span className="text-brand-forest">Delivery & Packaging Orders</span>
-                  <span>{deliveryCount} orders</span>
-                </div>
-                <div className="w-full h-2 rounded-full bg-border-subtle overflow-hidden">
-                  <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.min(100, deliveryCount * 5)}%` }} />
-                </div>
-              </div>
-
-              {pickupCount > 0 && (
-                <div>
+              {departmentRows.filter((d) => d.total > 0).length === 0 && (
+                <p className="text-content-muted text-center py-3">No task units recorded for this day.</p>
+              )}
+              {departmentRows.filter((d) => d.total > 0).map((d) => (
+                <div key={d.name}>
                   <div className="flex justify-between mb-1 font-bold">
-                    <span className="text-brand-forest">Pickups Collected</span>
-                    <span>{pickupCount} pickups</span>
+                    <span className="text-brand-forest">{d.name}</span>
+                    <span>{d.completed}/{d.total} units • {d.percentage}%</span>
                   </div>
                   <div className="w-full h-2 rounded-full bg-border-subtle overflow-hidden">
-                    <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${Math.min(100, pickupCount * 5)}%` }} />
+                    <div className="h-full bg-emerald-600 rounded-full transition-all" style={{ width: `${d.percentage}%` }} />
                   </div>
                 </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-4">
+            <h3 className="text-xs font-black text-brand-forest">Service-wise Summary</h3>
+            <div className="space-y-3 text-xs">
+              {serviceRows.length === 0 && (
+                <p className="text-content-muted text-center py-3">No orders assigned for this day.</p>
               )}
+              {serviceRows.map((s) => (
+                <div key={s.id}>
+                  <div className="flex justify-between mb-1 font-bold">
+                    <span className="text-brand-forest">{s.name}</span>
+                    <span>{s.orders} orders • {s.pieces} pcs • {s.percentage}%</span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-border-subtle overflow-hidden">
+                    <div className="h-full bg-[#84C42C] rounded-full transition-all" style={{ width: `${s.percentage}%` }} />
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -2147,20 +2253,22 @@ function ManagerPageInner() {
                 </span>
               </div>
               <div className="p-2.5 rounded-xl bg-surface-cream/50">
-                <span className="text-[10px] text-content-muted block">Email</span>
+                <span className="text-[10px] text-content-muted block">Role</span>
                 <span className="font-bold text-brand-forest truncate block">
-                  Not provided
+                  {myStaffRecord?.positionCategory?.name || managerRoleLabel || 'Not provided'}
                 </span>
               </div>
               <div className="p-2.5 rounded-xl bg-surface-cream/50">
                 <span className="text-[10px] text-content-muted block">Joining Date</span>
                 <span className="font-bold text-brand-forest">
-                  {user?.staffMember?.id ? 'Not provided' : 'Not provided'}
+                  {myStaffRecord?.joiningDate
+                    ? new Date(myStaffRecord.joiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                    : 'Not provided'}
                 </span>
               </div>
               <div className="p-2.5 rounded-xl bg-surface-cream/50">
                 <span className="text-[10px] text-content-muted block">Duty Timing</span>
-                <span className="font-bold text-brand-forest">Not specified</span>
+                <span className="font-bold text-brand-forest">{myStaffRecord?.dutyTimingNotes || 'Not specified'}</span>
               </div>
             </div>
           </div>
@@ -2222,8 +2330,8 @@ function ManagerPageInner() {
                     <button
                       type="button"
                       onClick={() => setViewingAttendancePhoto({
-                        staffName: user?.username || 'Branch Manager',
-                        role: 'Store Manager',
+                        staffName: managerDisplayName,
+                        role: managerRoleLabel,
                         photoUrl: managerSession.checkInPhotoPath!,
                         checkOutPhotoUrl: managerSession.checkOutPhotoPath || undefined,
                         timestamp: managerSession.checkInAt,
@@ -2241,7 +2349,7 @@ function ManagerPageInner() {
                       <Camera className="w-6 h-6" />
                     </div>
                     <span className="text-xs font-bold text-brand-forest">Direct Live Camera Selfie</span>
-                    <span className="text-[10px] text-content-muted">Live face verification required for store manager</span>
+                    <span className="text-[10px] text-content-muted">Live front-camera selfie is saved with your attendance</span>
                   </div>
                 )}
               </div>
@@ -2279,13 +2387,30 @@ function ManagerPageInner() {
 
           {/* SUBTAB 2: PROFILE DETAILS */}
           {managerProfileSubtab === 'details' && (
-            <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3 text-xs">
-              <h3 className="text-xs font-black text-brand-forest">Operational Responsibilities</h3>
-              <div className="space-y-2 text-content-muted">
-                <p>• Task dispatching for Washerman, Ironman, and Delivery workforce.</p>
-                <p>• Floor monitoring of piece completion checklists.</p>
-                <p>• Shift presence oversight across branch departments.</p>
+            <div className="space-y-3">
+              <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3 text-xs">
+                <h3 className="text-xs font-black text-brand-forest">My Permissions in this Shop</h3>
+                <p className="text-[10px] text-content-muted">Set by the Owner (Owner &gt; Roles &amp; Permissions). Changes apply on next login/refresh.</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {user?.isOwner && (
+                    <span className="px-2 py-1 rounded-lg bg-brand-forest text-white text-[10px] font-bold">Full owner access</span>
+                  )}
+                  {!user?.isOwner && myCapabilities.length === 0 && (
+                    <span className="text-content-muted">No permissions assigned.</span>
+                  )}
+                  {myCapabilities.map((c) => (
+                    <span key={c} className="px-2 py-1 rounded-lg bg-[#EAF5E9] text-brand-forest text-[10px] font-bold font-mono">{c}</span>
+                  ))}
+                </div>
               </div>
+              {activeShopId && user?.staffMember?.id && (
+                <StaffExtraDetails
+                  key={user.staffMember.id}
+                  shopId={activeShopId}
+                  staffMemberId={user.staffMember.id}
+                  canEdit={hasCapability('staff.update')}
+                />
+              )}
             </div>
           )}
         </div>
@@ -2420,6 +2545,78 @@ function ManagerPageInner() {
           checkOutTimestamp={viewingAttendancePhoto.checkOutTimestamp || viewingAttendancePhoto.checkOutAt}
           status={viewingAttendancePhoto.status}
         />
+      )}
+
+      {/* Live Shop Alerts (all values from DB for the selected date) */}
+      {isAlertsOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setIsAlertsOpen(false)}>
+          <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-clay border border-border-subtle space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-border-subtle pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-50 text-brand-forest"><Bell className="w-5 h-5" /></div>
+                <div>
+                  <h3 className="text-sm font-black text-brand-forest">Shop Alerts</h3>
+                  <p className="text-[10px] text-content-muted">
+                    {new Date(selectedDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setIsAlertsOpen(false)} className="p-1.5 rounded-xl hover:bg-surface-cream text-content-muted">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2.5 max-h-72 overflow-y-auto">
+              {absentStaffList.length > 0 ? (
+                <div className="p-3 rounded-2xl bg-red-50 border border-red-100 flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <div className="text-xs">
+                    <span className="font-bold text-red-900 block">{absentStaffList.length} staff absent</span>
+                    <p className="text-[11px] text-red-700 font-medium">{absentStaffList.map((s) => s.staffMember.fullName).join(', ')}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center gap-2 text-xs text-emerald-800 font-bold">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" /> All tracked staff are present.
+                </div>
+              )}
+
+              {pendingUnits > 0 ? (
+                <div className="p-3 rounded-2xl bg-amber-50 border border-amber-100 flex items-start gap-2.5">
+                  <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                  <div className="text-xs">
+                    <span className="font-bold text-amber-900 block">{pendingUnits} task units pending</span>
+                    <p className="text-[11px] text-amber-800 font-medium">
+                      {dashboardData?.todayTasks?.completed ?? 0} of {dashboardData?.todayTasks?.total ?? 0} completed.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-2xl bg-surface-cream border border-border-subtle flex items-center gap-2 text-xs text-brand-forest font-bold">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" /> No pending tasks.
+                </div>
+              )}
+
+              <div className="p-3 rounded-2xl bg-surface-cream border border-border-subtle flex items-center justify-between text-xs">
+                <span className="text-content-muted font-bold">On floor now</span>
+                <span className="font-black text-emerald-800">{activeOnFloorCount}</span>
+              </div>
+              {halfDayCount > 0 && (
+                <div className="p-3 rounded-2xl bg-surface-cream border border-border-subtle flex items-center justify-between text-xs">
+                  <span className="text-content-muted font-bold">Half day</span>
+                  <span className="font-black text-amber-700">{halfDayCount}</span>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => { setIsAlertsOpen(false); setCurrentNav('attendance'); }}
+              className="w-full py-2.5 rounded-xl bg-brand-forest text-white text-xs font-black"
+            >
+              Open Attendance
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
