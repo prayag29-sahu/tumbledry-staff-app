@@ -67,9 +67,28 @@ export async function createAssignment(input: CreateAssignmentInput) {
   }
 
   // Load workflow profile to validate allowed activities
-  const workflowProfile = await prisma.workflowProfile.findUnique({
+  let workflowProfile = await prisma.workflowProfile.findUnique({
     where: { id: input.workflowProfileId },
   });
+
+  if (!workflowProfile && input.workflowProfileId === 'wfp-directive') {
+    workflowProfile = await prisma.workflowProfile.upsert({
+      where: { id: 'wfp-directive' },
+      update: {},
+      create: {
+        id: 'wfp-directive',
+        name: 'Operational Directives',
+        description: 'Text-based instructions and tasks for managers and operational staff.',
+        workflowType: WorkflowType.COUNT_BASED,
+        allowedActivities: [],
+        requiresOrderId: false,
+        requiresPieceCount: false,
+        requiresServiceType: false,
+        isActive: true,
+      },
+    });
+  }
+
   if (!workflowProfile || !workflowProfile.isActive) {
     throw new AppError(422, 'VALIDATION_ERROR', 'Workflow profile not found or inactive.');
   }
@@ -110,7 +129,11 @@ export async function createAssignment(input: CreateAssignmentInput) {
 
   if (workflowProfile.workflowType === WorkflowType.COUNT_BASED) {
     if (!input.pickupCount || input.pickupCount < 1) {
-      throw new AppError(422, 'VALIDATION_ERROR', 'Pickup count is required and must be a positive integer.');
+      if (input.workflowProfileId === 'wfp-directive' || workflowProfile.id === 'wfp-directive') {
+        input.pickupCount = 1;
+      } else {
+        throw new AppError(422, 'VALIDATION_ERROR', 'Pickup count is required and must be a positive integer.');
+      }
     }
   }
 
@@ -241,7 +264,8 @@ export async function completeTaskUnit(
   taskUnitId: string,
   staffMemberId: string,
   shopId: string,
-  completedByAccountId: string
+  completedByAccountId: string,
+  isPrivileged: boolean = false
 ): Promise<void> {
   const unit = await prisma.taskUnit.findUnique({
     where: { id: taskUnitId },
@@ -256,7 +280,7 @@ export async function completeTaskUnit(
 
   if (!unit) throw new AppError(404, 'NOT_FOUND', 'Task unit not found.');
   if (unit.shopId !== shopId) throw new AppError(403, 'FORBIDDEN', 'Access denied.');
-  if (unit.staffMemberId !== staffMemberId) throw new AppError(403, 'FORBIDDEN', 'This task is not assigned to you.');
+  if (unit.staffMemberId !== staffMemberId && !isPrivileged) throw new AppError(403, 'FORBIDDEN', 'This task is not assigned to you.');
   if (unit.taskAssignment.status !== 'ACTIVE') throw new AppError(409, 'CONFLICT', 'Assignment is no longer active.');
   if (unit.status === 'COMPLETED') return; // idempotent
   if (unit.status === 'CANCELLED') throw new AppError(409, 'CONFLICT', 'Task unit has been cancelled.');
@@ -267,6 +291,43 @@ export async function completeTaskUnit(
       status: 'COMPLETED',
       completedAt: new Date(),
       completedByAccountId,
+    },
+  });
+}
+
+/**
+ * Toggles a task unit between COMPLETED and PENDING.
+ */
+export async function toggleTaskUnit(
+  taskUnitId: string,
+  staffMemberId: string,
+  shopId: string,
+  completedByAccountId: string,
+  isPrivileged: boolean = false
+) {
+  const unit = await prisma.taskUnit.findUnique({
+    where: { id: taskUnitId },
+    select: {
+      id: true,
+      shopId: true,
+      staffMemberId: true,
+      status: true,
+      taskAssignment: { select: { status: true } },
+    },
+  });
+
+  if (!unit) throw new AppError(404, 'NOT_FOUND', 'Task unit not found.');
+  if (unit.shopId !== shopId) throw new AppError(403, 'FORBIDDEN', 'Access denied.');
+  if (unit.staffMemberId !== staffMemberId && !isPrivileged) throw new AppError(403, 'FORBIDDEN', 'This task is not assigned to you.');
+  if (unit.taskAssignment.status !== 'ACTIVE') throw new AppError(409, 'CONFLICT', 'Assignment is no longer active.');
+
+  const nextStatus = unit.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED';
+  return prisma.taskUnit.update({
+    where: { id: taskUnitId },
+    data: {
+      status: nextStatus,
+      completedAt: nextStatus === 'COMPLETED' ? new Date() : null,
+      completedByAccountId: nextStatus === 'COMPLETED' ? completedByAccountId : null,
     },
   });
 }

@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { authenticate, AuthenticatedRequest, requireCapability } from '../../middleware/auth';
-import { createAssignment, completeTaskUnit, getTaskSummary, getMonthlyTaskSummary } from './task.service';
+import { createAssignment, completeTaskUnit, toggleTaskUnit, getTaskSummary, getMonthlyTaskSummary } from './task.service';
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
 
@@ -181,11 +181,11 @@ taskRouter.post(
       assignmentDate: z.string().min(1).transform((v) => v.split('T')[0]),
       workflowProfileId: z.string().min(1),
       serviceTypeId: z.string().nullable().optional().transform((v) => (v && v.trim() ? v.trim() : undefined)),
-      orderId: z.string().min(1).max(100).optional(),
+      orderId: z.string().min(1).max(250).optional(),
       pieceCount: z.number().int().positive().optional(),
       pickupCount: z.number().int().positive().optional(),
       selectedActivities: z.array(z.string().min(1)).default([]),
-      notes: z.string().max(500).optional(),
+      notes: z.string().max(2000).optional(),
       idempotencyKey: z.string().min(1).max(200),
     });
 
@@ -210,10 +210,9 @@ taskRouter.post(
   }
 );
 
-// PATCH /api/shops/:shopId/task-units/:unitId/complete — Staff completes a unit
+// PATCH /api/shops/:shopId/task-units/:unitId/complete — Staff or Manager/Supervisor completes a unit
 taskRouter.patch(
   '/shops/:shopId/task-units/:unitId/complete',
-  requireCapability('tasks.complete'),
   async (req: Request, res: Response, next: NextFunction) => {
     const auth = (req as AuthenticatedRequest).auth;
     const { shopId, unitId } = req.params as { shopId: string; unitId: string };
@@ -224,12 +223,43 @@ taskRouter.patch(
       select: { staffMemberId: true },
     });
 
-    if (!membership) {
+    const isPrivileged = auth.isOwner || auth.shopMemberships.some(
+      (m) => m.shopId === shopId && (m.capabilities.includes('tasks.assign') || m.capabilities.includes('tasks.read_team'))
+    );
+
+    if (!membership && !auth.isOwner) {
       return next(new AppError(403, 'FORBIDDEN', 'No active membership in this shop.'));
     }
 
-    await completeTaskUnit(unitId, membership.staffMemberId, shopId, auth.accountId);
+    const staffMemberId = membership?.staffMemberId || '';
+    await completeTaskUnit(unitId, staffMemberId, shopId, auth.accountId, !!isPrivileged);
     res.json({ message: 'Task unit completed.' });
+  }
+);
+
+// PATCH /api/shops/:shopId/task-units/:unitId/toggle — Staff or Manager/Supervisor toggles between PENDING and COMPLETED
+taskRouter.patch(
+  '/shops/:shopId/task-units/:unitId/toggle',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
+    const { shopId, unitId } = req.params as { shopId: string; unitId: string };
+
+    const membership = await prisma.shopMembership.findFirst({
+      where: { accountId: auth.accountId, shopId, isActive: true },
+      select: { staffMemberId: true },
+    });
+
+    const isPrivileged = auth.isOwner || auth.shopMemberships.some(
+      (m) => m.shopId === shopId && (m.capabilities.includes('tasks.assign') || m.capabilities.includes('tasks.read_team'))
+    );
+
+    if (!membership && !auth.isOwner) {
+      return next(new AppError(403, 'FORBIDDEN', 'No active membership in this shop.'));
+    }
+
+    const staffMemberId = membership?.staffMemberId || '';
+    const updated = await toggleTaskUnit(unitId, staffMemberId, shopId, auth.accountId, !!isPrivileged);
+    res.json({ message: `Task marked as ${updated.status.toLowerCase()}.`, unit: updated });
   }
 );
 
