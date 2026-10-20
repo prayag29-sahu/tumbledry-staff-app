@@ -44,6 +44,7 @@ import {
   Layers,
   AlertTriangle,
   Camera,
+  Power,
 } from 'lucide-react';
 import {
   DamageIncidentViewerModal,
@@ -362,6 +363,13 @@ function OwnerPageInner() {
   // Attendance Toggle State
   const [togglingStaffId, setTogglingStaffId] = useState<string | null>(null);
 
+  // Staff Active/Inactive Status Toggle State
+  const [togglingStatusStaffId, setTogglingStatusStaffId] = useState<string | null>(null);
+  const [statusConfirmTarget, setStatusConfirmTarget] = useState<{
+    staff: StaffMembershipItem;
+    nextStatus: 'ACTIVE' | 'INACTIVE';
+  } | null>(null);
+
   const lastOwnerFetchRef = useRef<number>(0);
 
   // Fetch staff when selectedShopId changes
@@ -524,6 +532,42 @@ function OwnerPageInner() {
       alert(err instanceof Error ? err.message : 'Failed to update attendance tracking.');
     } finally {
       setTogglingStaffId(null);
+    }
+  };
+
+  const handleToggleStaffStatus = async (staff: StaffMembershipItem, nextStatus: 'ACTIVE' | 'INACTIVE') => {
+    if (!selectedShopId) return;
+    setTogglingStatusStaffId(staff.id);
+    try {
+      await apiRequest(`/api/shops/${selectedShopId}/staff/${staff.staffMember.id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      setShopStaff((prev) =>
+        prev.map((s) =>
+          s.id === staff.id
+            ? {
+                ...s,
+                isActive: nextStatus === 'ACTIVE',
+                staffMember: {
+                  ...s.staffMember,
+                  employmentStatus: nextStatus,
+                },
+                account: s.account
+                  ? {
+                      ...s.account,
+                      status: nextStatus === 'ACTIVE' ? 'ACTIVE' : 'DISABLED',
+                    }
+                  : s.account,
+              }
+            : s
+        )
+      );
+      setStatusConfirmTarget(null);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to update staff status.');
+    } finally {
+      setTogglingStatusStaffId(null);
     }
   };
 
@@ -1504,7 +1548,9 @@ function OwnerPageInner() {
                             key={staff.id}
                             onClick={() => openStaffPerformance(staff)}
                             className={`cursor-pointer p-4 rounded-2xl border transition-all space-y-2.5 group ${
-                              isSupervisor
+                              staff.staffMember.employmentStatus !== 'ACTIVE'
+                                ? 'bg-gray-50/70 border-dashed border-gray-300 opacity-80 hover:border-brand-forest/40'
+                                : isSupervisor
                                 ? 'bg-emerald-50/40 border-emerald-300 hover:border-emerald-600 shadow-sm'
                                 : isManager
                                 ? 'bg-blue-50/30 border-blue-200 hover:border-blue-400 shadow-sm'
@@ -1514,7 +1560,9 @@ function OwnerPageInner() {
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2.5">
                                 <div className={`w-9 h-9 rounded-xl font-black text-sm flex items-center justify-center shadow-sm ${
-                                  isSupervisor
+                                  staff.staffMember.employmentStatus !== 'ACTIVE'
+                                    ? 'bg-gray-200 text-gray-600'
+                                    : isSupervisor
                                     ? 'bg-brand-forest text-brand-lime'
                                     : isManager
                                     ? 'bg-blue-700 text-white'
@@ -1533,15 +1581,44 @@ function OwnerPageInner() {
                               </div>
 
                               <div className="flex items-center gap-1.5">
-                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                                  staff.staffMember.employmentStatus === 'ACTIVE'
-                                    ? 'clay-badge-lime'
-                                    : 'bg-gray-100 text-gray-600'
-                                }`}>
-                                  {staff.staffMember.employmentStatus}
-                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setStatusConfirmTarget({
+                                      staff,
+                                      nextStatus: staff.staffMember.employmentStatus === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
+                                    });
+                                  }}
+                                  disabled={togglingStatusStaffId === staff.id}
+                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-sm ${
+                                    staff.staffMember.employmentStatus === 'ACTIVE'
+                                      ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-300'
+                                      : 'bg-red-50 hover:bg-red-100 text-red-700 border border-red-200'
+                                  }`}
+                                  title={staff.staffMember.employmentStatus === 'ACTIVE' ? 'Click to deactivate staff member' : 'Click to activate staff member'}
+                                >
+                                  <span className={`w-2 h-2 rounded-full ${staff.staffMember.employmentStatus === 'ACTIVE' ? 'bg-emerald-600 animate-pulse' : 'bg-red-500'}`} />
+                                  <span>{staff.staffMember.employmentStatus === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'}</span>
+                                </button>
                               </div>
                             </div>
+
+                            {staff.staffMember.employmentStatus !== 'ACTIVE' && (
+                              <div className="px-2.5 py-1 rounded-xl bg-red-50/80 border border-red-200 flex items-center justify-between text-[11px] font-bold text-red-700">
+                                <span>Deactivated · Login access disabled</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setStatusConfirmTarget({ staff, nextStatus: 'ACTIVE' });
+                                  }}
+                                  className="text-[10px] text-brand-forest underline hover:no-underline font-extrabold"
+                                >
+                                  Activate
+                                </button>
+                              </div>
+                            )}
 
                             {/* Real-time Presence & Floor Output on Date */}
                             <div className="flex items-center justify-between gap-1.5 text-xs">
@@ -3352,6 +3429,63 @@ function OwnerPageInner() {
           checkOutTimestamp={viewingAttendancePhoto.checkOutTimestamp || viewingAttendancePhoto.checkOutAt}
           status={viewingAttendancePhoto.status}
         />
+      )}
+
+      {/* Staff Active/Inactive Confirmation Modal */}
+      {statusConfirmTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay-lg w-full max-w-sm p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                  statusConfirmTarget.nextStatus === 'INACTIVE'
+                    ? 'bg-red-100 text-red-600'
+                    : 'bg-emerald-100 text-emerald-700'
+                }`}
+              >
+                <Power className="w-5 h-5 stroke-[2.5]" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-brand-forest">
+                  {statusConfirmTarget.nextStatus === 'INACTIVE' ? 'Deactivate Staff Member' : 'Activate Staff Member'}
+                </h3>
+                <p className="text-xs text-content-muted font-bold">{statusConfirmTarget.staff.staffMember.fullName}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-content-muted leading-relaxed">
+              {statusConfirmTarget.nextStatus === 'INACTIVE'
+                ? `Deactivating ${statusConfirmTarget.staff.staffMember.fullName} will immediately disable their app login session, prevent new task assignments, and mark their workforce status as inactive. Historical records will be safely preserved.`
+                : `Activating ${statusConfirmTarget.staff.staffMember.fullName} will restore their app login access and allow assigning tasks.`}
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border-subtle">
+              <button
+                type="button"
+                onClick={() => setStatusConfirmTarget(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-content-muted hover:bg-surface-hover transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(togglingStatusStaffId)}
+                onClick={() => handleToggleStaffStatus(statusConfirmTarget.staff, statusConfirmTarget.nextStatus)}
+                className={`px-4 py-2 rounded-xl text-xs font-black text-white shadow-clay transition-all ${
+                  statusConfirmTarget.nextStatus === 'INACTIVE'
+                    ? 'bg-red-600 hover:bg-red-700'
+                    : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
+              >
+                {togglingStatusStaffId
+                  ? 'Updating...'
+                  : statusConfirmTarget.nextStatus === 'INACTIVE'
+                  ? 'Yes, Deactivate'
+                  : 'Yes, Activate'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

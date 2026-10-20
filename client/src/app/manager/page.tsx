@@ -384,13 +384,13 @@ function ManagerPageInner() {
       .catch(() => null);
     const staticP = loadStatic
       ? Promise.all([
-          apiRequest<{ serviceTypes: ServiceType[] }>('/api/config/service-types').catch(() => null),
-          apiRequest<{ profiles: WorkflowProfile[] }>('/api/config/workflow-profiles').catch(() => null),
-        ]).then(([svcRes, wfRes]) => {
-          if (svcRes?.serviceTypes) setServices(svcRes.serviceTypes.filter((s) => s.isActive !== false));
-          if (wfRes?.profiles) setWorkflowProfiles(wfRes.profiles);
-          if (svcRes && wfRes) hasLoadedStaticRef.current = true;
-        })
+        apiRequest<{ serviceTypes: ServiceType[] }>('/api/config/service-types').catch(() => null),
+        apiRequest<{ profiles: WorkflowProfile[] }>('/api/config/workflow-profiles').catch(() => null),
+      ]).then(([svcRes, wfRes]) => {
+        if (svcRes?.serviceTypes) setServices(svcRes.serviceTypes.filter((s) => s.isActive !== false));
+        if (wfRes?.profiles) setWorkflowProfiles(wfRes.profiles);
+        if (svcRes && wfRes) hasLoadedStaticRef.current = true;
+      })
       : Promise.resolve();
 
     try {
@@ -818,11 +818,10 @@ function ManagerPageInner() {
           {/* Feedback banner */}
           {taskFeedback && (
             <div
-              className={`p-3 rounded-2xl text-xs font-bold flex items-center gap-2 ${
-                taskFeedback.type === 'success'
+              className={`p-3 rounded-2xl text-xs font-bold flex items-center gap-2 ${taskFeedback.type === 'success'
                   ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                   : 'bg-red-50 text-red-700 border border-red-200'
-              }`}
+                }`}
             >
               {taskFeedback.type === 'success' ? (
                 <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
@@ -865,11 +864,10 @@ function ManagerPageInner() {
                     <button
                       type="button"
                       onClick={() => setDeliveryType('DELIVERY')}
-                      className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
-                        deliveryType === 'DELIVERY'
+                      className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${deliveryType === 'DELIVERY'
                           ? 'bg-brand-forest text-white shadow-sm'
                           : 'bg-surface-cream text-content-muted border border-border-subtle'
-                      }`}
+                        }`}
                     >
                       <span className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${deliveryType === 'DELIVERY' ? 'border-white bg-white' : 'border-content-muted'}`}>
                         {deliveryType === 'DELIVERY' && <span className="w-1.5 h-1.5 rounded-full bg-brand-forest" />}
@@ -880,11 +878,10 @@ function ManagerPageInner() {
                     <button
                       type="button"
                       onClick={() => setDeliveryType('PICKUP')}
-                      className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
-                        deliveryType === 'PICKUP'
+                      className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${deliveryType === 'PICKUP'
                           ? 'bg-brand-forest text-white shadow-sm'
                           : 'bg-surface-cream text-content-muted border border-border-subtle'
-                      }`}
+                        }`}
                     >
                       <span className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${deliveryType === 'PICKUP' ? 'border-white bg-white' : 'border-content-muted'}`}>
                         {deliveryType === 'PICKUP' && <span className="w-1.5 h-1.5 rounded-full bg-brand-forest" />}
@@ -1018,11 +1015,10 @@ function ManagerPageInner() {
                             key={act}
                             type="button"
                             onClick={() => toggleActivity(act)}
-                            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
-                              isChecked
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${isChecked
                                 ? 'bg-brand-forest text-white border-brand-forest shadow-sm'
                                 : 'bg-surface-cream text-content-muted border-border-subtle'
-                            }`}
+                              }`}
                           >
                             <span className={`w-3.5 h-3.5 rounded flex items-center justify-center text-[10px] ${isChecked ? 'bg-brand-lime text-brand-forest' : 'border border-content-muted'}`}>
                               {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
@@ -1102,11 +1098,10 @@ function ManagerPageInner() {
 
                       <div className="text-right">
                         <span
-                          className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black ${
-                            isAllDone
+                          className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black ${isAllDone
                               ? 'bg-emerald-100 text-emerald-800'
                               : 'bg-amber-100 text-amber-800'
-                          }`}
+                            }`}
                         >
                           {isAllDone ? 'Done' : `${completedCount}/${a.taskUnits.length}`}
                         </span>
@@ -1190,11 +1185,10 @@ function ManagerPageInner() {
               <button
                 key={tab}
                 onClick={() => setStaffProfileTab(tab)}
-                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold capitalize transition-all whitespace-nowrap ${
-                  staffProfileTab === tab
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold capitalize transition-all whitespace-nowrap ${staffProfileTab === tab
                     ? 'bg-brand-forest text-white shadow-sm'
                     : 'text-content-muted hover:text-brand-forest'
-                }`}
+                  }`}
               >
                 {tab}
               </button>
@@ -1232,10 +1226,10 @@ function ManagerPageInner() {
                     <span className="font-bold text-brand-forest">
                       {selectedStaff.joiningDate
                         ? new Date(selectedStaff.joiningDate).toLocaleDateString('en-IN', {
-                            day: '2-digit',
-                            month: 'short',
-                            year: 'numeric',
-                          })
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                        })
                         : 'Not provided'}
                     </span>
                   </div>
@@ -1440,9 +1434,8 @@ function ManagerPageInner() {
                         <div className="flex items-center justify-between gap-3">
                           <div className="flex items-center gap-3">
                             <div
-                              className={`w-7 h-7 rounded-full flex items-center justify-center ${
-                                isAllCompleted ? 'bg-emerald-100 text-emerald-800' : 'bg-surface-cream text-content-muted'
-                              }`}
+                              className={`w-7 h-7 rounded-full flex items-center justify-center ${isAllCompleted ? 'bg-emerald-100 text-emerald-800' : 'bg-surface-cream text-content-muted'
+                                }`}
                             >
                               <CheckCircle2 className="w-4 h-4" />
                             </div>
@@ -1463,9 +1456,8 @@ function ManagerPageInner() {
 
                           <div className="flex items-center gap-2">
                             <span
-                              className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                                isAllCompleted ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                              }`}
+                              className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black ${isAllCompleted ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                }`}
                             >
                               {isAllCompleted
                                 ? lastCompletedAt
@@ -1573,11 +1565,10 @@ function ManagerPageInner() {
                                       return (
                                         <span
                                           key={u.id}
-                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${
-                                            isUnitDone
+                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${isUnitDone
                                               ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
                                               : 'bg-amber-50 text-amber-800 border border-amber-200'
-                                          }`}
+                                            }`}
                                           title={`${u.activityCode || 'Task'}: ${isUnitDone ? 'Completed' : 'Pending'}`}
                                         >
                                           {isUnitDone ? <CheckCircle2 className="w-3 h-3 text-emerald-700" /> : <Clock className="w-3 h-3 text-amber-500" />}
@@ -1719,10 +1710,10 @@ function ManagerPageInner() {
                     {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => {
                       const dayPct = staffMonthlySummary.dailyProgress?.[i]
                         ? Math.round(
-                            (staffMonthlySummary.dailyProgress[i].completed /
-                              Math.max(1, staffMonthlySummary.dailyProgress[i].total)) *
-                              100
-                          )
+                          (staffMonthlySummary.dailyProgress[i].completed /
+                            Math.max(1, staffMonthlySummary.dailyProgress[i].total)) *
+                          100
+                        )
                         : 0;
                       return (
                         <div key={day} className="flex flex-col items-center gap-1.5">
@@ -1829,160 +1820,160 @@ function ManagerPageInner() {
 
           <div className={`space-y-4 transition-opacity duration-200 ${isShowingStaleDate ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
 
-          {/* Stat Row 1: Staff status matching Screen 2 */}
-          <div className="grid grid-cols-3 gap-2.5">
-            <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
-              <span className="text-xl font-black text-brand-forest block">{totalStaffCount}</span>
-              <span className="text-[11px] font-bold text-content-muted">Total Staff</span>
-            </div>
-            <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
-              <span className="text-xl font-black text-emerald-700 block">{presentCount}</span>
-              <span className="text-[11px] font-bold text-emerald-600">Present</span>
-            </div>
-            <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
-              <span className="text-xl font-black text-red-600 block">{absentCount}</span>
-              <span className="text-[11px] font-bold text-red-500">Absent</span>
-            </div>
-          </div>
-
-          {/* Stat Row 2: Task units for the selected date (1 unit = 1 piece × 1 work step) */}
-          <div className="grid grid-cols-3 gap-2.5">
-            <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
-              <span className="text-xl font-black text-[#2563EB] block">
-                {dashboardData?.todayTasks?.total ?? 0}
-              </span>
-              <span className="text-[11px] font-bold text-[#2563EB]/80">Total Tasks</span>
-            </div>
-            <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
-              <span className="text-xl font-black text-emerald-700 block">
-                {dashboardData?.todayTasks?.completed ?? 0}
-              </span>
-              <span className="text-[11px] font-bold text-emerald-600">Completed</span>
-            </div>
-            <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
-              <span className="text-xl font-black text-red-600 block">
-                {dashboardData?.todayTasks?.pending ?? 0}
-              </span>
-              <span className="text-[11px] font-bold text-red-500">Pending</span>
-            </div>
-          </div>
-          <p className="-mt-2 text-[10px] text-content-muted text-center font-medium">
-            Task count = pieces × work steps (e.g. 10 shirts × Wash + Iron = 20). Completed = steps staff have ticked done.
-          </p>
-
-          {/* Attendance Overview Card with Donut Ring (Screen 2) */}
-          <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
-            <h3 className="text-xs font-black text-brand-forest">Attendance Overview</h3>
-            <div className="flex items-center justify-around gap-4 pt-1">
-              {/* Circular Gauge */}
-              <div className="relative w-28 h-28 flex items-center justify-center">
-                <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-                  <circle cx="50" cy="50" r="40" stroke="#F1F5F9" strokeWidth="9" fill="none" />
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    stroke="#245431"
-                    strokeWidth="9"
-                    strokeDasharray="251.2"
-                    strokeDashoffset={251.2 * (1 - attendanceRate / 100)}
-                    strokeLinecap="round"
-                    fill="none"
-                  />
-                </svg>
-                <div className="absolute text-center">
-                  <span className="text-xl font-black text-brand-forest">{attendanceRate}%</span>
-                  <span className="block text-[8px] font-bold text-content-muted">Present</span>
-                </div>
+            {/* Stat Row 1: Staff status matching Screen 2 */}
+            <div className="grid grid-cols-3 gap-2.5">
+              <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
+                <span className="text-xl font-black text-brand-forest block">{totalStaffCount}</span>
+                <span className="text-[11px] font-bold text-content-muted">Total Staff</span>
               </div>
-
-              {/* Legend matching Screen 2 */}
-              <div className="space-y-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
-                  <span className="text-content-muted font-medium">Present</span>
-                  <span className="font-extrabold text-brand-forest ml-auto">{presentCount}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
-                  <span className="text-content-muted font-medium">Absent</span>
-                  <span className="font-extrabold text-brand-forest ml-auto">{absentCount}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                  <span className="text-content-muted font-medium">Half Day</span>
-                  <span className="font-extrabold text-brand-forest ml-auto">{halfDayCount}</span>
-                </div>
+              <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
+                <span className="text-xl font-black text-emerald-700 block">{presentCount}</span>
+                <span className="text-[11px] font-bold text-emerald-600">Present</span>
+              </div>
+              <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
+                <span className="text-xl font-black text-red-600 block">{absentCount}</span>
+                <span className="text-[11px] font-bold text-red-500">Absent</span>
               </div>
             </div>
-          </div>
 
-          {/* Services for the selected date — one card per active service in the DB catalogue */}
-          <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-black text-brand-forest">
-                {isViewingToday ? 'Today\'s Tasks by Service' : `Tasks by Service — ${reportDateLabel}`}
-              </h3>
-              <span className="text-[10px] font-bold text-content-muted">done / total</span>
+            {/* Stat Row 2: Task units for the selected date (1 unit = 1 piece × 1 work step) */}
+            <div className="grid grid-cols-3 gap-2.5">
+              <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
+                <span className="text-xl font-black text-[#2563EB] block">
+                  {dashboardData?.todayTasks?.total ?? 0}
+                </span>
+                <span className="text-[11px] font-bold text-[#2563EB]/80">Total Tasks</span>
+              </div>
+              <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
+                <span className="text-xl font-black text-emerald-700 block">
+                  {dashboardData?.todayTasks?.completed ?? 0}
+                </span>
+                <span className="text-[11px] font-bold text-emerald-600">Completed</span>
+              </div>
+              <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm text-center">
+                <span className="text-xl font-black text-red-600 block">
+                  {dashboardData?.todayTasks?.pending ?? 0}
+                </span>
+                <span className="text-[11px] font-bold text-red-500">Pending</span>
+              </div>
             </div>
-            {(dashboardData?.serviceBreakdown ?? []).length === 0 ? (
-              <p className="text-xs text-content-muted text-center py-2">No services configured. Owner can add services in Owner › Services.</p>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                {(dashboardData?.serviceBreakdown ?? []).map((s) => (
-                  <div
-                    key={s.id}
-                    className={`p-3 rounded-xl border ${s.totalUnits > 0 ? 'bg-[#EEF5EF] border-emerald-100' : 'bg-surface-cream/40 border-border-subtle'}`}
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-[11px] font-bold text-brand-forest truncate" title={s.name}>{s.name}</span>
-                      <span className="text-[9px] font-mono font-bold text-content-muted shrink-0">{s.code}</span>
-                    </div>
-                    <div className="mt-1 flex items-baseline gap-1">
-                      <span className="text-lg font-black text-brand-forest">{s.completedUnits}</span>
-                      <span className="text-xs font-bold text-content-muted">/ {s.totalUnits}</span>
-                    </div>
-                    <div className="w-full h-1.5 rounded-full bg-border-subtle overflow-hidden mt-1">
-                      <div className="h-full bg-emerald-600 rounded-full transition-all" style={{ width: `${s.percentage}%` }} />
-                    </div>
-                    <span className="text-[10px] text-content-muted font-medium block mt-1">
-                      {s.orders} orders • {s.pieces} pcs
-                    </span>
+            <p className="-mt-2 text-[10px] text-content-muted text-center font-medium">
+              Task count = pieces × work steps (e.g. 10 shirts × Wash + Iron = 20). Completed = steps staff have ticked done.
+            </p>
+
+            {/* Attendance Overview Card with Donut Ring (Screen 2) */}
+            <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
+              <h3 className="text-xs font-black text-brand-forest">Attendance Overview</h3>
+              <div className="flex items-center justify-around gap-4 pt-1">
+                {/* Circular Gauge */}
+                <div className="relative w-28 h-28 flex items-center justify-center">
+                  <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="40" stroke="#F1F5F9" strokeWidth="9" fill="none" />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      stroke="#245431"
+                      strokeWidth="9"
+                      strokeDasharray="251.2"
+                      strokeDashoffset={251.2 * (1 - attendanceRate / 100)}
+                      strokeLinecap="round"
+                      fill="none"
+                    />
+                  </svg>
+                  <div className="absolute text-center">
+                    <span className="text-xl font-black text-brand-forest">{attendanceRate}%</span>
+                    <span className="block text-[8px] font-bold text-content-muted">Present</span>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+                </div>
 
-          {/* Recent Activity Stream matching Screen 2 */}
-          <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
-            <h3 className="text-xs font-black text-brand-forest">Recent Activity</h3>
-            <div className="space-y-2.5 text-xs">
-              {staffList.filter((s) => s.attendanceToday.checkInAt).length > 0 ? (
-                staffList
-                  .filter((s) => s.attendanceToday.checkInAt)
-                  .sort((a, b) => new Date(b.attendanceToday.checkInAt!).getTime() - new Date(a.attendanceToday.checkInAt!).getTime())
-                  .slice(0, 3)
-                  .map((s) => (
-                    <div key={s.id} className="flex items-center justify-between py-1.5 border-b border-border-subtle/40 last:border-0">
-                      <div className="flex items-center gap-2.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span className="font-semibold text-brand-forest">
-                          <strong>{s.staffMember.fullName}</strong> checked in
-                        </span>
+                {/* Legend matching Screen 2 */}
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
+                    <span className="text-content-muted font-medium">Present</span>
+                    <span className="font-extrabold text-brand-forest ml-auto">{presentCount}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                    <span className="text-content-muted font-medium">Absent</span>
+                    <span className="font-extrabold text-brand-forest ml-auto">{absentCount}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                    <span className="text-content-muted font-medium">Half Day</span>
+                    <span className="font-extrabold text-brand-forest ml-auto">{halfDayCount}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Services for the selected date — one card per active service in the DB catalogue */}
+            <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-black text-brand-forest">
+                  {isViewingToday ? 'Today\'s Tasks by Service' : `Tasks by Service — ${reportDateLabel}`}
+                </h3>
+                <span className="text-[10px] font-bold text-content-muted">done / total</span>
+              </div>
+              {(dashboardData?.serviceBreakdown ?? []).length === 0 ? (
+                <p className="text-xs text-content-muted text-center py-2">No services configured. Owner can add services in Owner › Services.</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {(dashboardData?.serviceBreakdown ?? []).map((s) => (
+                    <div
+                      key={s.id}
+                      className={`p-3 rounded-xl border ${s.totalUnits > 0 ? 'bg-[#EEF5EF] border-emerald-100' : 'bg-surface-cream/40 border-border-subtle'}`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[11px] font-bold text-brand-forest truncate" title={s.name}>{s.name}</span>
+                        <span className="text-[9px] font-mono font-bold text-content-muted shrink-0">{s.code}</span>
                       </div>
-                      <span className="text-[10px] text-content-muted font-mono font-medium">
-                        {new Date(s.attendanceToday.checkInAt!).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                      <div className="mt-1 flex items-baseline gap-1">
+                        <span className="text-lg font-black text-brand-forest">{s.completedUnits}</span>
+                        <span className="text-xs font-bold text-content-muted">/ {s.totalUnits}</span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-border-subtle overflow-hidden mt-1">
+                        <div className="h-full bg-emerald-600 rounded-full transition-all" style={{ width: `${s.percentage}%` }} />
+                      </div>
+                      <span className="text-[10px] text-content-muted font-medium block mt-1">
+                        {s.orders} orders • {s.pieces} pcs
                       </span>
                     </div>
-                  ))
-              ) : (
-                <p className="text-xs text-content-muted text-center py-2 font-medium">
-                  No check-ins recorded for {isViewingToday ? 'today' : reportDateLabel}.
-                </p>
+                  ))}
+                </div>
               )}
             </div>
-          </div>
+
+            {/* Recent Activity Stream matching Screen 2 */}
+            <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
+              <h3 className="text-xs font-black text-brand-forest">Recent Activity</h3>
+              <div className="space-y-2.5 text-xs">
+                {staffList.filter((s) => s.attendanceToday.checkInAt).length > 0 ? (
+                  staffList
+                    .filter((s) => s.attendanceToday.checkInAt)
+                    .sort((a, b) => new Date(b.attendanceToday.checkInAt!).getTime() - new Date(a.attendanceToday.checkInAt!).getTime())
+                    .slice(0, 3)
+                    .map((s) => (
+                      <div key={s.id} className="flex items-center justify-between py-1.5 border-b border-border-subtle/40 last:border-0">
+                        <div className="flex items-center gap-2.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span className="font-semibold text-brand-forest">
+                            <strong>{s.staffMember.fullName}</strong> checked in
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-content-muted font-mono font-medium">
+                          {new Date(s.attendanceToday.checkInAt!).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    ))
+                ) : (
+                  <p className="text-xs text-content-muted text-center py-2 font-medium">
+                    No check-ins recorded for {isViewingToday ? 'today' : reportDateLabel}.
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -2033,11 +2024,10 @@ function ManagerPageInner() {
               <button
                 key={role}
                 onClick={() => setSelectedRoleFilter(role)}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
-                  selectedRoleFilter === role
+                className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${selectedRoleFilter === role
                     ? 'bg-brand-forest text-white shadow-sm'
                     : 'bg-white border border-border-subtle text-content-muted hover:text-brand-forest'
-                }`}
+                  }`}
               >
                 {role === 'ALL' ? `All (${roleCounts['ALL']})` : `${role} (${roleCounts[role]})`}
               </button>
@@ -2175,13 +2165,12 @@ function ManagerPageInner() {
                   <h3 className="text-sm font-black">{managerDisplayName}</h3>
                 </div>
               </div>
-              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                managerSession?.status === 'OPEN'
+              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${managerSession?.status === 'OPEN'
                   ? 'bg-emerald-400 text-emerald-950'
                   : managerSession?.checkOutAt
-                  ? 'bg-blue-300 text-blue-950'
-                  : 'bg-amber-400 text-amber-950'
-              }`}>
+                    ? 'bg-blue-300 text-blue-950'
+                    : 'bg-amber-400 text-amber-950'
+                }`}>
                 {managerSession?.status === 'OPEN' ? 'Checked In' : managerSession?.checkOutAt ? 'Completed Shift' : 'Not Marked'}
               </span>
             </div>
@@ -2234,35 +2223,35 @@ function ManagerPageInner() {
                 </button>
               </div>
             ) : (
-            <div className="flex gap-2">
-              {managerSession?.status === 'OPEN' ? (
-                <button
-                  type="button"
-                  disabled={isProcessingAttendance}
-                  onClick={() => {
-                    setCameraAction('check-out');
-                    setIsLiveCameraOpen(true);
-                  }}
-                  className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-700 active:scale-[0.99] text-white text-xs font-black shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-                >
-                  <Camera className="w-4 h-4" />
-                  <span>{isProcessingAttendance ? 'Processing...' : 'Check Out with Live Camera'}</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={isProcessingAttendance}
-                  onClick={() => {
-                    setCameraAction('check-in');
-                    setIsLiveCameraOpen(true);
-                  }}
-                  className="w-full py-2.5 rounded-xl bg-brand-lime hover:bg-[#8fd033] active:scale-[0.99] text-brand-forest text-xs font-black shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-                >
-                  <Camera className="w-4 h-4 text-brand-forest" />
-                  <span>{isProcessingAttendance ? 'Verifying...' : 'Check In with Live Camera'}</span>
-                </button>
-              )}
-            </div>
+              <div className="flex gap-2">
+                {managerSession?.status === 'OPEN' ? (
+                  <button
+                    type="button"
+                    disabled={isProcessingAttendance}
+                    onClick={() => {
+                      setCameraAction('check-out');
+                      setIsLiveCameraOpen(true);
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-700 active:scale-[0.99] text-white text-xs font-black shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>{isProcessingAttendance ? 'Processing...' : 'Check Out with Live Camera'}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={isProcessingAttendance}
+                    onClick={() => {
+                      setCameraAction('check-in');
+                      setIsLiveCameraOpen(true);
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-brand-lime hover:bg-[#8fd033] active:scale-[0.99] text-brand-forest text-xs font-black shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                  >
+                    <Camera className="w-4 h-4 text-brand-forest" />
+                    <span>{isProcessingAttendance ? 'Verifying...' : 'Check In with Live Camera'}</span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -2474,21 +2463,19 @@ function ManagerPageInner() {
           <div className="flex items-center gap-1 p-1 bg-surface-cream rounded-xl border border-border-subtle">
             <button
               onClick={() => setManagerProfileSubtab('attendance')}
-              className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all text-center ${
-                managerProfileSubtab === 'attendance'
+              className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all text-center ${managerProfileSubtab === 'attendance'
                   ? 'bg-brand-forest text-white shadow-sm'
                   : 'text-content-muted hover:text-brand-forest'
-              }`}
+                }`}
             >
               Attendance
             </button>
             <button
               onClick={() => setManagerProfileSubtab('details')}
-              className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all text-center ${
-                managerProfileSubtab === 'details'
+              className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all text-center ${managerProfileSubtab === 'details'
                   ? 'bg-brand-forest text-white shadow-sm'
                   : 'text-content-muted hover:text-brand-forest'
-              }`}
+                }`}
             >
               Profile Details
             </button>
@@ -2500,11 +2487,10 @@ function ManagerPageInner() {
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-black text-brand-forest">Mark Attendance</h3>
                 <span
-                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                    managerSession?.status === 'OPEN'
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${managerSession?.status === 'OPEN'
                       ? 'bg-emerald-100 text-emerald-800'
                       : 'bg-surface-cream text-content-muted'
-                  }`}
+                    }`}
                 >
                   {managerSession?.status === 'OPEN'
                     ? `Checked In: ${new Date(managerSession.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
@@ -2603,7 +2589,7 @@ function ManagerPageInner() {
                     <h3 className="text-xs font-black text-brand-forest">Personal & Employment Details</h3>
                     <p className="text-[10px] text-content-muted">Your verified profile details in this store</p>
                   </div>
-                  <button
+                  {/* <button
                     type="button"
                     onClick={() => {
                       setEditFullName(user?.staffMember?.fullName || '');
@@ -2618,7 +2604,7 @@ function ManagerPageInner() {
                   >
                     <Pencil className="w-3 h-3" />
                     <span>Edit Details</span>
-                  </button>
+                  </button> */}
                 </div>
 
                 <div className="space-y-2 pt-1">
@@ -2753,11 +2739,10 @@ function ManagerPageInner() {
               setActiveDrilldown(null);
               setCurrentNav('dashboard');
             }}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${
-              currentNav === 'dashboard' && !activeDrilldown
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${currentNav === 'dashboard' && !activeDrilldown
                 ? 'text-brand-forest font-bold scale-105'
                 : 'text-content-muted hover:text-brand-forest font-medium'
-            }`}
+              }`}
           >
             <LayoutDashboard className="w-5 h-5 stroke-[2.2]" />
             <span className="text-[10px]">Dashboard</span>
@@ -2768,11 +2753,10 @@ function ManagerPageInner() {
               setActiveDrilldown(null);
               setCurrentNav('staff');
             }}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${
-              currentNav === 'staff' || activeDrilldown
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${currentNav === 'staff' || activeDrilldown
                 ? 'text-brand-forest font-bold scale-105'
                 : 'text-content-muted hover:text-brand-forest font-medium'
-            }`}
+              }`}
           >
             <Users className="w-5 h-5 stroke-[2.2]" />
             <span className="text-[10px]">Staff</span>
@@ -2783,11 +2767,10 @@ function ManagerPageInner() {
               setActiveDrilldown(null);
               setCurrentNav('attendance');
             }}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${
-              currentNav === 'attendance' && !activeDrilldown
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${currentNav === 'attendance' && !activeDrilldown
                 ? 'text-brand-forest font-bold scale-105'
                 : 'text-content-muted hover:text-brand-forest font-medium'
-            }`}
+              }`}
           >
             <CalendarCheck2 className="w-5 h-5 stroke-[2.2]" />
             <span className="text-[10px]">Attendance</span>
@@ -2798,11 +2781,10 @@ function ManagerPageInner() {
               setActiveDrilldown(null);
               setCurrentNav('reports');
             }}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${
-              currentNav === 'reports' && !activeDrilldown
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${currentNav === 'reports' && !activeDrilldown
                 ? 'text-brand-forest font-bold scale-105'
                 : 'text-content-muted hover:text-brand-forest font-medium'
-            }`}
+              }`}
           >
             <BarChart3 className="w-5 h-5 stroke-[2.2]" />
             <span className="text-[10px]">Reports</span>
@@ -2813,11 +2795,10 @@ function ManagerPageInner() {
               setActiveDrilldown(null);
               setCurrentNav('profile');
             }}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${
-              currentNav === 'profile' && !activeDrilldown
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${currentNav === 'profile' && !activeDrilldown
                 ? 'text-brand-forest font-bold scale-105'
                 : 'text-content-muted hover:text-brand-forest font-medium'
-            }`}
+              }`}
           >
             <User className="w-5 h-5 stroke-[2.2]" />
             <span className="text-[10px]">Profile</span>
