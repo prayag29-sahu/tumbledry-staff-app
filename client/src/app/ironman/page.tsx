@@ -6,6 +6,7 @@ import { apiRequest } from '../../lib/api';
 import { TaskAssignment, TaskSummary, TaskUnit } from '../../types';
 import { ProgressRing } from '../../components/ProgressRing';
 import { DamageModal } from '../../components/DamageModal';
+import { DamageIncidentViewerModal, DamageIncidentRecord } from '../../components/DamageIncidentViewerModal';
 import {
   Calendar,
   CheckCircle2,
@@ -16,6 +17,7 @@ import {
   Flame,
   Check,
   X,
+  ChevronRight,
 } from 'lucide-react';
 
 export default function IronmanPage() {
@@ -36,6 +38,7 @@ export default function IronmanPage() {
     pieceNumber?: number;
     orderId?: string;
   } | null>(null);
+  const [viewingDamageIncident, setViewingDamageIncident] = useState<DamageIncidentRecord | null>(null);
 
   const staffMemberId = user?.staffMember?.id;
 
@@ -220,25 +223,96 @@ export default function IronmanPage() {
                   </span>
                 </div>
 
+                {/* Reported Damage Banner */}
+                {assignment.damageIncidents && assignment.damageIncidents.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-border-subtle/80 space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-xs font-black text-status-danger uppercase tracking-wider">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      <span>Reported Damage Evidence ({assignment.damageIncidents.length})</span>
+                    </div>
+                    {assignment.damageIncidents.map((dmg) => (
+                      <div
+                        key={dmg.id}
+                        onClick={() =>
+                          setViewingDamageIncident({
+                            ...(dmg as unknown as DamageIncidentRecord),
+                            taskAssignment: {
+                              orderId: assignment.orderId,
+                              serviceType: assignment.serviceType ? { name: assignment.serviceType.name } : undefined,
+                            },
+                          })
+                        }
+                        className="cursor-pointer p-2.5 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 flex items-center justify-between gap-2 transition-colors"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs font-bold text-red-900 shrink-0">
+                            {dmg.pieceNumber ? `Piece #${dmg.pieceNumber}` : 'Damage Report'}
+                          </span>
+                          <span className="text-[11px] text-red-700 truncate font-medium">
+                            {dmg.notes || 'Damage reported'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {dmg.photoPath && (
+                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                              📷 Photo
+                            </span>
+                          )}
+                          <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">
+                            {dmg.status}
+                          </span>
+                          <ChevronRight className="w-3.5 h-3.5 text-red-400" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* Pieces */}
                 <div className="mt-3 space-y-2.5">
                   {pieceNumbers.map((pieceNum) => {
                     const pieceUnits = assignment.taskUnits.filter(
                       (u) => u.pieceNumber === pieceNum
                     );
+                    const pieceDmg =
+                      assignment.damageIncidents?.find((d) => d.pieceNumber === pieceNum) ||
+                      pieceUnits.flatMap((u) => u.damageIncidents || []).find(Boolean);
 
                     return (
                       <div
                         key={pieceNum}
-                        className="bg-surface-cream/70 rounded-xl p-3 border border-border-subtle/80 flex flex-wrap items-center justify-between gap-2"
+                        className={`rounded-xl p-3 border flex flex-wrap items-center justify-between gap-2 transition-all ${
+                          pieceDmg
+                            ? 'bg-red-50/70 border-red-200 shadow-sm'
+                            : 'bg-surface-cream/70 border-border-subtle/80'
+                        }`}
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <div className="w-6 h-6 rounded-lg bg-surface-card border border-border-subtle flex items-center justify-center text-xs font-bold text-brand-forest shadow-clay-sm">
                             {pieceNum}
                           </div>
                           <span className="text-xs font-bold text-brand-forest">
                             Piece #{pieceNum}
                           </span>
+                          {pieceDmg && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setViewingDamageIncident({
+                                  ...(pieceDmg as unknown as DamageIncidentRecord),
+                                  taskAssignment: {
+                                    orderId: assignment.orderId,
+                                    serviceType: assignment.serviceType ? { name: assignment.serviceType.name } : undefined,
+                                  },
+                                })
+                              }
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-100 hover:bg-red-200 text-red-900 text-[10px] font-extrabold border border-red-300 transition-colors shadow-sm"
+                            >
+                              <AlertTriangle className="w-3 h-3 text-red-600" />
+                              <span>Damage ({pieceDmg.status})</span>
+                              {pieceDmg.photoPath && <span className="text-[9px] bg-red-200 px-1 rounded">📷 Photo</span>}
+                            </button>
+                          )}
                         </div>
 
                         {/* Activities (Iron / Fold / Pack) */}
@@ -272,6 +346,7 @@ export default function IronmanPage() {
 
                           {/* Damage Button */}
                           <button
+                            type="button"
                             onClick={() =>
                               setDamageTarget({
                                 taskAssignmentId: assignment.id,
@@ -279,8 +354,12 @@ export default function IronmanPage() {
                                 orderId: assignment.orderId || undefined,
                               })
                             }
-                            className="p-1.5 rounded-xl text-content-muted hover:text-status-danger hover:bg-status-danger/10 transition-colors"
-                            title="Report Damage for this piece"
+                            className={`p-1.5 rounded-xl transition-colors ${
+                              pieceDmg
+                                ? 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200'
+                                : 'text-content-muted hover:text-status-danger hover:bg-status-danger/10'
+                            }`}
+                            title={pieceDmg ? 'Damage reported. Click to report another issue' : 'Report Damage for this piece'}
                           >
                             <AlertTriangle className="w-4 h-4" />
                           </button>
@@ -308,8 +387,20 @@ export default function IronmanPage() {
           onSuccess={() => {
             setSuccessToast('Damage incident reported to Supervisor.');
             setTimeout(() => setSuccessToast(null), 4000);
-            fetchTasks();
+            fetchTasks(false);
           }}
+        />
+      )}
+
+      {/* Damage Incident Evidence Viewer Modal */}
+      {viewingDamageIncident && (
+        <DamageIncidentViewerModal
+          isOpen={true}
+          onClose={() => setViewingDamageIncident(null)}
+          incident={viewingDamageIncident}
+          shopId={activeShopId || ''}
+          canManage={false}
+          onUpdated={() => fetchTasks(false)}
         />
       )}
 

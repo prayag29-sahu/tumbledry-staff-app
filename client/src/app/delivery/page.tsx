@@ -5,6 +5,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../lib/api';
 import { TaskAssignment, TaskSummary, TaskUnit } from '../../types';
 import { ProgressRing } from '../../components/ProgressRing';
+import { DamageModal } from '../../components/DamageModal';
+import { DamageIncidentViewerModal, DamageIncidentRecord } from '../../components/DamageIncidentViewerModal';
 import {
   Calendar,
   Truck,
@@ -13,6 +15,10 @@ import {
   Clock,
   RotateCcw,
   Navigation,
+  AlertTriangle,
+  ChevronRight,
+  Check,
+  X,
 } from 'lucide-react';
 
 export default function DeliveryPage() {
@@ -26,11 +32,21 @@ export default function DeliveryPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [completingUnitId, setCompletingUnitId] = useState<string | null>(null);
 
+  // Damage modal & viewer state
+  const [damageTarget, setDamageTarget] = useState<{
+    taskAssignmentId: string;
+    taskUnitId?: string;
+    pieceNumber?: number;
+    orderId?: string;
+  } | null>(null);
+  const [viewingDamageIncident, setViewingDamageIncident] = useState<DamageIncidentRecord | null>(null);
+  const [successToast, setSuccessToast] = useState<string | null>(null);
+
   const staffMemberId = user?.staffMember?.id;
 
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = useCallback(async (showLoading = true) => {
     if (!activeShopId || !staffMemberId) return;
-    setIsLoading(true);
+    if (showLoading) setIsLoading(true);
     try {
       const data = await apiRequest<{
         assignments: TaskAssignment[];
@@ -44,12 +60,12 @@ export default function DeliveryPage() {
       setAssignments([]);
       setSummary(null);
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   }, [activeShopId, staffMemberId, selectedDate]);
 
   useEffect(() => {
-    fetchTasks();
+    fetchTasks(true);
   }, [fetchTasks]);
 
   const handleCompleteUnit = async (unit: TaskUnit) => {
@@ -61,7 +77,7 @@ export default function DeliveryPage() {
         `/api/shops/${activeShopId}/task-units/${unit.id}/complete`,
         { method: 'PATCH' }
       );
-      await fetchTasks();
+      await fetchTasks(false);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to complete task.');
     } finally {
@@ -156,8 +172,9 @@ export default function DeliveryPage() {
             Assigned Runs ({filteredAssignments.length})
           </h3>
           <button
-            onClick={fetchTasks}
+            onClick={() => fetchTasks(true)}
             className="p-1 rounded-lg text-content-muted hover:text-brand-forest"
+            title="Refresh Runs"
           >
             <RotateCcw className="w-4 h-4" />
           </button>
@@ -186,65 +203,165 @@ export default function DeliveryPage() {
               const unit = assignment.taskUnits[0];
               const isDone = unit?.status === 'COMPLETED';
               const isPending = completingUnitId === unit?.id;
+              const hasDamage = !!(assignment.damageIncidents && assignment.damageIncidents.length > 0);
+              const primaryDmg = assignment.damageIncidents?.[0];
 
               return (
                 <div
                   key={assignment.id}
-                  className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+                  className={`bg-surface-card rounded-clay border shadow-clay p-4 sm:p-5 transition-all ${
+                    hasDamage ? 'border-red-200 bg-red-50/20' : 'border-border-subtle'
+                  }`}
                 >
-                  <div className="flex items-start gap-3">
-                    <div className="p-3 rounded-2xl bg-[#EBF5FB] border border-[#AED6F1]/50 text-[#2980B9] shadow-clay-sm">
-                      <Truck className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-base font-extrabold text-brand-forest tracking-tight">
-                          {assignment.orderId ? `Order #${assignment.orderId}` : 'Delivery'}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold uppercase">
-                          Delivery
-                        </span>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                      <div className="p-3 rounded-2xl bg-[#EBF5FB] border border-[#AED6F1]/50 text-[#2980B9] shadow-clay-sm shrink-0">
+                        <Truck className="w-5 h-5" />
                       </div>
-                      <p className="text-xs text-content-muted mt-1">
-                        {assignment.pieceCount ? `${assignment.pieceCount} items to deliver` : 'Standard package'}{' '}
-                        {assignment.notes ? `• ${assignment.notes}` : ''}
-                      </p>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-base font-extrabold text-brand-forest tracking-tight">
+                            {assignment.orderId ? `Order #${assignment.orderId}` : 'Delivery'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold uppercase">
+                            Delivery
+                          </span>
+                          {hasDamage && primaryDmg && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setViewingDamageIncident({
+                                  ...(primaryDmg as unknown as DamageIncidentRecord),
+                                  taskAssignment: {
+                                    orderId: assignment.orderId,
+                                    serviceType: assignment.serviceType ? { name: assignment.serviceType.name } : undefined,
+                                  },
+                                })
+                              }
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-100 hover:bg-red-200 text-red-900 text-[10px] font-extrabold border border-red-300 transition-colors shadow-sm"
+                            >
+                              <AlertTriangle className="w-3 h-3 text-red-600" />
+                              <span>Damage ({primaryDmg.status})</span>
+                              {assignment.damageIncidents?.some((d) => d.photoPath) && (
+                                <span className="text-[9px] bg-red-200 px-1 rounded">📷 Photo</span>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-xs text-content-muted mt-1">
+                          {assignment.pieceCount ? `${assignment.pieceCount} items to deliver` : 'Standard package'}{' '}
+                          {assignment.notes ? `• ${assignment.notes}` : ''}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      {/* Report Damage / Issue Button */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDamageTarget({
+                            taskAssignmentId: assignment.id,
+                            orderId: assignment.orderId || undefined,
+                          })
+                        }
+                        className={`p-2.5 rounded-xl border transition-all flex items-center justify-center gap-1.5 text-xs font-bold ${
+                          hasDamage
+                            ? 'bg-red-100 text-red-700 border-red-300 hover:bg-red-200'
+                            : 'bg-surface-cream text-content-muted border-border-subtle hover:text-status-danger hover:border-red-200 hover:bg-red-50/50'
+                        }`}
+                        title={
+                          hasDamage
+                            ? 'Damage reported. Click to report another issue'
+                            : 'Report damage or issue with this delivery'
+                        }
+                      >
+                        <AlertTriangle className="w-4 h-4 text-status-danger" />
+                        <span className="hidden sm:inline">Report Issue</span>
+                      </button>
+
+                      {unit && (
+                        <button
+                          onClick={() => handleCompleteUnit(unit)}
+                          disabled={isDone || isPending}
+                          className={`flex-1 sm:flex-initial px-5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                            isDone
+                              ? 'bg-status-success/15 text-status-success border border-status-success/30 cursor-default'
+                              : 'clay-btn-forest'
+                          }`}
+                        >
+                          {isDone ? (
+                            <>
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>Delivered</span>
+                            </>
+                          ) : isPending ? (
+                            <>
+                              <Clock className="w-4 h-4 animate-spin" />
+                              <span>Updating...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Navigation className="w-4 h-4" />
+                              <span>Mark Delivered</span>
+                            </>
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
 
-                  {unit && (
-                    <button
-                      onClick={() => handleCompleteUnit(unit)}
-                      disabled={isDone || isPending}
-                      className={`w-full sm:w-auto px-5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-                        isDone
-                          ? 'bg-status-success/15 text-status-success border border-status-success/30 cursor-default'
-                          : 'clay-btn-forest'
-                      }`}
-                    >
-                      {isDone ? (
-                        <>
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>Delivered</span>
-                        </>
-                      ) : isPending ? (
-                        <>
-                          <Clock className="w-4 h-4 animate-spin" />
-                          <span>Updating...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Navigation className="w-4 h-4" />
-                          <span>Mark Delivered</span>
-                        </>
-                      )}
-                    </button>
+                  {/* Reported Damage Banner */}
+                  {hasDamage && (
+                    <div className="mt-3 pt-3 border-t border-border-subtle/80 space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-xs font-black text-status-danger uppercase tracking-wider">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        <span>Reported Damage Evidence ({assignment.damageIncidents!.length})</span>
+                      </div>
+                      {assignment.damageIncidents!.map((dmg) => (
+                        <div
+                          key={dmg.id}
+                          onClick={() =>
+                            setViewingDamageIncident({
+                              ...(dmg as unknown as DamageIncidentRecord),
+                              taskAssignment: {
+                                orderId: assignment.orderId,
+                                serviceType: assignment.serviceType ? { name: assignment.serviceType.name } : undefined,
+                              },
+                            })
+                          }
+                          className="cursor-pointer p-2.5 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 flex items-center justify-between gap-2 transition-colors"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-xs font-bold text-red-900 shrink-0">
+                              {dmg.pieceNumber ? `Piece #${dmg.pieceNumber}` : assignment.orderId ? `Order #${assignment.orderId}` : 'Damage Report'}
+                            </span>
+                            <span className="text-[11px] text-red-700 truncate font-medium">
+                              {dmg.notes || 'Damage reported'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {dmg.photoPath && (
+                              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                                📷 Photo
+                              </span>
+                            )}
+                            <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">
+                              {dmg.status}
+                            </span>
+                            <ChevronRight className="w-3.5 h-3.5 text-red-400" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               );
             }
 
             // Pickups: Count-based sequence 1..N
+            const hasBatchDamage = !!(assignment.damageIncidents && assignment.damageIncidents.length > 0);
+
             return (
               <div
                 key={assignment.id}
@@ -264,49 +381,154 @@ export default function DeliveryPage() {
                       </p>
                     </div>
                   </div>
-                  <span className="text-[11px] font-semibold text-content-muted bg-surface-cream px-2 py-0.5 rounded-lg border border-border-subtle">
-                    {assignment.taskUnits.filter((u) => u.status === 'COMPLETED').length} /{' '}
-                    {assignment.taskUnits.length} Picked
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-semibold text-content-muted bg-surface-cream px-2 py-0.5 rounded-lg border border-border-subtle">
+                      {assignment.taskUnits.filter((u) => u.status === 'COMPLETED').length} /{' '}
+                      {assignment.taskUnits.length} Picked
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDamageTarget({
+                          taskAssignmentId: assignment.id,
+                        })
+                      }
+                      className={`p-1.5 rounded-xl border transition-colors ${
+                        hasBatchDamage
+                          ? 'bg-red-100 text-red-700 border-red-300 hover:bg-red-200'
+                          : 'text-content-muted hover:text-status-danger hover:bg-status-danger/10 border-transparent'
+                      }`}
+                      title="Report issue with pickup batch"
+                    >
+                      <AlertTriangle className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
+
+                {/* Reported Damage Banner for Pickups */}
+                {hasBatchDamage && (
+                  <div className="mt-3 pt-3 border-t border-border-subtle/80 space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-xs font-black text-status-danger uppercase tracking-wider">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      <span>Reported Damage Evidence ({assignment.damageIncidents!.length})</span>
+                    </div>
+                    {assignment.damageIncidents!.map((dmg) => (
+                      <div
+                        key={dmg.id}
+                        onClick={() =>
+                          setViewingDamageIncident({
+                            ...(dmg as unknown as DamageIncidentRecord),
+                            taskAssignment: { orderId: assignment.orderId },
+                          })
+                        }
+                        className="cursor-pointer p-2.5 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 flex items-center justify-between gap-2 transition-colors"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs font-bold text-red-900 shrink-0">
+                            {dmg.pieceNumber ? `Pickup #${dmg.pieceNumber}` : 'Damage Report'}
+                          </span>
+                          <span className="text-[11px] text-red-700 truncate font-medium">
+                            {dmg.notes || 'Damage reported'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {dmg.photoPath && (
+                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                              📷 Photo
+                            </span>
+                          )}
+                          <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">
+                            {dmg.status}
+                          </span>
+                          <ChevronRight className="w-3.5 h-3.5 text-red-400" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {assignment.taskUnits.map((unit) => {
                     const isDone = unit.status === 'COMPLETED';
                     const isPending = completingUnitId === unit.id;
+                    const seqNum = unit.sequenceNumber || 1;
+                    const unitDmg = assignment.damageIncidents?.find(
+                      (d) => d.taskUnitId === unit.id || d.pieceNumber === seqNum
+                    );
 
                     return (
                       <div
                         key={unit.id}
-                        className="bg-surface-cream/70 rounded-xl p-3 border border-border-subtle flex items-center justify-between"
+                        className={`rounded-xl p-3 border flex items-center justify-between transition-all ${
+                          unitDmg
+                            ? 'bg-red-50/70 border-red-200'
+                            : 'bg-surface-cream/70 border-border-subtle'
+                        }`}
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="w-6 h-6 rounded-lg bg-surface-card border border-border-subtle flex items-center justify-center text-xs font-bold text-brand-forest shadow-clay-sm">
-                            {unit.sequenceNumber || 1}
+                            {seqNum}
                           </span>
                           <span className="text-xs font-bold text-brand-forest">
-                            Pickup #{unit.sequenceNumber || 1}
+                            Pickup #{seqNum}
                           </span>
+                          {unitDmg && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setViewingDamageIncident({
+                                  ...(unitDmg as unknown as DamageIncidentRecord),
+                                  taskAssignment: { orderId: assignment.orderId },
+                                })
+                              }
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-100 hover:bg-red-200 text-red-900 text-[10px] font-extrabold border border-red-300 transition-colors shadow-sm"
+                            >
+                              <AlertTriangle className="w-3 h-3 text-red-600" />
+                              <span>Damage ({unitDmg.status})</span>
+                              {unitDmg.photoPath && <span className="text-[9px] bg-red-200 px-1 rounded">📷 Photo</span>}
+                            </button>
+                          )}
                         </div>
 
-                        <button
-                          onClick={() => handleCompleteUnit(unit)}
-                          disabled={isDone || isPending}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                            isDone
-                              ? 'bg-status-success/15 text-status-success border border-status-success/30 cursor-default'
-                              : 'clay-btn-lime'
-                          }`}
-                        >
-                          {isDone ? (
-                            <>
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Done</span>
-                            </>
-                          ) : (
-                            <span>Pick Up</span>
-                          )}
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDamageTarget({
+                                taskAssignmentId: assignment.id,
+                                taskUnitId: unit.id,
+                                pieceNumber: seqNum,
+                              })
+                            }
+                            className={`p-1.5 rounded-xl transition-colors ${
+                              unitDmg
+                                ? 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200'
+                                : 'text-content-muted hover:text-status-danger hover:bg-status-danger/10'
+                            }`}
+                            title={unitDmg ? 'Damage reported. Click to report another issue' : 'Report Damage for this pickup'}
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            onClick={() => handleCompleteUnit(unit)}
+                            disabled={isDone || isPending}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                              isDone
+                                ? 'bg-status-success/15 text-status-success border border-status-success/30 cursor-default'
+                                : 'clay-btn-lime'
+                            }`}
+                          >
+                            {isDone ? (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Done</span>
+                              </>
+                            ) : (
+                              <span>Pick Up</span>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -316,6 +538,50 @@ export default function DeliveryPage() {
           })
         )}
       </div>
+
+      {/* Damage Incident Modal */}
+      {damageTarget && (
+        <DamageModal
+          isOpen={true}
+          onClose={() => setDamageTarget(null)}
+          shopId={activeShopId || ''}
+          staffMemberId={staffMemberId || ''}
+          taskAssignmentId={damageTarget.taskAssignmentId}
+          taskUnitId={damageTarget.taskUnitId}
+          pieceNumber={damageTarget.pieceNumber}
+          orderId={damageTarget.orderId}
+          onSuccess={() => {
+            setSuccessToast('Damage incident reported to Supervisor.');
+            setTimeout(() => setSuccessToast(null), 4000);
+            fetchTasks(false);
+          }}
+        />
+      )}
+
+      {/* Damage Incident Evidence Viewer Modal */}
+      {viewingDamageIncident && (
+        <DamageIncidentViewerModal
+          isOpen={true}
+          onClose={() => setViewingDamageIncident(null)}
+          incident={viewingDamageIncident}
+          shopId={activeShopId || ''}
+          canManage={false}
+          onUpdated={() => fetchTasks(false)}
+        />
+      )}
+
+      {/* Floating In-App Success Toast */}
+      {successToast && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 px-4 py-3 bg-[#1E4327] text-white rounded-2xl shadow-clay-lg flex items-center gap-2.5 text-xs font-bold animate-fade-in border border-emerald-500/30">
+          <div className="w-5 h-5 rounded-full bg-brand-lime text-brand-forest flex items-center justify-center shrink-0">
+            <Check className="w-3.5 h-3.5 stroke-[3]" />
+          </div>
+          <span>{successToast}</span>
+          <button onClick={() => setSuccessToast(null)} className="ml-2 text-white/70 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
