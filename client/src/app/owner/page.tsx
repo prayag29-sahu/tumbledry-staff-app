@@ -201,6 +201,9 @@ interface StaffTaskDaySummary {
     orderId?: string | null;
     pieceCount?: number | null;
     pickupCount?: number | null;
+    notes?: string | null;
+    workflowProfileId?: string | null;
+    serviceTypeId?: string | null;
     workflowProfile?: { workflowType: string; name: string };
     serviceType?: { name: string; code: string };
     damageIncidents?: DamageIncidentRecord[];
@@ -210,6 +213,7 @@ interface StaffTaskDaySummary {
       status: string;
       activityCode?: string;
       unitType: string;
+      completedAt?: string | null;
       damageIncidents?: DamageIncidentRecord[];
     }>;
   }>;
@@ -2374,10 +2378,60 @@ function OwnerPageInner() {
                     {staffDaySummary.assignments && staffDaySummary.assignments.length > 0 && (
                       <div className="space-y-2 pt-2">
                         <h4 className="text-xs font-black text-brand-forest uppercase tracking-wider">
-                          Assignment Orders
+                          Assignment Tasks & Directives
                         </h4>
                         <div className="space-y-2">
                           {staffDaySummary.assignments.map((asg) => {
+                            const isDirective =
+                              asg.workflowProfile?.name?.includes('Directive') ||
+                              (asg as unknown as { workflowProfileId?: string }).workflowProfileId === 'wfp-directive' ||
+                              (!asg.pieceCount && !asg.serviceTypeId && !asg.pickupCount);
+
+                            if (isDirective) {
+                              const unit = asg.taskUnits[0];
+                              const isDone = unit?.status === 'COMPLETED';
+
+                              return (
+                                <div
+                                  key={asg.id}
+                                  className={`p-3.5 rounded-xl border shadow-sm space-y-2 text-xs transition-all ${
+                                    isDone ? 'bg-emerald-50/50 border-emerald-200' : 'bg-white border-border-subtle'
+                                  }`}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-900 font-extrabold text-[10px] uppercase tracking-wider">
+                                          Directive
+                                        </span>
+                                        <span className="font-extrabold text-brand-forest text-xs">
+                                          {asg.orderId || 'Operational Task'}
+                                        </span>
+                                      </div>
+                                      {asg.notes && (
+                                        <p className="text-[11px] text-content-muted leading-relaxed whitespace-pre-wrap">
+                                          {asg.notes}
+                                        </p>
+                                      )}
+                                      {unit?.completedAt && (
+                                        <p className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1">
+                                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                          Done at {new Date(unit.completedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <span
+                                      className={`shrink-0 px-2.5 py-0.5 rounded-md text-[10px] font-bold ${
+                                        isDone ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                      }`}
+                                    >
+                                      {isDone ? 'Completed' : 'Pending'}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            }
+
                             const isAsgExpanded = !!expandedTaskIds[asg.id];
                             const asgTotal = asg.taskUnits.length;
                             const asgDone = asg.taskUnits.filter((u) => u.status === 'COMPLETED').length;

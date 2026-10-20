@@ -143,6 +143,10 @@ interface StaffTaskDayResponse {
     id: string;
     orderId?: string | null;
     pieceCount?: number | null;
+    pickupCount?: number | null;
+    notes?: string | null;
+    workflowProfileId?: string | null;
+    serviceTypeId?: string | null;
     workflowProfile?: { workflowType: string; name: string };
     serviceType?: { name: string; code: string };
     damageIncidents?: DamageIncidentRecord[];
@@ -152,6 +156,7 @@ interface StaffTaskDayResponse {
       activityCode?: string | null;
       status: string;
       unitType: string;
+      completedAt?: string | null;
       damageIncidents?: DamageIncidentRecord[];
     }>;
   }>;
@@ -344,6 +349,24 @@ export default function SupervisorPage() {
   const [taskFeedback, setTaskFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [services, setServices] = useState<ServiceType[]>([]);
   const [workflowProfiles, setWorkflowProfiles] = useState<WorkflowProfile[]>([]);
+
+  // Directive task states for Manager & Non-Floor Staff
+  const [directiveTitle, setDirectiveTitle] = useState('');
+  const [directiveNotes, setDirectiveNotes] = useState('');
+  const [directivePriority, setDirectivePriority] = useState<'NORMAL' | 'HIGH' | 'URGENT'>('NORMAL');
+  const [completingDirectiveId, setCompletingDirectiveId] = useState<string | null>(null);
+
+  const isSelectedStaffFloor = useCallback(() => {
+    if (!selectedStaff) return true;
+    const roleName = (selectedStaff.positionCategory?.name || selectedStaff.role || '').toLowerCase();
+    return (
+      roleName.includes('wash') ||
+      roleName.includes('iron') ||
+      roleName.includes('press') ||
+      roleName.includes('deliver') ||
+      roleName.includes('pickup')
+    );
+  }, [selectedStaff]);
 
   // Custom Fields Builder Modal State (Screen 5)
   const [isAddingField, setIsAddingField] = useState(false);
@@ -735,8 +758,12 @@ export default function SupervisorPage() {
     setTaskOrderId('');
     setTaskPieces('');
     setTaskNotes('');
+    setDirectiveTitle('');
+    setDirectiveNotes('');
+    setDirectivePriority('NORMAL');
+
     const roleName = (staff.positionCategory?.name || staff.role || '').toLowerCase();
-    if (roleName.includes('iron')) {
+    if (roleName.includes('iron') || roleName.includes('press')) {
       setTaskSelectedActivities(['IRON', 'FOLD', 'PACK']);
     } else if (roleName.includes('deliver')) {
       setTaskSelectedActivities(['DELIVERY']);
@@ -757,42 +784,75 @@ export default function SupervisorPage() {
     setTaskFeedback(null);
 
     try {
-      const roleName = (selectedStaff.positionCategory?.name || selectedStaff.role || '').toLowerCase();
-      let workflowProfileId = '';
-
-      if (roleName.includes('deliver')) {
-        const wf = workflowProfiles.find((w) => w.workflowType === 'PER_ORDER');
-        workflowProfileId = wf?.id || 'wfp-per-order';
-      } else {
-        const wf = workflowProfiles.find((w) => w.workflowType === 'PIECE_ACTIVITY');
-        workflowProfileId = wf?.id || 'wfp-piece-activity';
-      }
-
-      if (!taskOrderId.trim()) throw new Error('Order ID is required.');
-      if (!taskPieces || Number(taskPieces) < 1) throw new Error('Piece count must be at least 1.');
-      if (taskSelectedActivities.length === 0) throw new Error('Select at least one activity.');
-
+      const isFloor = isSelectedStaffFloor();
       const idempotencyKey = `sup-task-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-      const payload = {
-        assignmentDate: staffTaskDate,
-        workflowProfileId,
-        orderId: taskOrderId.trim(),
-        pieceCount: Number(taskPieces),
-        serviceTypeId: taskServiceTypeId || undefined,
-        selectedActivities: taskSelectedActivities,
-        notes: taskNotes.trim() || undefined,
-        idempotencyKey,
-      };
 
-      await apiRequest(`/api/shops/${activeShopId}/staff/${selectedStaff.staffMember.id}/tasks`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+      if (!isFloor) {
+        // Managerial / Operational Directive Task (Manager, Marketing Manager, etc.)
+        if (!directiveTitle.trim()) throw new Error('Please enter a directive or task title.');
 
-      setTaskFeedback({ type: 'success', message: 'Task assigned successfully!' });
-      setTaskOrderId('');
-      setTaskPieces('');
-      setTaskNotes('');
+        const combinedNotes = [
+          directivePriority !== 'NORMAL' ? `[Priority: ${directivePriority}]` : '',
+          directiveNotes.trim(),
+        ].filter(Boolean).join(' | ');
+
+        const payload = {
+          assignmentDate: staffTaskDate,
+          workflowProfileId: 'wfp-directive',
+          orderId: directiveTitle.trim(),
+          pickupCount: 1,
+          selectedActivities: [],
+          notes: combinedNotes || undefined,
+          idempotencyKey,
+        };
+
+        await apiRequest(`/api/shops/${activeShopId}/staff/${selectedStaff.staffMember.id}/tasks`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+
+        setTaskFeedback({ type: 'success', message: 'Directive assigned to staff successfully!' });
+        setDirectiveTitle('');
+        setDirectiveNotes('');
+        setDirectivePriority('NORMAL');
+      } else {
+        // Floor Laundry Staff (Washerman / Ironman / Delivery)
+        const roleName = (selectedStaff.positionCategory?.name || selectedStaff.role || '').toLowerCase();
+        let workflowProfileId = '';
+
+        if (roleName.includes('deliver')) {
+          const wf = workflowProfiles.find((w) => w.workflowType === 'PER_ORDER');
+          workflowProfileId = wf?.id || 'wfp-per-order';
+        } else {
+          const wf = workflowProfiles.find((w) => w.workflowType === 'PIECE_ACTIVITY');
+          workflowProfileId = wf?.id || 'wfp-piece-activity';
+        }
+
+        if (!taskOrderId.trim()) throw new Error('Order ID is required.');
+        if (!taskPieces || Number(taskPieces) < 1) throw new Error('Piece count must be at least 1.');
+        if (taskSelectedActivities.length === 0) throw new Error('Select at least one activity.');
+
+        const payload = {
+          assignmentDate: staffTaskDate,
+          workflowProfileId,
+          orderId: taskOrderId.trim(),
+          pieceCount: Number(taskPieces),
+          serviceTypeId: taskServiceTypeId || undefined,
+          selectedActivities: taskSelectedActivities,
+          notes: taskNotes.trim() || undefined,
+          idempotencyKey,
+        };
+
+        await apiRequest(`/api/shops/${activeShopId}/staff/${selectedStaff.staffMember.id}/tasks`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+
+        setTaskFeedback({ type: 'success', message: 'Task assigned successfully!' });
+        setTaskOrderId('');
+        setTaskPieces('');
+        setTaskNotes('');
+      }
 
       fetchStaffDayTasks(selectedStaff.staffMember.id, staffTaskDate);
       fetchAllData();
@@ -1535,6 +1595,91 @@ export default function SupervisorPage() {
                   {/* Task Batch Cards & Piece Checkboxes Table */}
                   {staffDayTasks?.assignments && staffDayTasks.assignments.length > 0 ? (
                     staffDayTasks.assignments.map((assignment) => {
+                      const isDirective =
+                        assignment.workflowProfile?.name?.includes('Directive') ||
+                        assignment.workflowProfileId === 'wfp-directive' ||
+                        (!assignment.pieceCount && !assignment.serviceTypeId);
+
+                      if (isDirective) {
+                        const unit = assignment.taskUnits[0];
+                        const isDone = unit?.status === 'COMPLETED';
+
+                        return (
+                          <div
+                            key={assignment.id}
+                            className={`rounded-2xl border shadow-clay-sm p-4 space-y-2.5 transition-all ${
+                              isDone
+                                ? 'bg-emerald-50/50 border-emerald-200'
+                                : 'bg-white border-border-subtle'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="px-2 py-0.5 rounded-lg bg-indigo-100 text-indigo-900 font-extrabold text-[10px] uppercase tracking-wider">
+                                    Directive
+                                  </span>
+                                  <h4 className="text-sm font-extrabold text-brand-forest">
+                                    {assignment.orderId || 'Operational Directive'}
+                                  </h4>
+                                </div>
+                                {assignment.notes && (
+                                  <p className="text-xs text-content-muted leading-relaxed whitespace-pre-wrap">
+                                    {assignment.notes}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0">
+                                {unit && (
+                                  <button
+                                    type="button"
+                                    disabled={completingDirectiveId === unit.id}
+                                    onClick={async () => {
+                                      setCompletingDirectiveId(unit.id);
+                                      try {
+                                        await apiRequest(`/api/shops/${activeShopId}/task-units/${unit.id}/toggle`, {
+                                          method: 'PATCH',
+                                        });
+                                        fetchStaffDayTasks(selectedStaff.staffMember.id, staffTaskDate);
+                                        fetchAllData();
+                                      } catch (err) {
+                                        alert(err instanceof Error ? err.message : 'Failed to update task.');
+                                      } finally {
+                                        setCompletingDirectiveId(null);
+                                      }
+                                    }}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                      isDone
+                                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
+                                        : 'clay-btn-lime'
+                                    }`}
+                                  >
+                                    {isDone ? (
+                                      <>
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                                        <span>Done</span>
+                                      </>
+                                    ) : (
+                                      <span>Mark Done</span>
+                                    )}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-2 border-t border-border-subtle/60 text-[11px] text-content-muted">
+                              <span>Target Date: {staffTaskDate}</span>
+                              {isDone && unit?.completedAt && (
+                                <span className="text-emerald-700 font-bold">
+                                  Completed at {new Date(unit.completedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+
                       const completedCount = assignment.taskUnits.filter((u) => u.status === 'COMPLETED').length;
                       const totalCount = assignment.taskUnits.length;
 
@@ -2165,88 +2310,159 @@ export default function SupervisorPage() {
             )}
 
             <form onSubmit={handleCreateTaskSubmit} className="space-y-3.5">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">
-                    Order ID <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="TD2015"
-                    value={taskOrderId}
-                    onChange={(e) => setTaskOrderId(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-brand-forest mb-1">
-                    No. of Pieces <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    placeholder="5"
-                    value={taskPieces}
-                    onChange={(e) => setTaskPieces(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
-                  />
-                </div>
-              </div>
+              {!isSelectedStaffFloor() ? (
+                /* ─── MANAGERIAL / OPERATIONAL DIRECTIVE TASK (MANAGER, MARKETING, ETC.) ─── */
+                <div className="space-y-3.5 animate-fade-in">
+                  <div className="p-3 rounded-2xl bg-indigo-50/80 border border-indigo-200 text-indigo-900 text-xs flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                      ⚡
+                    </div>
+                    <div>
+                      <p className="font-extrabold">Operational Directive Task</p>
+                      <p className="text-[11px] text-indigo-700">Assign managerial or operational instructions without laundry piece counts.</p>
+                    </div>
+                  </div>
 
-              <div>
-                <label className="block text-xs font-bold text-brand-forest mb-1">Service Type</label>
-                <select
-                  value={taskServiceTypeId}
-                  onChange={(e) => setTaskServiceTypeId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
-                >
-                  {services.map((svc) => (
-                    <option key={svc.id} value={svc.id}>
-                      {svc.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  <div>
+                    <label className="block text-xs font-bold text-brand-forest mb-1">
+                      Directive / Task Title <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Monthly Chemical Stock Audit, Review Daily Shift Logs..."
+                      value={directiveTitle}
+                      onChange={(e) => setDirectiveTitle(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-xs font-bold text-brand-forest mb-1.5">Process Activities *</label>
-                <div className="flex flex-wrap gap-2">
-                  {['WASH', 'DRY', 'IRON', 'FOLD', 'PACK', 'DELIVERY'].map((act) => {
-                    const isSelected = taskSelectedActivities.includes(act);
-                    return (
-                      <button
-                        key={act}
-                        type="button"
-                        onClick={() => {
-                          setTaskSelectedActivities((prev) =>
-                            prev.includes(act) ? prev.filter((a) => a !== act) : [...prev, act]
-                          );
-                        }}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
-                          isSelected
-                            ? 'bg-[#245431] text-white border-[#245431] shadow-sm'
-                            : 'bg-surface-cream text-content-muted border-border-subtle hover:bg-surface-hover'
-                        }`}
-                      >
-                        {act.charAt(0) + act.slice(1).toLowerCase()}
-                      </button>
-                    );
-                  })}
+                  <div>
+                    <label className="block text-xs font-bold text-brand-forest mb-1">
+                      Instructions & Remarks (Optional)
+                    </label>
+                    <textarea
+                      rows={3}
+                      placeholder="Enter specific instructions, checklist items, or guidelines..."
+                      value={directiveNotes}
+                      onChange={(e) => setDirectiveNotes(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest resize-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-brand-forest mb-1.5">
+                      Priority Level
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['NORMAL', 'HIGH', 'URGENT'] as const).map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setDirectivePriority(p)}
+                          className={`py-2 px-2 rounded-xl text-xs font-bold transition-all border text-center ${
+                            directivePriority === p
+                              ? p === 'URGENT'
+                                ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                                : p === 'HIGH'
+                                ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                                : 'bg-[#245431] text-white border-[#245431] shadow-sm'
+                              : 'bg-surface-cream text-content-muted border-border-subtle hover:bg-surface-hover'
+                          }`}
+                        >
+                          {p === 'NORMAL' ? 'Standard' : p === 'HIGH' ? 'Important' : 'Urgent'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                /* ─── FLOOR LAUNDRY TASK (WASHERMAN, IRONMAN, DELIVERY) ─── */
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">
+                        Order ID <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="TD2015"
+                        value={taskOrderId}
+                        onChange={(e) => setTaskOrderId(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">
+                        No. of Pieces <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        required
+                        placeholder="5"
+                        value={taskPieces}
+                        onChange={(e) => setTaskPieces(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                      />
+                    </div>
+                  </div>
 
-              <div>
-                <label className="block text-xs font-bold text-brand-forest mb-1">Notes (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="Special instructions or customer remarks"
-                  value={taskNotes}
-                  onChange={(e) => setTaskNotes(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
-                />
-              </div>
+                  <div>
+                    <label className="block text-xs font-bold text-brand-forest mb-1">Service Type</label>
+                    <select
+                      value={taskServiceTypeId}
+                      onChange={(e) => setTaskServiceTypeId(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                    >
+                      {services.map((svc) => (
+                        <option key={svc.id} value={svc.id}>
+                          {svc.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-brand-forest mb-1.5">Process Activities *</label>
+                    <div className="flex flex-wrap gap-2">
+                      {['WASH', 'DRY', 'IRON', 'FOLD', 'PACK', 'DELIVERY'].map((act) => {
+                        const isSelected = taskSelectedActivities.includes(act);
+                        return (
+                          <button
+                            key={act}
+                            type="button"
+                            onClick={() => {
+                              setTaskSelectedActivities((prev) =>
+                                prev.includes(act) ? prev.filter((a) => a !== act) : [...prev, act]
+                              );
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                              isSelected
+                                ? 'bg-[#245431] text-white border-[#245431] shadow-sm'
+                                : 'bg-surface-cream text-content-muted border-border-subtle hover:bg-surface-hover'
+                            }`}
+                          >
+                            {act.charAt(0) + act.slice(1).toLowerCase()}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-brand-forest mb-1">Notes (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="Special instructions or customer remarks"
+                      value={taskNotes}
+                      onChange={(e) => setTaskNotes(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                    />
+                  </div>
+                </>
+              )}
 
               <div className="flex items-center gap-3 pt-3 border-t border-border-subtle">
                 <button
@@ -2258,11 +2474,22 @@ export default function SupervisorPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmittingTask || !taskOrderId.trim() || !taskPieces || taskSelectedActivities.length === 0}
+                  disabled={
+                    isSubmittingTask ||
+                    (!isSelectedStaffFloor()
+                      ? !directiveTitle.trim()
+                      : !taskOrderId.trim() || !taskPieces || taskSelectedActivities.length === 0)
+                  }
                   className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay flex items-center justify-center gap-1.5 disabled:opacity-50"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>{isSubmittingTask ? 'Assigning...' : 'Create Task'}</span>
+                  <span>
+                    {isSubmittingTask
+                      ? 'Assigning...'
+                      : !isSelectedStaffFloor()
+                      ? 'Assign Directive'
+                      : 'Create Task'}
+                  </span>
                 </button>
               </div>
             </form>

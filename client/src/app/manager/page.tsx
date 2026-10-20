@@ -34,7 +34,6 @@ import {
   Send,
   AlertTriangle,
   X,
-  Pencil,
   Briefcase,
 } from 'lucide-react';
 import {
@@ -203,6 +202,8 @@ interface StaffAssignment {
   pieceCount?: number | null;
   pickupCount?: number | null;
   notes?: string | null;
+  workflowProfileId?: string | null;
+  serviceTypeId?: string | null;
   workflowProfile: { workflowType: string; name: string };
   serviceType?: { name: string; code: string } | null;
   taskUnits: StaffTaskUnit[];
@@ -286,6 +287,11 @@ function ManagerPageInner() {
   const [staffMonthlySummary, setStaffMonthlySummary] = useState<StaffTaskMonthlySummary | null>(null);
   const [isLoadingStaffData, setIsLoadingStaffData] = useState(false);
 
+  // Manager's Own Directives & Tasks (assigned by Supervisor or Owner)
+  const [myDirectives, setMyDirectives] = useState<StaffAssignment[]>([]);
+  const [isLoadingMyDirectives, setIsLoadingMyDirectives] = useState(false);
+  const [completingMyDirectiveId, setCompletingMyDirectiveId] = useState<string | null>(null);
+
   // Create Task Wizard State (Screens 5, 6, 7, 8)
   const [taskCreateDate, setTaskCreateDate] = useState<string>(localDateKey);
   const [taskOrderId, setTaskOrderId] = useState('');
@@ -298,6 +304,12 @@ function ManagerPageInner() {
   const [taskNotes, setTaskNotes] = useState('');
   const [isSubmittingTask, setIsSubmittingTask] = useState(false);
   const [taskFeedback, setTaskFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Directive task states for non-floor staff (Manager, Marketing, etc.)
+  const [directiveTitle, setDirectiveTitle] = useState('');
+  const [directiveNotes, setDirectiveNotes] = useState('');
+  const [directivePriority, setDirectivePriority] = useState<'NORMAL' | 'HIGH' | 'URGENT'>('NORMAL');
+  const [completingDirectiveId, setCompletingDirectiveId] = useState<string | null>(null);
 
   // Manager Self Attendance State & Live Camera Selfie Verification
   const [managerSession, setManagerSession] = useState<{ id: string; checkInAt: string; checkOutAt: string | null; status: string; checkInPhotoPath?: string | null; checkOutPhotoPath?: string | null } | null>(null);
@@ -373,6 +385,16 @@ function ManagerPageInner() {
         if (!isCurrent() || !r?.staff) return;
         setStaffList(r.staff);
         dayCacheRef.current.set(cacheKey, { ...dayCacheRef.current.get(cacheKey), staff: r.staff });
+        if (!user?.staffMember?.id) {
+          const selfStaff = r.staff.find((s) => s.account?.id === user?.id);
+          if (selfStaff) {
+            apiRequest<{ assignments: StaffAssignment[] }>(`/api/shops/${activeShopId}/staff/${selfStaff.staffMember.id}/tasks?date=${selectedDate}`)
+              .then((res) => {
+                if (isCurrent() && res?.assignments) setMyDirectives(res.assignments);
+              })
+              .catch(() => null);
+          }
+        }
       })
       .catch(() => null);
     const sessP = apiRequest<{ session: { id: string; checkInAt: string; checkOutAt: string | null; status: string; checkInPhotoPath?: string | null; checkOutPhotoPath?: string | null } | null }>(
@@ -382,6 +404,18 @@ function ManagerPageInner() {
         if (isCurrent() && r && r.session !== undefined) setManagerSession(r.session);
       })
       .catch(() => null);
+    const myStaffId = user?.staffMember?.id;
+    if (myStaffId) setIsLoadingMyDirectives(true);
+    const directivesP = myStaffId
+      ? apiRequest<{ assignments: StaffAssignment[] }>(`/api/shops/${activeShopId}/staff/${myStaffId}/tasks?date=${selectedDate}`)
+          .then((r) => {
+            if (isCurrent() && r?.assignments) setMyDirectives(r.assignments);
+          })
+          .catch(() => null)
+          .finally(() => {
+            if (isCurrent()) setIsLoadingMyDirectives(false);
+          })
+      : Promise.resolve();
     const staticP = loadStatic
       ? Promise.all([
         apiRequest<{ serviceTypes: ServiceType[] }>('/api/config/service-types').catch(() => null),
@@ -394,7 +428,7 @@ function ManagerPageInner() {
       : Promise.resolve();
 
     try {
-      await Promise.all([dashP, staffP, sessP, staticP]);
+      await Promise.all([dashP, staffP, sessP, directivesP, staticP]);
     } catch (err) {
       console.error('Failed to load manager workspace:', err);
     } finally {
@@ -510,6 +544,18 @@ function ManagerPageInner() {
     setTaskSelectedActivities(availableActivities);
   }, [availableActivities]);
 
+  const isSelectedStaffFloor = useCallback(() => {
+    if (!selectedStaff) return true;
+    const roleName = (selectedStaff.positionCategory?.name || selectedStaff.role || '').toLowerCase();
+    return (
+      roleName.includes('wash') ||
+      roleName.includes('iron') ||
+      roleName.includes('press') ||
+      roleName.includes('deliver') ||
+      roleName.includes('pickup')
+    );
+  }, [selectedStaff]);
+
   // Open Create Task drilldown for a specific staff member
   const handleOpenCreateTask = (staff: ManagerStaffItem) => {
     setSelectedStaff(staff);
@@ -520,6 +566,9 @@ function ManagerPageInner() {
     setTaskPickupCount('');
     setTaskPickupLocation('');
     setTaskNotes('');
+    setDirectiveTitle('');
+    setDirectiveNotes('');
+    setDirectivePriority('NORMAL');
 
     const wf = resolveStaffWorkflow(staff);
     setDeliveryType(wf?.workflowType === 'COUNT_BASED' ? 'PICKUP' : 'DELIVERY');
@@ -540,64 +589,95 @@ function ManagerPageInner() {
     setIsSubmittingTask(true);
 
     try {
-      let workflowProfileId = '';
-
-      if (isOrderBasedStaff) {
-        const wf = deliveryType === 'DELIVERY' ? perOrderProfile : countBasedProfile;
-        if (!wf) throw new Error(`No "${deliveryType === 'DELIVERY' ? 'Per Order' : 'Count Based'}" work-counting rule exists. Ask the Owner to add it in Catalogues.`);
-        workflowProfileId = wf.id;
-      } else {
-        if (!selectedStaffWorkflow) throw new Error('This staff member has no work-counting rule. Ask the Owner to set it in Catalogues > Job Roles.');
-        workflowProfileId = selectedStaffWorkflow.id;
-      }
-
+      const isFloor = isSelectedStaffFloor();
       const idempotencyKey = `mgr-task-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 
-      const payload: Record<string, unknown> = {
-        assignmentDate: taskCreateDate,
-        workflowProfileId,
-        idempotencyKey,
-      };
+      if (!isFloor) {
+        // Managerial / Operational Directive Task (Manager, Marketing Manager, Store Keeper, etc.)
+        if (!directiveTitle.trim()) throw new Error('Please enter a directive or task title.');
 
-      if (isOrderBasedStaff) {
-        if (deliveryType === 'DELIVERY') {
-          if (!taskOrderId.trim()) throw new Error('Order ID is required for delivery.');
-          payload.orderId = taskOrderId.trim();
-          if (taskPieces) payload.pieceCount = Number(taskPieces);
-          if (taskNotes.trim()) payload.notes = taskNotes.trim();
-        } else {
-          if (!taskPickupCount || Number(taskPickupCount) < 1) throw new Error('Pickup count must be at least 1.');
-          payload.pickupCount = Number(taskPickupCount);
-          const combinedNotes = [
-            taskPickupLocation.trim() ? `Location: ${taskPickupLocation.trim()}` : '',
-            taskNotes.trim(),
-          ].filter(Boolean).join(' | ');
-          if (combinedNotes) payload.notes = combinedNotes;
-        }
+        const combinedNotes = [
+          directivePriority !== 'NORMAL' ? `[Priority: ${directivePriority}]` : '',
+          directiveNotes.trim(),
+        ].filter(Boolean).join(' | ');
+
+        const payload = {
+          assignmentDate: taskCreateDate,
+          workflowProfileId: 'wfp-directive',
+          orderId: directiveTitle.trim(),
+          pickupCount: 1,
+          selectedActivities: [],
+          notes: combinedNotes || undefined,
+          idempotencyKey,
+        };
+
+        await apiRequest(`/api/shops/${activeShopId}/staff/${selectedStaff.staffMember.id}/tasks`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+
+        setTaskFeedback({ type: 'success', message: 'Directive assigned to staff successfully!' });
+        setDirectiveTitle('');
+        setDirectiveNotes('');
+        setDirectivePriority('NORMAL');
       } else {
-        // Washerman / Ironman / Piece Activity
-        if (!taskOrderId.trim()) throw new Error('Order ID is required.');
-        if (!taskPieces || Number(taskPieces) < 1) throw new Error('Piece count must be at least 1.');
-        if (taskSelectedActivities.length === 0) throw new Error('Select at least one activity.');
+        let workflowProfileId = '';
 
-        payload.orderId = taskOrderId.trim();
-        payload.pieceCount = Number(taskPieces);
-        payload.serviceTypeId = taskServiceTypeId || undefined;
-        payload.selectedActivities = taskSelectedActivities;
-        if (taskNotes.trim()) payload.notes = taskNotes.trim();
+        if (isOrderBasedStaff) {
+          const wf = deliveryType === 'DELIVERY' ? perOrderProfile : countBasedProfile;
+          if (!wf) throw new Error(`No "${deliveryType === 'DELIVERY' ? 'Per Order' : 'Count Based'}" work-counting rule exists. Ask the Owner to add it in Catalogues.`);
+          workflowProfileId = wf.id;
+        } else {
+          if (!selectedStaffWorkflow) throw new Error('This staff member has no work-counting rule. Ask the Owner to set it in Catalogues > Job Roles.');
+          workflowProfileId = selectedStaffWorkflow.id;
+        }
+
+        const payload: Record<string, unknown> = {
+          assignmentDate: taskCreateDate,
+          workflowProfileId,
+          idempotencyKey,
+        };
+
+        if (isOrderBasedStaff) {
+          if (deliveryType === 'DELIVERY') {
+            if (!taskOrderId.trim()) throw new Error('Order ID is required for delivery.');
+            payload.orderId = taskOrderId.trim();
+            if (taskPieces) payload.pieceCount = Number(taskPieces);
+            if (taskNotes.trim()) payload.notes = taskNotes.trim();
+          } else {
+            if (!taskPickupCount || Number(taskPickupCount) < 1) throw new Error('Pickup count must be at least 1.');
+            payload.pickupCount = Number(taskPickupCount);
+            const combinedNotes = [
+              taskPickupLocation.trim() ? `Location: ${taskPickupLocation.trim()}` : '',
+              taskNotes.trim(),
+            ].filter(Boolean).join(' | ');
+            if (combinedNotes) payload.notes = combinedNotes;
+          }
+        } else {
+          // Washerman / Ironman / Piece Activity
+          if (!taskOrderId.trim()) throw new Error('Order ID is required.');
+          if (!taskPieces || Number(taskPieces) < 1) throw new Error('Piece count must be at least 1.');
+          if (taskSelectedActivities.length === 0) throw new Error('Select at least one activity.');
+
+          payload.orderId = taskOrderId.trim();
+          payload.pieceCount = Number(taskPieces);
+          payload.serviceTypeId = taskServiceTypeId || undefined;
+          payload.selectedActivities = taskSelectedActivities;
+          if (taskNotes.trim()) payload.notes = taskNotes.trim();
+        }
+
+        await apiRequest(`/api/shops/${activeShopId}/staff/${selectedStaff.staffMember.id}/tasks`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+
+        setTaskFeedback({ type: 'success', message: 'Task assigned successfully!' });
+        setTaskOrderId('');
+        setTaskPieces('');
+        setTaskPickupCount('');
+        setTaskPickupLocation('');
+        setTaskNotes('');
       }
-
-      await apiRequest(`/api/shops/${activeShopId}/staff/${selectedStaff.staffMember.id}/tasks`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      setTaskFeedback({ type: 'success', message: 'Task assigned successfully!' });
-      setTaskOrderId('');
-      setTaskPieces('');
-      setTaskPickupCount('');
-      setTaskPickupLocation('');
-      setTaskNotes('');
 
       // Refresh today's assignments for this staff
       fetchStaffDetails(selectedStaff.staffMember.id, taskCreateDate);
@@ -854,8 +934,70 @@ function ManagerPageInner() {
               />
             </div>
 
-            {/* SCREEN 7 & 8: DELIVERY BOY VARIANT */}
-            {isOrderBasedStaff ? (
+            {/* OPERATIONAL / MANAGERIAL DIRECTIVE TASK VARIANT */}
+            {!isSelectedStaffFloor() ? (
+              <div className="space-y-3.5">
+                <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs">
+                  <span className="font-extrabold block">Operational Directive / Assigned Task</span>
+                  <span className="text-[11px] opacity-80">
+                    Assign a direct operational task, instruction, or responsibility with simple text instructions. No laundry piece checklists.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">
+                    Task / Directive Message *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Inspect chemical inventory, Review store accounts, Client follow-up"
+                    value={directiveTitle}
+                    onChange={(e) => setDirectiveTitle(e.target.value)}
+                    required
+                    className="w-full px-3 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">
+                    Priority Level (Optional)
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['NORMAL', 'HIGH', 'URGENT'] as const).map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setDirectivePriority(p)}
+                        className={`py-2 px-2 rounded-xl text-xs font-bold transition-all capitalize ${
+                          directivePriority === p
+                            ? p === 'URGENT'
+                              ? 'bg-red-600 text-white shadow-sm'
+                              : p === 'HIGH'
+                              ? 'bg-amber-500 text-white shadow-sm'
+                              : 'bg-brand-forest text-white shadow-sm'
+                            : 'bg-surface-cream text-content-muted border border-border-subtle'
+                        }`}
+                      >
+                        {p.toLowerCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">
+                    Special Instructions / Notes (Optional)
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Add details, target deadlines, or reference links (Optional)"
+                    value={directiveNotes}
+                    onChange={(e) => setDirectiveNotes(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                  />
+                </div>
+              </div>
+            ) : isOrderBasedStaff ? (
               <>
                 {/* Service Type Radio: Delivery vs Pickup */}
                 <div>
@@ -1033,16 +1175,18 @@ function ManagerPageInner() {
             )}
 
             {/* Notes (Optional) */}
-            <div>
-              <label className="block text-xs font-bold text-brand-forest mb-1">Notes (Optional)</label>
-              <input
-                type="text"
-                placeholder="Add any notes..."
-                value={taskNotes}
-                onChange={(e) => setTaskNotes(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
-              />
-            </div>
+            {isSelectedStaffFloor() && (
+              <div>
+                <label className="block text-xs font-bold text-brand-forest mb-1">Notes (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="Add any notes..."
+                  value={taskNotes}
+                  onChange={(e) => setTaskNotes(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                />
+              </div>
+            )}
 
             {/* Create Task Button */}
             <button
@@ -1410,6 +1554,80 @@ function ManagerPageInner() {
                   <p className="text-xs text-content-muted text-center py-6">Loading tasks...</p>
                 ) : staffDayAssignments.length > 0 ? (
                   staffDayAssignments.map((assignment) => {
+                    const isDirective =
+                      assignment.workflowProfile?.name?.includes('Directive') ||
+                      assignment.workflowProfileId === 'wfp-directive' ||
+                      (!assignment.pieceCount && !assignment.serviceTypeId);
+
+                    if (isDirective) {
+                      const unit = assignment.taskUnits[0];
+                      const isDone = unit?.status === 'COMPLETED';
+
+                      return (
+                        <div
+                          key={assignment.id}
+                          className={`rounded-2xl border shadow-clay-sm p-4 space-y-2.5 transition-all ${
+                            isDone ? 'bg-emerald-50/50 border-emerald-200' : 'bg-white border-border-subtle'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="px-2 py-0.5 rounded-lg bg-indigo-100 text-indigo-900 font-extrabold text-[10px] uppercase tracking-wider">
+                                  Directive
+                                </span>
+                                <h4 className="text-sm font-extrabold text-brand-forest">
+                                  {assignment.orderId || 'Operational Directive'}
+                                </h4>
+                              </div>
+                              {assignment.notes && (
+                                <p className="text-xs text-content-muted leading-relaxed whitespace-pre-wrap">
+                                  {assignment.notes}
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {unit && (
+                                <button
+                                  type="button"
+                                  disabled={completingDirectiveId === unit.id}
+                                  onClick={async () => {
+                                    setCompletingDirectiveId(unit.id);
+                                    try {
+                                      await apiRequest(`/api/shops/${activeShopId}/task-units/${unit.id}/toggle`, {
+                                        method: 'PATCH',
+                                      });
+                                      if (selectedStaff) fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate);
+                                      fetchData(true);
+                                    } catch (err) {
+                                      alert(err instanceof Error ? err.message : 'Failed to update task.');
+                                    } finally {
+                                      setCompletingDirectiveId(null);
+                                    }
+                                  }}
+                                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                    isDone
+                                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
+                                      : 'clay-btn-lime'
+                                  }`}
+                                >
+                                  {isDone ? (
+                                    <>
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                                      <span>Done</span>
+                                    </>
+                                  ) : (
+                                    <span>Mark Done</span>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
                     const acts = assignment.taskUnits.map((u) => u.activityCode).filter(Boolean);
                     const label = Array.from(new Set(acts)).join(', ') || assignment.workflowProfile.name;
                     const completedCount = assignment.taskUnits.filter((u) => u.status === 'COMPLETED').length;
@@ -1859,6 +2077,119 @@ function ManagerPageInner() {
             <p className="-mt-2 text-[10px] text-content-muted text-center font-medium">
               Task count = pieces × work steps (e.g. 10 shirts × Wash + Iron = 20). Completed = steps staff have ticked done.
             </p>
+
+            {/* Supervisor Directives & Tasks Assigned to Manager */}
+            <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Briefcase className="w-4 h-4 text-brand-forest" />
+                  <h3 className="text-xs font-black text-brand-forest">Supervisor Directives & Assigned Tasks</h3>
+                </div>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                    myDirectives.filter((d) => d.taskUnits.some((u) => u.status === 'PENDING')).length > 0
+                      ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                      : 'bg-emerald-100 text-emerald-800'
+                  }`}
+                >
+                  {myDirectives.length === 0
+                    ? 'No Directives'
+                    : `${myDirectives.filter((d) => d.taskUnits.every((u) => u.status === 'COMPLETED')).length}/${myDirectives.length} Done`}
+                </span>
+              </div>
+
+              {isLoadingMyDirectives ? (
+                <p className="text-xs text-content-muted text-center py-4">Checking assigned directives...</p>
+              ) : myDirectives.length === 0 ? (
+                <div className="py-4 text-center rounded-xl bg-surface-cream/50 border border-border-subtle/50 space-y-1">
+                  <p className="text-xs font-bold text-brand-forest">No operational directives assigned for this date</p>
+                  <p className="text-[10px] text-content-muted">Directives assigned by Supervisor or Owner will appear here</p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {myDirectives.map((directive) => {
+                    const unit = directive.taskUnits[0];
+                    const isDone = unit?.status === 'COMPLETED';
+
+                    return (
+                      <div
+                        key={directive.id}
+                        className={`p-3.5 rounded-xl border transition-all space-y-2 ${
+                          isDone
+                            ? 'bg-emerald-50/50 border-emerald-200'
+                            : 'bg-surface-cream/40 border-border-subtle hover:border-brand-forest/30'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-900 font-extrabold text-[10px] uppercase tracking-wider">
+                                Directive
+                              </span>
+                              <h4 className="text-xs font-extrabold text-brand-forest">
+                                {directive.orderId || 'Operational Task'}
+                              </h4>
+                            </div>
+                            {directive.notes && (
+                              <p className="text-[11px] text-content-muted font-medium leading-relaxed whitespace-pre-wrap">
+                                {directive.notes}
+                              </p>
+                            )}
+                            {unit?.completedAt && (
+                              <p className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1">
+                                <Check className="w-3 h-3" />
+                                Completed: {new Date(unit.completedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            )}
+                          </div>
+
+                          {unit && (
+                            <button
+                              type="button"
+                              disabled={completingMyDirectiveId === unit.id}
+                              onClick={async () => {
+                                setCompletingMyDirectiveId(unit.id);
+                                try {
+                                  await apiRequest(`/api/shops/${activeShopId}/task-units/${unit.id}/toggle`, {
+                                    method: 'PATCH',
+                                  });
+                                  fetchData(true);
+                                  const selfStaffId = user?.staffMember?.id || staffList.find((s) => s.account?.id === user?.id)?.staffMember.id;
+                                  if (selfStaffId) {
+                                    const res = await apiRequest<{ assignments: StaffAssignment[] }>(
+                                      `/api/shops/${activeShopId}/staff/${selfStaffId}/tasks?date=${selectedDate}`
+                                    );
+                                    setMyDirectives(res.assignments || []);
+                                  }
+                                } catch (err) {
+                                  alert(err instanceof Error ? err.message : 'Failed to update directive status.');
+                                } finally {
+                                  setCompletingMyDirectiveId(null);
+                                }
+                              }}
+                              className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                isDone
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
+                                  : 'clay-btn-lime'
+                              }`}
+                            >
+                              {isDone ? (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                                  <span>Done</span>
+                                </>
+                              ) : (
+                                <span>Mark Done</span>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* Attendance Overview Card with Donut Ring (Screen 2) */}
             <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
