@@ -2173,10 +2173,12 @@ function OwnerPageInner() {
                             <div className="flex items-center gap-4">
                               <div className="text-right">
                                 <span className="text-sm font-black text-brand-forest">
-                                  {item.completedUnits} / {item.totalUnits} units
+                                  {item.completedUnits} / {item.totalUnits} {item.position?.toLowerCase().includes('manager') || item.position?.toLowerCase().includes('supervisor') ? 'tasks' : 'units'}
                                 </span>
                                 <p className="text-[10px] text-content-muted">
-                                  {item.ordersAssigned ?? 0} orders · {item.piecesAssigned ?? 0} pieces
+                                  {item.position?.toLowerCase().includes('manager') || item.position?.toLowerCase().includes('supervisor')
+                                    ? `${item.totalUnits ?? 0} tasks assigned`
+                                    : `${item.ordersAssigned ?? 0} orders · ${item.piecesAssigned ?? 0} pieces`}
                                 </p>
                                 <div className="w-24 h-1.5 rounded-full bg-border-subtle overflow-hidden mt-1">
                                   <div
@@ -2331,6 +2333,30 @@ function OwnerPageInner() {
                     {/* Activity Breakdown - Filtered by role so Washerman only sees Wash/Dry, etc. */}
                     {staffDaySummary.breakdown && (() => {
                       const roleNameLower = (selectedStaff?.positionCategory?.name || selectedStaff?.role || selectedStaff?.staffMember?.fullName || '').toLowerCase();
+                      const isFloorStaff = (() => {
+                        if (
+                          roleNameLower.includes('manager') ||
+                          roleNameLower.includes('supervisor') ||
+                          roleNameLower.includes('admin') ||
+                          roleNameLower.includes('marketing') ||
+                          roleNameLower.includes('accountant') ||
+                          roleNameLower.includes('billing')
+                        ) {
+                          return false;
+                        }
+                        return (
+                          roleNameLower.includes('wash') ||
+                          roleNameLower.includes('iron') ||
+                          roleNameLower.includes('press') ||
+                          roleNameLower.includes('deliver') ||
+                          roleNameLower.includes('pickup') ||
+                          roleNameLower.includes('fold') ||
+                          roleNameLower.includes('packer')
+                        );
+                      })();
+
+                      if (!isFloorStaff) return null;
+
                       const allowedActs = (selectedStaff?.workflowProfile?.allowedActivities || []).map((a) => a.toUpperCase());
 
                       const opsList = [
@@ -2375,17 +2401,43 @@ function OwnerPageInner() {
                     })()}
 
                     {/* Specific Assignment Orders */}
-                    {staffDaySummary.assignments && staffDaySummary.assignments.length > 0 && (
-                      <div className="space-y-2 pt-2">
-                        <h4 className="text-xs font-black text-brand-forest uppercase tracking-wider">
-                          Assignment Tasks & Directives
-                        </h4>
-                        <div className="space-y-2">
-                          {staffDaySummary.assignments.map((asg) => {
-                            const isDirective =
-                              asg.workflowProfile?.name?.includes('Directive') ||
-                              (asg as unknown as { workflowProfileId?: string }).workflowProfileId === 'wfp-directive' ||
-                              (!asg.pieceCount && !asg.serviceTypeId && !asg.pickupCount);
+                    {staffDaySummary.assignments && staffDaySummary.assignments.length > 0 && (() => {
+                      const roleNameLower = (selectedStaff?.positionCategory?.name || selectedStaff?.role || selectedStaff?.staffMember?.fullName || '').toLowerCase();
+                      const isFloorStaff = (() => {
+                        if (
+                          roleNameLower.includes('manager') ||
+                          roleNameLower.includes('supervisor') ||
+                          roleNameLower.includes('admin') ||
+                          roleNameLower.includes('marketing') ||
+                          roleNameLower.includes('accountant') ||
+                          roleNameLower.includes('billing')
+                        ) {
+                          return false;
+                        }
+                        return (
+                          roleNameLower.includes('wash') ||
+                          roleNameLower.includes('iron') ||
+                          roleNameLower.includes('press') ||
+                          roleNameLower.includes('deliver') ||
+                          roleNameLower.includes('pickup') ||
+                          roleNameLower.includes('fold') ||
+                          roleNameLower.includes('packer')
+                        );
+                      })();
+
+                      return (
+                        <div className="space-y-2 pt-2">
+                          <h4 className="text-xs font-black text-brand-forest uppercase tracking-wider">
+                            {isFloorStaff ? 'Assignment Orders' : 'Assigned Directives & Tasks'}
+                          </h4>
+                          <div className="space-y-2">
+                            {staffDaySummary.assignments.map((asg) => {
+                              const isDirective =
+                                !isFloorStaff ||
+                                asg.workflowProfile?.name?.toLowerCase().includes('directive') ||
+                                (asg as unknown as { workflowProfileId?: string }).workflowProfileId === 'wfp-directive' ||
+                                asg.workflowProfileId === 'wfp-directive' ||
+                                (!asg.pieceCount && !asg.serviceTypeId);
 
                             if (isDirective) {
                               const unit = asg.taskUnits[0];
@@ -2535,7 +2587,8 @@ function OwnerPageInner() {
                           })}
                         </div>
                       </div>
-                    )}
+                    );
+                  })()}
 
                     {/* Reported Damage Incidents for this Staff Member */}
                     {(() => {
