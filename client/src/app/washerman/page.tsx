@@ -8,19 +8,12 @@ import { TaskAssignment, TaskSummary, TaskUnit } from '../../types';
 import { ProgressRing } from '../../components/ProgressRing';
 import { DamageModal } from '../../components/DamageModal';
 import { DamageIncidentViewerModal, DamageIncidentRecord } from '../../components/DamageIncidentViewerModal';
-import { LiveCameraModal } from '../../components/LiveCameraModal';
-import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
-import { StaffProfileCard } from '../../components/StaffProfileCard';
 import {
   Calendar, Layers, CheckCircle2, Clock, AlertTriangle, RotateCcw,
-  Sparkles, Check, X, User, LogOut, Camera, TrendingUp, Droplets,
-  Wind, Phone, MapPin, Building2, ChevronRight, ArrowLeft, BarChart3,
+  Sparkles, Check, X, TrendingUp, Droplets,
+  Wind, ChevronRight, ArrowLeft, BarChart3,
   Award, Star,
 } from 'lucide-react';
-
-function localDateKey(d = new Date()) {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
 
 interface MonthlyStats {
   total: number; completed: number; pending: number; percentageComplete: number | null;
@@ -28,14 +21,13 @@ interface MonthlyStats {
   dailyProgress?: Array<{ date: string; total: number; completed: number }>;
 }
 
-interface AttSess {
-  id: string; checkInAt?: string | null; checkInPhotoPath?: string | null;
-  checkOutAt?: string | null; checkOutPhotoPath?: string | null; status: string;
+function localDateKey(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export default function WashermanPage() {
   const router = useRouter();
-  const { user, activeShopId, activeRole, isLoading: isAuthLoading, logout } = useAuth();
+  const { user, activeShopId, activeRole, isLoading: isAuthLoading } = useAuth();
 
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => { setIsMounted(true); }, []);
@@ -59,7 +51,7 @@ export default function WashermanPage() {
     }
   }, [isAuthLoading, isMounted, user, isWashermanAllowed, activeRole, router]);
 
-  type Tab = 'tasks' | 'stats' | 'profile';
+  type Tab = 'tasks' | 'stats';
   const [activeTab, setActiveTab] = useState<Tab>('tasks');
   const [selectedDate, setSelectedDate] = useState<string>(localDateKey());
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
@@ -73,15 +65,6 @@ export default function WashermanPage() {
     const n = new Date(); return { year: n.getFullYear(), month: n.getMonth() + 1 };
   });
   const [isStatsLoading, setIsStatsLoading] = useState(false);
-  const [attendanceSession, setAttendanceSession] = useState<AttSess | null>(null);
-  const [isProcessingAttendance, setIsProcessingAttendance] = useState(false);
-  const [attendanceMessage, setAttendanceMessage] = useState<string | null>(null);
-  const [isLiveCameraOpen, setIsLiveCameraOpen] = useState(false);
-  const [cameraAction, setCameraAction] = useState<'check-in' | 'check-out'>('check-in');
-  const [viewingAttendancePhoto, setViewingAttendancePhoto] = useState<{
-    staffName: string; role: string; checkInPhotoPath?: string; checkOutPhotoUrl?: string;
-    checkInAt?: string; checkOutAt?: string; status?: string;
-  } | null>(null);
   const [damageTarget, setDamageTarget] = useState<{
     taskAssignmentId: string; pieceNumber?: number; orderId?: string;
   } | null>(null);
@@ -132,19 +115,7 @@ export default function WashermanPage() {
     if (activeTab === 'stats' && isWashermanAllowed && !isAuthLoading) fetchMonthlyStats();
   }, [activeTab, fetchMonthlyStats, isWashermanAllowed, isAuthLoading]);
 
-  const fetchAttendanceSession = useCallback(async () => {
-    if (!activeShopId) return;
-    try {
-      const data = await apiRequest<{ session: AttSess | null }>(
-        `/api/shops/${activeShopId}/attendance/my-session?date=${localDateKey()}`
-      );
-      setAttendanceSession(data.session);
-    } catch { setAttendanceSession(null); }
-  }, [activeShopId]);
 
-  useEffect(() => {
-    if (activeTab === 'profile' && isWashermanAllowed && !isAuthLoading) fetchAttendanceSession();
-  }, [activeTab, fetchAttendanceSession, isWashermanAllowed, isAuthLoading]);
 
   const handleCompleteUnit = async (unit: TaskUnit) => {
     if (!activeShopId || unit.status === 'COMPLETED' || completingUnitId) return;
@@ -170,21 +141,6 @@ export default function WashermanPage() {
     finally { setCompletingUnitId(null); }
   };
 
-  const handleAttendanceCapture = async (photoData: string, actionOverride?: 'check-in' | 'check-out') => {
-    if (!activeShopId || !staffMemberId) return;
-    const act = actionOverride || cameraAction;
-    setIsLiveCameraOpen(false); setIsProcessingAttendance(true); setAttendanceMessage(null);
-    try {
-      const ep = act === 'check-in'
-        ? `/api/shops/${activeShopId}/attendance/check-in`
-        : `/api/shops/${activeShopId}/attendance/check-out`;
-      await apiRequest(ep, { method: 'POST', body: JSON.stringify({ staffMemberId, photoData }) });
-      setAttendanceMessage(act === 'check-in' ? '\u2713 Checked in!' : '\u2713 Checked out!');
-      await fetchAttendanceSession();
-    } catch (err) { setAttendanceMessage(err instanceof Error ? err.message : 'Failed.'); }
-    finally { setIsProcessingAttendance(false); }
-  };
-
   const ap2 = summary as unknown as Record<string, number>;
   const totalUnits = summary?.totalUnits ?? ap2?.total ?? 0;
   const completedUnits = summary?.completedUnits ?? ap2?.completed ?? 0;
@@ -199,6 +155,7 @@ export default function WashermanPage() {
     if(m<1){m=12;y--;} if(m>12){m=1;y++;}
     return {year:y,month:m};
   });
+
   const membership = user?.shopMemberships?.find(m => m.shopId === activeShopId);
 
   if (!isMounted || isAuthLoading) return (
@@ -214,7 +171,6 @@ export default function WashermanPage() {
   const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: 'tasks', label: 'Wash Tasks', icon: Layers },
     { id: 'stats', label: 'My Stats', icon: BarChart3 },
-    { id: 'profile', label: 'Profile', icon: User },
   ];
 
   return (
@@ -233,7 +189,6 @@ export default function WashermanPage() {
           onClick={() => {
             if (activeTab === 'tasks') fetchTasks(true);
             else if (activeTab === 'stats') fetchMonthlyStats();
-            else fetchAttendanceSession();
           }}
           className="p-2 rounded-xl bg-surface-card border border-border-subtle shadow-clay-sm text-content-muted hover:text-brand-forest transition-colors"
         >
@@ -463,42 +418,7 @@ export default function WashermanPage() {
         </div>
       )}
 
-      {activeTab === 'profile' && (
-        <StaffProfileCard
-          title="Washerman Profile"
-          onBack={() => setActiveTab('tasks')}
-          staff={{
-            fullName: user.staffMember?.fullName || 'Washerman',
-            mobile: user.staffMember?.mobile,
-            address: user.staffMember?.address,
-            profilePhotoPath: user.staffMember?.profilePhotoPath,
-            employmentStatus: user.staffMember?.employmentStatus || 'ACTIVE',
-          }}
-          membership={{
-            shopId: activeShopId || undefined,
-            shopName: membership?.shopName,
-            roleName: membership?.roleName || 'Washerman',
-            positionCategory: membership?.positionCategory,
-            joiningDate: membership?.joiningDate,
-            dutyTimingNotes: membership?.dutyTimingNotes,
-            monthlySalary: membership?.monthlySalary,
-            incentiveAmount: membership?.incentiveAmount,
-            shiftStartTime: membership?.shiftStartTime,
-            shiftEndTime: membership?.shiftEndTime,
-            lateThreshold: membership?.lateThreshold,
-            halfDayThreshold: membership?.halfDayThreshold,
-            absentThreshold: membership?.absentThreshold,
-          }}
-          session={attendanceSession}
-          isProcessingAttendance={isProcessingAttendance}
-          onCheckInWithPhoto={async (photoData) => {
-            await handleAttendanceCapture(photoData, 'check-in');
-          }}
-          onCheckOutWithPhoto={async (photoData) => {
-            await handleAttendanceCapture(photoData, 'check-out');
-          }}
-        />
-      )}
+
 
       {damageTarget && (
         <DamageModal isOpen onClose={()=>setDamageTarget(null)} shopId={activeShopId||''} staffMemberId={staffMemberId||''}
@@ -509,18 +429,7 @@ export default function WashermanPage() {
         <DamageIncidentViewerModal isOpen onClose={()=>setViewingDamageIncident(null)}
           incident={viewingDamageIncident} shopId={activeShopId||''} canManage={false} onUpdated={()=>fetchTasks(false)}/>
       )}
-      {isLiveCameraOpen && (
-        <LiveCameraModal isOpen onClose={()=>setIsLiveCameraOpen(false)} onCapture={handleAttendanceCapture}
-          title={cameraAction==='check-in'?'Check In \u2014 Take Selfie':'Check Out \u2014 Take Selfie'}
-          subtitle="Face the camera clearly for verification"/>
-      )}
-      {viewingAttendancePhoto && (
-        <AttendancePhotoViewerModal isOpen onClose={()=>setViewingAttendancePhoto(null)}
-          staffName={viewingAttendancePhoto.staffName} role={viewingAttendancePhoto.role}
-          checkInPhotoPath={viewingAttendancePhoto.checkInPhotoPath} checkInAt={viewingAttendancePhoto.checkInAt}
-          checkOutPhotoUrl={viewingAttendancePhoto.checkOutPhotoUrl} checkOutAt={viewingAttendancePhoto.checkOutAt}
-          status={viewingAttendancePhoto.status}/>
-      )}
+
 
       {successToast && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 px-4 py-3 bg-[#1E4327] text-white rounded-2xl shadow-clay-lg flex items-center gap-2.5 text-xs font-bold animate-fade-in border border-emerald-500/30">

@@ -1,29 +1,63 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../lib/api';
-import {
-  Building,
-  KeyRound,
-  LogOut,
-  AlertCircle,
-  CheckCircle2,
-  ArrowLeft,
-} from 'lucide-react';
+import { localDateKey } from '../../lib/dateUtils';
+import { StaffProfileCard, ProfileAttendanceSession } from '../../components/StaffProfileCard';
+import { KeyRound, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { user, activeShopId, activeRole, logout } = useAuth();
+  const { user, activeShopId, activeRole, logout, isLoading: isAuthLoading } = useAuth();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isChangingPass, setIsChangingPass] = useState(false);
   const [passMessage, setPassMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showPasswordSection, setShowPasswordSection] = useState(false);
+
+  const [attendanceSession, setAttendanceSession] = useState<ProfileAttendanceSession | null>(null);
+  const [isProcessingAttendance, setIsProcessingAttendance] = useState(false);
 
   const currentShop = user?.shopMemberships?.find((m) => m.shopId === activeShopId);
+  const staffMemberId = user?.staffMember?.id;
+
+  const fetchAttendanceSession = useCallback(async () => {
+    if (!activeShopId || !staffMemberId) return;
+    try {
+      const data = await apiRequest<{ session: ProfileAttendanceSession | null }>(
+        `/api/shops/${activeShopId}/attendance/my-session?date=${localDateKey()}`
+      );
+      setAttendanceSession(data.session);
+    } catch {
+      setAttendanceSession(null);
+    }
+  }, [activeShopId, staffMemberId]);
+
+  useEffect(() => {
+    if (activeShopId && staffMemberId) {
+      fetchAttendanceSession();
+    }
+  }, [activeShopId, staffMemberId, fetchAttendanceSession]);
+
+  const handleAttendanceCapture = async (photoData: string, action: 'check-in' | 'check-out') => {
+    if (!activeShopId || !staffMemberId) return;
+    setIsProcessingAttendance(true);
+    try {
+      const ep = action === 'check-in'
+        ? `/api/shops/${activeShopId}/attendance/check-in`
+        : `/api/shops/${activeShopId}/attendance/check-out`;
+      await apiRequest(ep, { method: 'POST', body: JSON.stringify({ staffMemberId, photoData }) });
+      await fetchAttendanceSession();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Attendance update failed.');
+    } finally {
+      setIsProcessingAttendance(false);
+    }
+  };
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,11 +93,6 @@ export default function ProfilePage() {
     }
   };
 
-  const handleLogout = async () => {
-    await logout();
-    router.push('/login');
-  };
-
   const handleLogoutAll = async () => {
     if (confirm('Revoke all sessions across all phones and browsers?')) {
       try {
@@ -77,159 +106,164 @@ export default function ProfilePage() {
     }
   };
 
+  const handleBack = () => {
+    const roleLower = (activeRole || '').toLowerCase();
+    if (user?.isOwner) router.push('/owner');
+    else if (roleLower.includes('supervisor')) router.push('/supervisor');
+    else if (roleLower.includes('manager')) router.push('/manager');
+    else if (roleLower.includes('wash')) router.push('/washerman');
+    else if (roleLower.includes('iron')) router.push('/ironman');
+    else if (roleLower.includes('deliver')) router.push('/delivery');
+    else router.push('/');
+  };
+
+  if (isAuthLoading || !user) {
+    return (
+      <div className="min-h-[50vh] flex items-center justify-center">
+        <div className="text-xs font-bold text-content-muted animate-pulse">Loading Profile...</div>
+      </div>
+    );
+  }
+
+  // Derive title based on role
+  const roleDisplay = currentShop?.positionCategory || currentShop?.roleName || activeRole || 'Staff';
+  const pageTitle = `${roleDisplay} Profile`;
+
   return (
-    <div className="space-y-4 animate-fade-in max-w-md mx-auto">
-      {/* Back Button */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 animate-fade-in max-w-md mx-auto pb-24">
+      <StaffProfileCard
+        title={pageTitle}
+        onBack={handleBack}
+        staff={{
+          fullName: user.staffMember?.fullName || (user.isOwner ? 'Owner' : user.username),
+          mobile: user.staffMember?.mobile,
+          address: user.staffMember?.address,
+          profilePhotoPath: user.staffMember?.profilePhotoPath,
+          employmentStatus: user.staffMember?.employmentStatus || 'ACTIVE',
+        }}
+        membership={{
+          shopId: activeShopId || undefined,
+          shopName: currentShop?.shopName,
+          roleName: currentShop?.roleName || roleDisplay,
+          positionCategory: currentShop?.positionCategory,
+          joiningDate: currentShop?.joiningDate,
+          dutyTimingNotes: currentShop?.dutyTimingNotes,
+          monthlySalary: currentShop?.monthlySalary,
+          incentiveAmount: currentShop?.incentiveAmount,
+          shiftStartTime: currentShop?.shiftStartTime,
+          shiftEndTime: currentShop?.shiftEndTime,
+          lateThreshold: currentShop?.lateThreshold,
+          halfDayThreshold: currentShop?.halfDayThreshold,
+          absentThreshold: currentShop?.absentThreshold,
+          capabilities: currentShop?.capabilities,
+        }}
+        session={attendanceSession}
+        isProcessingAttendance={isProcessingAttendance}
+        onCheckInWithPhoto={async (photoData) => {
+          await handleAttendanceCapture(photoData, 'check-in');
+        }}
+        onCheckOutWithPhoto={async (photoData) => {
+          await handleAttendanceCapture(photoData, 'check-out');
+        }}
+      />
+
+      {/* Password & Security Card */}
+      <div className="bg-white rounded-2xl border border-border-subtle shadow-clay-sm p-4 space-y-3">
         <button
-          onClick={() => {
-            if (activeRole === 'Supervisor') router.push('/supervisor');
-            else if (user?.isOwner) router.push('/owner');
-            else router.back();
-          }}
-          className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-forest hover:text-brand-lime transition-colors py-1.5 px-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-sm"
+          type="button"
+          onClick={() => setShowPasswordSection(!showPasswordSection)}
+          className="w-full flex items-center justify-between text-left"
         >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Back to {activeRole === 'Supervisor' ? 'Supervisor Portal' : user?.isOwner ? 'Owner Portal' : 'Home'}</span>
-        </button>
-      </div>
-
-      {/* Title */}
-      <div>
-        <h2 className="text-xl font-black text-brand-forest tracking-tight">
-          My Account & Profile
-        </h2>
-        <p className="text-xs text-content-muted">
-          Operational credentials and security settings
-        </p>
-      </div>
-
-      {/* User Card */}
-      <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-5 space-y-3">
-        <div className="flex items-center gap-3.5">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-lime to-[#6DA322] flex items-center justify-center font-black text-white text-xl shadow-clay-sm border border-white/40">
-            {user?.staffMember?.fullName?.charAt(0) || user?.username.charAt(0).toUpperCase() || 'U'}
+          <div className="flex items-center gap-2">
+            <KeyRound className="w-4 h-4 text-brand-forest" />
+            <h4 className="text-xs font-bold text-brand-forest uppercase tracking-wider">
+              Update Password &amp; Security
+            </h4>
           </div>
-          <div>
-            <h3 className="text-base font-extrabold text-brand-forest">
-              {user?.staffMember?.fullName || activeRole}
-            </h3>
-            <div className="flex items-center gap-2 mt-1.5">
-              <span className="px-2 py-0.5 rounded-lg clay-badge-lime text-[10px] font-bold">
-                {activeRole}
-              </span>
-              {currentShop && (
-                <span className="text-[11px] font-medium text-content-muted flex items-center gap-1">
-                  <Building className="w-3 h-3 text-brand-forest" />
-                  <span>{currentShop.shopName}</span>
-                </span>
-              )}
+          <span className="text-xs text-brand-forest font-bold">
+            {showPasswordSection ? 'Hide' : 'Change'}
+          </span>
+        </button>
+
+        {showPasswordSection && (
+          <div className="pt-2 border-t border-border-subtle/60 space-y-3 animate-fade-in">
+            {passMessage && (
+              <div
+                className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+                  passMessage.type === 'success'
+                    ? 'bg-status-success/10 border border-status-success/30 text-status-success'
+                    : 'bg-status-danger/10 border border-status-danger/30 text-status-danger'
+                }`}
+              >
+                {passMessage.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                )}
+                <span>{passMessage.text}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleChangePassword} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-brand-forest mb-1">
+                  Current Password
+                </label>
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  required
+                  className="w-full text-xs font-semibold p-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-clay-inset text-brand-forest"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-brand-forest mb-1">
+                  New Password (min 8 characters)
+                </label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                  className="w-full text-xs font-semibold p-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-clay-inset text-brand-forest"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-brand-forest mb-1">
+                  Confirm New Password
+                </label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  className="w-full text-xs font-semibold p-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-clay-inset text-brand-forest"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isChangingPass}
+                className="w-full py-2.5 rounded-xl bg-brand-forest text-white text-xs font-bold hover:bg-brand-forest/90 transition-colors"
+              >
+                {isChangingPass ? 'Updating...' : 'Save New Password'}
+              </button>
+            </form>
+
+            <div className="pt-2 border-t border-border-subtle/40">
+              <button
+                type="button"
+                onClick={handleLogoutAll}
+                className="w-full py-2 rounded-xl text-[11px] font-bold text-status-danger hover:bg-status-danger/10 transition-colors"
+              >
+                Revoke All Active Sessions (Logout Everywhere)
+              </button>
             </div>
           </div>
-        </div>
-
-        {activeRole === 'Supervisor' && (
-          <div className="pt-3 border-t border-border-subtle/60 flex items-center justify-between text-xs">
-            <span className="text-[11px] font-bold text-content-muted">Attendance Tracking:</span>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-              Exempt from Floor Roll (Set by Owner)
-            </span>
-          </div>
         )}
-      </div>
-
-      {/* Change Password Card */}
-      <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-5 space-y-3">
-        <div className="flex items-center gap-2 pb-2 border-b border-border-subtle">
-          <KeyRound className="w-4 h-4 text-brand-forest" />
-          <h4 className="text-xs font-bold text-brand-forest uppercase tracking-wider">
-            Update Password
-          </h4>
-        </div>
-
-        {passMessage && (
-          <div
-            className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
-              passMessage.type === 'success'
-                ? 'bg-status-success/10 border border-status-success/30 text-status-success'
-                : 'bg-status-danger/10 border border-status-danger/30 text-status-danger'
-            }`}
-          >
-            {passMessage.type === 'success' ? (
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-            ) : (
-              <AlertCircle className="w-4 h-4 shrink-0" />
-            )}
-            <span>{passMessage.text}</span>
-          </div>
-        )}
-
-        <form onSubmit={handleChangePassword} className="space-y-3">
-          <div>
-            <label className="block text-[11px] font-bold text-brand-forest mb-1">
-              Current Password
-            </label>
-            <input
-              type="password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              required
-              className="w-full text-xs font-semibold p-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-clay-inset text-brand-forest"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-bold text-brand-forest mb-1">
-              New Password (min 8 characters)
-            </label>
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              required
-              className="w-full text-xs font-semibold p-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-clay-inset text-brand-forest"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-bold text-brand-forest mb-1">
-              Confirm New Password
-            </label>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-              className="w-full text-xs font-semibold p-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-clay-inset text-brand-forest"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={isChangingPass}
-            className="w-full py-2.5 rounded-xl clay-btn-forest text-xs font-bold"
-          >
-            {isChangingPass ? 'Updating...' : 'Update Password'}
-          </button>
-        </form>
-      </div>
-
-      {/* Logout Actions */}
-      <div className="bg-surface-card rounded-clay border border-border-subtle shadow-clay p-4 space-y-2">
-        <button
-          onClick={handleLogout}
-          className="w-full py-3 rounded-xl clay-btn-secondary text-xs font-bold text-brand-forest flex items-center justify-center gap-2 hover:text-status-danger transition-colors"
-        >
-          <LogOut className="w-4 h-4" />
-          <span>Sign Out of This Device</span>
-        </button>
-
-        <button
-          onClick={handleLogoutAll}
-          className="w-full py-2 rounded-xl text-[11px] font-bold text-status-danger hover:bg-status-danger/10 transition-colors"
-        >
-          Revoke All Active Sessions (Logout Everywhere)
-        </button>
       </div>
     </div>
   );

@@ -16,16 +16,29 @@ export function addDaysToDateKey(dateStr: string, days: number): string {
   return localDateKey(date);
 }
 
-export function formatDisplayDate(dateStr: string): string {
+export function formatDisplayDate(dateStr: string | Date | null | undefined): string {
   if (!dateStr) return '';
-  const [y, m, d] = dateStr.split('-').map(Number);
-  if (isNaN(y) || isNaN(m) || isNaN(d)) return dateStr;
-  const date = new Date(y, m - 1, d);
-  return date.toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  const dObj = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
+  if (!isNaN(dObj.getTime())) {
+    return dObj.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  }
+  if (typeof dateStr === 'string') {
+    const clean = dateStr.split('T')[0];
+    const parts = clean.split('-').map(Number);
+    if (parts.length === 3 && !parts.some(isNaN)) {
+      const fallbackDate = new Date(parts[0], parts[1] - 1, parts[2]);
+      return fallbackDate.toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
+    }
+  }
+  return String(dateStr);
 }
 
 /**

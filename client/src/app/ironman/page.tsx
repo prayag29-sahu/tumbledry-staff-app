@@ -19,9 +19,7 @@ import {
   Check,
   X,
   ChevronRight,
-  User,
 } from 'lucide-react';
-import { StaffProfileCard, ProfileAttendanceSession } from '../../components/StaffProfileCard';
 
 export default function IronmanPage() {
   const { user, activeShopId } = useAuth();
@@ -31,10 +29,6 @@ export default function IronmanPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [completingUnitId, setCompletingUnitId] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
-
-  const [activeTab, setActiveTab] = useState<'tasks' | 'profile'>('tasks');
-  const [attendanceSession, setAttendanceSession] = useState<ProfileAttendanceSession | null>(null);
-  const [isProcessingAttendance, setIsProcessingAttendance] = useState(false);
 
   // Damage modal state
   const [damageTarget, setDamageTarget] = useState<{
@@ -47,42 +41,6 @@ export default function IronmanPage() {
 
   const staffMemberId = user?.staffMember?.id;
   const membership = user?.shopMemberships?.find((m) => m.shopId === activeShopId);
-
-  const fetchAttendanceSession = useCallback(async () => {
-    if (!activeShopId) return;
-    try {
-      const data = await apiRequest<{ session: ProfileAttendanceSession | null }>(
-        `/api/shops/${activeShopId}/attendance/my-session?date=${localDateKey()}`
-      );
-      setAttendanceSession(data.session);
-    } catch {
-      setAttendanceSession(null);
-    }
-  }, [activeShopId]);
-
-  useEffect(() => {
-    if (activeTab === 'profile') {
-      fetchAttendanceSession();
-    }
-  }, [activeTab, fetchAttendanceSession]);
-
-  const handleAttendanceCapture = async (photoData: string, action: 'check-in' | 'check-out') => {
-    if (!activeShopId || !staffMemberId) return;
-    setIsProcessingAttendance(true);
-    try {
-      const ep = action === 'check-in'
-        ? `/api/shops/${activeShopId}/attendance/check-in`
-        : `/api/shops/${activeShopId}/attendance/check-out`;
-      await apiRequest(ep, { method: 'POST', body: JSON.stringify({ staffMemberId, photoData }) });
-      setSuccessToast(action === 'check-in' ? 'Checked in successfully!' : 'Checked out successfully!');
-      setTimeout(() => setSuccessToast(null), 3000);
-      await fetchAttendanceSession();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Attendance update failed.');
-    } finally {
-      setIsProcessingAttendance(false);
-    }
-  };
 
   const fetchTasks = useCallback(async (showLoading = true) => {
     if (!activeShopId || !staffMemberId) return;
@@ -179,48 +137,18 @@ export default function IronmanPage() {
           </p>
         </div>
 
-        {activeTab === 'tasks' && (
-          <div className="flex items-center gap-1.5 bg-surface-card px-3 py-1.5 rounded-xl border border-border-subtle shadow-clay-sm">
-            <Calendar className="w-3.5 h-3.5 text-brand-forest" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-transparent text-xs font-bold text-brand-forest focus:outline-none cursor-pointer"
-            />
-          </div>
-        )}
+        <div className="flex items-center gap-1.5 bg-surface-card px-3 py-1.5 rounded-xl border border-border-subtle shadow-clay-sm">
+          <Calendar className="w-3.5 h-3.5 text-brand-forest" />
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="bg-transparent text-xs font-bold text-brand-forest focus:outline-none cursor-pointer"
+          />
+        </div>
       </div>
 
-      {/* Station Tabs */}
-      <div className="flex bg-surface-card rounded-2xl border border-border-subtle shadow-clay p-1 gap-1">
-        <button
-          onClick={() => setActiveTab('tasks')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'tasks'
-              ? 'bg-brand-forest text-white shadow-md'
-              : 'text-content-muted hover:text-brand-forest'
-          }`}
-        >
-          <Flame className="w-3.5 h-3.5" />
-          Iron Tasks
-        </button>
-        <button
-          onClick={() => setActiveTab('profile')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'profile'
-              ? 'bg-brand-forest text-white shadow-md'
-              : 'text-content-muted hover:text-brand-forest'
-          }`}
-        >
-          <User className="w-3.5 h-3.5" />
-          Profile
-        </button>
-      </div>
-
-      {activeTab === 'tasks' ? (
-        <>
-          {/* Daily Progress Card */}
+      {/* Daily Progress Card */}
           <ProgressRing
             percentage={ringPercentage}
             label="Today's Ironing Progress"
@@ -446,43 +374,7 @@ export default function IronmanPage() {
           })
         )}
       </div>
-    </>
-  ) : (
-        <StaffProfileCard
-          title="Ironman Profile"
-          onBack={() => setActiveTab('tasks')}
-          staff={{
-            fullName: user?.staffMember?.fullName || 'Ironman',
-            mobile: user?.staffMember?.mobile,
-            address: user?.staffMember?.address,
-            profilePhotoPath: user?.staffMember?.profilePhotoPath,
-            employmentStatus: user?.staffMember?.employmentStatus || 'ACTIVE',
-          }}
-          membership={{
-            shopId: activeShopId || undefined,
-            shopName: membership?.shopName,
-            roleName: membership?.roleName || 'Ironman',
-            positionCategory: membership?.positionCategory,
-            joiningDate: membership?.joiningDate,
-            dutyTimingNotes: membership?.dutyTimingNotes,
-            monthlySalary: membership?.monthlySalary,
-            incentiveAmount: membership?.incentiveAmount,
-            shiftStartTime: membership?.shiftStartTime,
-            shiftEndTime: membership?.shiftEndTime,
-            lateThreshold: membership?.lateThreshold,
-            halfDayThreshold: membership?.halfDayThreshold,
-            absentThreshold: membership?.absentThreshold,
-          }}
-          session={attendanceSession}
-          isProcessingAttendance={isProcessingAttendance}
-          onCheckInWithPhoto={async (photoData) => {
-            await handleAttendanceCapture(photoData, 'check-in');
-          }}
-          onCheckOutWithPhoto={async (photoData) => {
-            await handleAttendanceCapture(photoData, 'check-out');
-          }}
-        />
-      )}
+
 
       {/* Damage Incident Modal */}
       {damageTarget && (
