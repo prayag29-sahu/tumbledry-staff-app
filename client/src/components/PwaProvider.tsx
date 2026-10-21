@@ -42,18 +42,34 @@ export function PwaProvider({ children }: { children: React.ReactNode }) {
     checkStandalone();
     window.matchMedia('(display-mode: standalone)').addEventListener('change', checkStandalone);
 
-    // 2. Register Service Worker for PWA installability
+    // 2. Register Service Worker with Auto-Update checks
     if ('serviceWorker' in navigator && process.env.NODE_ENV !== 'development') {
-      window.addEventListener('load', () => {
+      const registerSW = () => {
         navigator.serviceWorker
           .register('/sw.js')
           .then((registration) => {
             console.log('[PWA] Service Worker registered with scope:', registration.scope);
+            registration.update().catch(() => {});
+            // Periodic check every 30 mins
+            setInterval(() => {
+              registration.update().catch(() => {});
+            }, 30 * 60 * 1000);
           })
           .catch((err) => {
             console.warn('[PWA] Service Worker registration skipped/failed:', err);
           });
-      });
+      };
+
+      if (document.readyState === 'complete') {
+        registerSW();
+      } else {
+        window.addEventListener('load', registerSW);
+      }
+
+      const handleFocus = () => {
+        navigator.serviceWorker.getRegistration().then((reg) => reg?.update().catch(() => {}));
+      };
+      window.addEventListener('focus', handleFocus);
     }
 
     // 3. Capture beforeinstallprompt event
