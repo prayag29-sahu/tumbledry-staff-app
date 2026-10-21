@@ -8,6 +8,7 @@ import {
   ServiceType,
   WorkflowProfile,
 } from '../../types';
+import { localDateKey, addDaysToDateKey } from '../../lib/dateUtils';
 import {
   Users,
   Calendar,
@@ -123,11 +124,6 @@ interface ManagerStaffItem {
 
 /** Roles / capabilities that may open the Manager terminal */
 const MANAGER_CAPABILITIES = ['tasks.assign', 'attendance.read_team'];
-
-/** Local calendar day as YYYY-MM-DD (toISOString() is UTC and shows yesterday before 05:30 IST) */
-function localDateKey(d: Date = new Date()): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
 
 type StaffPositionWithWorkflow = { id: string; name: string; workflowProfile?: WorkflowProfile | null };
 
@@ -1518,31 +1514,28 @@ function ManagerPageInner() {
               <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-border-subtle shadow-sm gap-2">
                 <div className="flex items-center gap-1.5">
                   <button
-                    onClick={() => {
-                      const prev = new Date(`${staffTaskDate}T00:00:00`);
-                      prev.setDate(prev.getDate() - 1);
-                      setStaffTaskDate(localDateKey(prev));
-                    }}
-                    className="p-1 rounded-lg hover:bg-surface-cream"
+                    onClick={() => setStaffTaskDate(addDaysToDateKey(staffTaskDate, -1))}
+                    className="p-1 rounded-lg hover:bg-surface-cream text-brand-forest"
                   >
-                    <ChevronLeft className="w-4 h-4 text-brand-forest" />
+                    <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <span className="text-xs font-black text-brand-forest">
-                    {new Date(staffTaskDate).toLocaleDateString('en-IN', {
-                      day: '2-digit',
-                      month: 'short',
-                      year: 'numeric',
-                    })}
-                  </span>
+                  <div className="flex items-center gap-1.5 font-bold text-xs text-brand-forest">
+                    <Calendar className="w-3.5 h-3.5" />
+                    <input
+                      type="date"
+                      value={staffTaskDate}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val) setStaffTaskDate(val);
+                      }}
+                      className="bg-transparent font-bold text-xs text-brand-forest cursor-pointer focus:outline-none"
+                    />
+                  </div>
                   <button
-                    onClick={() => {
-                      const next = new Date(`${staffTaskDate}T00:00:00`);
-                      next.setDate(next.getDate() + 1);
-                      setStaffTaskDate(localDateKey(next));
-                    }}
-                    className="p-1 rounded-lg hover:bg-surface-cream"
+                    onClick={() => setStaffTaskDate(addDaysToDateKey(staffTaskDate, 1))}
+                    className="p-1 rounded-lg hover:bg-surface-cream text-brand-forest"
                   >
-                    <ChevronRight className="w-4 h-4 text-brand-forest" />
+                    <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
 
@@ -2170,7 +2163,7 @@ function ManagerPageInner() {
                               </p>
                             )}
                             <div className="flex items-center gap-3 pt-1 text-[10px] text-content-muted">
-                              <span>Target Date: {directive.createdAt ? new Date(directive.createdAt).toISOString().split('T')[0] : selectedDate}</span>
+                              <span>Target Date: {directive.createdAt ? localDateKey(new Date(directive.createdAt)) : selectedDate}</span>
                               {unit?.completedAt && (
                                 <span className="text-emerald-700 font-bold flex items-center gap-1">
                                   <Check className="w-3 h-3" />
@@ -2404,6 +2397,7 @@ function ManagerPageInner() {
                   onClick={() => {
                     setSelectedStaff(staff);
                     setStaffProfileTab('overview');
+                    setStaffTaskDate(selectedDate);
                     setActiveDrilldown('staff_details');
                   }}
                   className="cursor-pointer bg-white p-3.5 rounded-2xl border border-border-subtle shadow-sm flex items-center justify-between hover:border-brand-forest/40 transition-all"

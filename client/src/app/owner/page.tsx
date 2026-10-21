@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react
 import { useSearchParams, useRouter } from 'next/navigation';
 import { apiRequest } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { localDateKey, addDaysToDateKey } from '../../lib/dateUtils';
 import {
   Shop,
   PositionCategory,
@@ -341,7 +342,7 @@ function OwnerPageInner() {
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
 
   // Branch Operational Inspection State
-  const [branchDate, setBranchDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [branchDate, setBranchDate] = useState<string>(() => localDateKey());
   const [branchSubTab, setBranchSubTab] = useState<'workforce' | 'tasks' | 'attendance' | 'leaderboard'>('workforce');
   const [branchDashboard, setBranchDashboard] = useState<BranchDashboardData | null>(null);
   const [isLoadingBranchDashboard, setIsLoadingBranchDashboard] = useState(false);
@@ -355,7 +356,7 @@ function OwnerPageInner() {
 
   // Staff Task Performance Modal
   const [selectedStaff, setSelectedStaff] = useState<StaffMembershipItem | null>(null);
-  const [staffTaskDate, setStaffTaskDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [staffTaskDate, setStaffTaskDate] = useState<string>(() => localDateKey());
   const [staffPerfTab, setStaffPerfTab] = useState<'daily' | 'monthly' | 'attendance' | 'timings'>('daily');
   // Staff Shift & Attendance Policy Editor (Owner Modal)
   const [shiftStartTime, setShiftStartTime] = useState('');
@@ -496,19 +497,15 @@ function OwnerPageInner() {
 
   // Date Navigation Helpers
   const handlePrevDay = () => {
-    const d = new Date(branchDate + 'T00:00:00');
-    d.setDate(d.getDate() - 1);
-    setBranchDate(d.toISOString().split('T')[0]);
+    setBranchDate(addDaysToDateKey(branchDate, -1));
   };
 
   const handleNextDay = () => {
-    const d = new Date(branchDate + 'T00:00:00');
-    d.setDate(d.getDate() + 1);
-    setBranchDate(d.toISOString().split('T')[0]);
+    setBranchDate(addDaysToDateKey(branchDate, 1));
   };
 
   const handleToday = () => {
-    setBranchDate(new Date().toISOString().split('T')[0]);
+    setBranchDate(localDateKey());
   };
 
   const toggleTaskExpansion = (taskId: string) => {
@@ -808,19 +805,19 @@ function OwnerPageInner() {
 
   const openStaffPerformance = (staff: StaffMembershipItem, initialTab: 'daily' | 'monthly' | 'attendance' | 'timings' = 'daily') => {
     setSelectedStaff(staff);
-    const today = new Date().toISOString().split('T')[0];
-    setStaffTaskDate(today);
+    const targetDate = branchDate || localDateKey();
+    setStaffTaskDate(targetDate);
     setStaffPerfTab(initialTab);
-    const now = new Date();
-    setMonthlyYear(now.getFullYear());
-    setMonthlyMonth(now.getMonth() + 1);
+    const [y, m] = targetDate.split('-').map(Number);
+    setMonthlyYear(y);
+    setMonthlyMonth(m);
     setShiftStartTime(staff.shiftStartTime || staff.shiftSchedule?.shiftStartTime || '');
     setShiftEndTime(staff.shiftEndTime || staff.shiftSchedule?.shiftEndTime || '');
     setLateThreshold(staff.lateThreshold || staff.shiftSchedule?.lateThreshold || '');
     setHalfDayThreshold(staff.halfDayThreshold || staff.shiftSchedule?.halfDayThreshold || '');
     setAbsentThreshold(staff.absentThreshold || staff.shiftSchedule?.absentThreshold || '');
     setShiftTimingsFeedback(null);
-    fetchStaffPerformance(staff.staffMember.id, selectedShopId, today, now.getFullYear(), now.getMonth() + 1);
+    fetchStaffPerformance(staff.staffMember.id, selectedShopId, targetDate, y, m);
   };
 
   const handleSaveShiftTimings = async () => {

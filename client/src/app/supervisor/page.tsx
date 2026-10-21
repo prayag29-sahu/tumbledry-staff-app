@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../lib/api';
+import { localDateKey } from '../../lib/dateUtils';
 import {
   PositionCategory,
   CustomFieldDefinition,
@@ -331,7 +332,7 @@ export default function SupervisorPage() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const dashboardDate = selectedDate;
   const attendanceDate = selectedDate;
-  const [staffTaskDate, setStaffTaskDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [staffTaskDate, setStaffTaskDate] = useState<string>(() => localDateKey());
 
   // Selected month & year for Attendance & Performance
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
@@ -666,15 +667,15 @@ export default function SupervisorPage() {
     setSelectedStaff(staff);
     setActiveDrilldown('staff_profile');
     setProfileTab('overview');
-    const today = new Date().toISOString().split('T')[0];
-    setStaffTaskDate(today);
-    const now = new Date();
-    setSelectedYear(now.getFullYear());
-    setSelectedMonth(now.getMonth() + 1);
+    const targetDate = selectedDate || localDateKey();
+    setStaffTaskDate(targetDate);
+    const [y, m] = targetDate.split('-').map(Number);
+    setSelectedYear(y);
+    setSelectedMonth(m);
 
-    fetchStaffDayTasks(staff.staffMember.id, today);
-    fetchStaffAttendance(staff.staffMember.id, now.getFullYear(), now.getMonth() + 1);
-    fetchStaffPerformance(staff.staffMember.id, now.getFullYear(), now.getMonth() + 1);
+    fetchStaffDayTasks(staff.staffMember.id, targetDate);
+    fetchStaffAttendance(staff.staffMember.id, y, m);
+    fetchStaffPerformance(staff.staffMember.id, y, m);
   };
 
   // Reset all Add Staff form fields
@@ -1714,9 +1715,9 @@ export default function SupervisorPage() {
                 <div className="flex items-center justify-between flex-1 p-2 bg-white rounded-xl border border-border-subtle shadow-sm">
                   <button
                     onClick={() => {
-                      const prev = new Date(staffTaskDate);
-                      prev.setDate(prev.getDate() - 1);
-                      const str = prev.toISOString().split('T')[0];
+                      const [y, m, d] = staffTaskDate.split('-').map(Number);
+                      const prev = new Date(y, m - 1, d - 1);
+                      const str = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`;
                       setStaffTaskDate(str);
                       fetchStaffDayTasks(selectedStaff.staffMember.id, str);
                     }}
@@ -1726,13 +1727,24 @@ export default function SupervisorPage() {
                   </button>
                   <div className="flex items-center gap-1.5 font-bold text-xs text-brand-forest">
                     <Calendar className="w-3.5 h-3.5" />
-                    <span>{new Date(staffTaskDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                    <input
+                      type="date"
+                      value={staffTaskDate}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val) {
+                          setStaffTaskDate(val);
+                          fetchStaffDayTasks(selectedStaff.staffMember.id, val);
+                        }
+                      }}
+                      className="bg-transparent font-bold text-xs text-brand-forest cursor-pointer focus:outline-none"
+                    />
                   </div>
                   <button
                     onClick={() => {
-                      const next = new Date(staffTaskDate);
-                      next.setDate(next.getDate() + 1);
-                      const str = next.toISOString().split('T')[0];
+                      const [y, m, d] = staffTaskDate.split('-').map(Number);
+                      const next = new Date(y, m - 1, d + 1);
+                      const str = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
                       setStaffTaskDate(str);
                       fetchStaffDayTasks(selectedStaff.staffMember.id, str);
                     }}

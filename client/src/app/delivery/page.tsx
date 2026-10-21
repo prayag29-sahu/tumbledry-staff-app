@@ -7,6 +7,7 @@ import { TaskAssignment, TaskSummary, TaskUnit } from '../../types';
 import { ProgressRing } from '../../components/ProgressRing';
 import { DamageModal } from '../../components/DamageModal';
 import { DamageIncidentViewerModal, DamageIncidentRecord } from '../../components/DamageIncidentViewerModal';
+import { localDateKey } from '../../lib/dateUtils';
 import {
   Calendar,
   Truck,
@@ -23,9 +24,7 @@ import {
 
 export default function DeliveryPage() {
   const { user, activeShopId } = useAuth();
-  const [selectedDate, setSelectedDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
-  );
+  const [selectedDate, setSelectedDate] = useState<string>(() => localDateKey());
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
   const [summary, setSummary] = useState<TaskSummary | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'delivery' | 'pickup'>('all');
