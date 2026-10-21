@@ -24,6 +24,7 @@ import { LiveCameraModal } from './LiveCameraModal';
 import { AttendancePhotoViewerModal } from './AttendancePhotoViewerModal';
 import { StaffExtraDetails } from './owner/StaffExtraDetails';
 
+
 export interface ProfileStaffDetails {
   fullName: string;
   mobile?: string | null;
@@ -275,22 +276,20 @@ export function StaffProfileCard({
         <button
           type="button"
           onClick={() => setSubtab('attendance')}
-          className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all text-center ${
-            subtab === 'attendance'
+          className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all text-center ${subtab === 'attendance'
               ? 'bg-brand-forest text-white shadow-sm'
               : 'text-content-muted hover:text-brand-forest'
-          }`}
+            }`}
         >
           Attendance
         </button>
         <button
           type="button"
           onClick={() => setSubtab('details')}
-          className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all text-center ${
-            subtab === 'details'
+          className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all text-center ${subtab === 'details'
               ? 'bg-brand-forest text-white shadow-sm'
               : 'text-content-muted hover:text-brand-forest'
-          }`}
+            }`}
         >
           Profile Details
         </button>
@@ -309,17 +308,16 @@ export function StaffProfileCard({
                 </h3>
               </div>
               <span
-                className={`text-[10px] font-black px-2.5 py-0.5 rounded-full ${
-                  attendanceTypeLabel === 'PRESENT'
+                className={`text-[10px] font-black px-2.5 py-0.5 rounded-full ${attendanceTypeLabel === 'PRESENT'
                     ? 'bg-emerald-100 text-emerald-800'
                     : attendanceTypeLabel === 'LATE'
-                    ? 'bg-amber-100 text-amber-900'
-                    : attendanceTypeLabel === 'HALF_DAY'
-                    ? 'bg-orange-100 text-orange-900'
-                    : isCheckedIn
-                    ? 'bg-blue-100 text-blue-900'
-                    : 'bg-red-100 text-red-700'
-                }`}
+                      ? 'bg-amber-100 text-amber-900'
+                      : attendanceTypeLabel === 'HALF_DAY'
+                        ? 'bg-orange-100 text-orange-900'
+                        : isCheckedIn
+                          ? 'bg-blue-100 text-blue-900'
+                          : 'bg-red-100 text-red-700'
+                  }`}
               >
                 {attendanceTypeLabel === 'HALF_DAY' ? 'HALF DAY' : attendanceTypeLabel}
               </span>
@@ -328,9 +326,8 @@ export function StaffProfileCard({
             {/* Check-In / Check-Out Grid */}
             <div className="grid grid-cols-2 gap-3">
               <div
-                className={`p-3 rounded-xl bg-surface-cream/70 border border-border-subtle/80 ${
-                  session?.checkInPhotoPath ? 'cursor-pointer hover:bg-surface-cream' : ''
-                }`}
+                className={`p-3 rounded-xl bg-surface-cream/70 border border-border-subtle/80 ${session?.checkInPhotoPath ? 'cursor-pointer hover:bg-surface-cream' : ''
+                  }`}
                 onClick={() => {
                   if (session?.checkInPhotoPath) {
                     setViewingPhoto({
@@ -355,9 +352,8 @@ export function StaffProfileCard({
               </div>
 
               <div
-                className={`p-3 rounded-xl bg-surface-cream/70 border border-border-subtle/80 ${
-                  session?.checkOutPhotoPath ? 'cursor-pointer hover:bg-surface-cream' : ''
-                }`}
+                className={`p-3 rounded-xl bg-surface-cream/70 border border-border-subtle/80 ${session?.checkOutPhotoPath ? 'cursor-pointer hover:bg-surface-cream' : ''
+                  }`}
                 onClick={() => {
                   if (session?.checkOutPhotoPath) {
                     setViewingPhoto({
