@@ -4,7 +4,7 @@ import { authenticate, AuthenticatedRequest, requireOwner } from '../../middlewa
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
 import { logAudit } from '../../lib/audit';
-import { dayBounds } from '../../lib/dateRange';
+import { dayBounds, dbDateForDay } from '../../lib/dateRange';
 import { attendancePhotoPresence, mediaUrlIf } from '../../lib/media';
 
 export const shopsRouter = Router();
@@ -58,11 +58,8 @@ shopsRouter.get('/metrics', async (req: Request, res: Response, next: NextFuncti
   }
 
   const dateStr = req.query['date'] as string;
-  const targetDate = dateStr ? new Date(dateStr) : new Date();
-  const startOfDay = new Date(targetDate);
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(targetDate);
-  endOfDay.setHours(23, 59, 59, 999);
+  const { startOfDay, endOfDay } = dayBounds(dateStr);
+  const { dbDate } = dbDateForDay(dateStr);
 
   const shops = await prisma.shop.findMany({
     where: targetShopWhere,
@@ -91,7 +88,7 @@ shopsRouter.get('/metrics', async (req: Request, res: Response, next: NextFuncti
         status: { not: 'CANCELLED' },
         OR: [
           { createdAt: { gte: startOfDay, lte: endOfDay } },
-          { taskAssignment: { assignmentDate: { gte: startOfDay, lte: endOfDay } } },
+          { taskAssignment: { assignmentDate: dbDate } },
         ],
       },
       select: { shopId: true, status: true, activityCode: true, unitType: true },
@@ -264,6 +261,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
 
   const dateStr = req.query['date'] as string;
   const { startOfDay, endOfDay } = dayBounds(dateStr);
+  const { dbDate } = dbDateForDay(dateStr);
 
   // All independent reads in ONE parallel batch (each sequential DB round-trip added ~100ms+)
   const [staffMemberships, attendanceSessions, assignments, serviceCatalogue] = await Promise.all([
@@ -289,7 +287,7 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
     prisma.taskAssignment.findMany({
       where: {
         shopId,
-        assignmentDate: { gte: startOfDay, lte: endOfDay },
+        assignmentDate: dbDate,
         status: 'ACTIVE',
       },
       select: {

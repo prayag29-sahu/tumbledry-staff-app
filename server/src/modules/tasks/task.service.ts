@@ -1,5 +1,6 @@
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
+import { dbDateForDay } from '../../lib/dateRange';
 import { logger } from '../../config/logger';
 import { WorkflowType } from '@prisma/client';
 
@@ -339,18 +340,16 @@ export async function toggleTaskUnit(
 export async function getTaskSummary(
   staffMemberId: string,
   shopId: string,
-  date: Date
+  dateInput: Date | string = new Date()
 ): Promise<TaskUnitSummary> {
-  const startOfDay = new Date(date);
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(date);
-  endOfDay.setHours(23, 59, 59, 999);
+  const dateStr = typeof dateInput === 'string' ? dateInput : dateInput.toISOString().split('T')[0];
+  const { dbDate } = dbDateForDay(dateStr);
 
   const assignments = await prisma.taskAssignment.findMany({
     where: {
       staffMemberId,
       shopId,
-      assignmentDate: { gte: startOfDay, lte: endOfDay },
+      assignmentDate: dbDate,
       status: 'ACTIVE',
     },
     select: { id: true },
@@ -417,8 +416,8 @@ export async function getMonthlyTaskSummary(
   year: number,
   month: number // 1-indexed
 ): Promise<TaskUnitSummary> {
-  const startOfMonth = new Date(year, month - 1, 1);
-  const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999);
+  const startOfMonth = new Date(Date.UTC(year, month - 1, 1));
+  const endOfMonth = new Date(Date.UTC(year, month, 0));
 
   const assignments = await prisma.taskAssignment.findMany({
     where: {

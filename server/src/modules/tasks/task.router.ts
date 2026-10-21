@@ -4,6 +4,7 @@ import { authenticate, AuthenticatedRequest, requireCapability } from '../../mid
 import { createAssignment, completeTaskUnit, toggleTaskUnit, getTaskSummary, getMonthlyTaskSummary } from './task.service';
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
+import { dbDateForDay } from '../../lib/dateRange';
 
 export const taskRouter = Router({ mergeParams: true });
 
@@ -16,12 +17,8 @@ taskRouter.get(
   async (req: Request, res: Response, next: NextFunction) => {
     const auth = (req as AuthenticatedRequest).auth;
     const { shopId, staffId } = req.params as { shopId: string; staffId: string };
-    const dateStr = req.query['date'] as string;
-
-    const date = dateStr ? new Date(dateStr) : new Date();
-    if (isNaN(date.getTime())) {
-      return next(new AppError(422, 'VALIDATION_ERROR', 'Invalid date format. Use YYYY-MM-DD.'));
-    }
+    const dateStr = req.query['date'] as string | undefined;
+    const { dbDate, dateKey } = dbDateForDay(dateStr);
 
     // Staff can only see their own tasks
     const isOwnRequest = auth.shopMemberships.some(
@@ -45,16 +42,11 @@ taskRouter.get(
       return next(new AppError(403, 'FORBIDDEN', 'Access denied to this staff member\'s tasks.'));
     }
 
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
-
     const assignments = await prisma.taskAssignment.findMany({
       where: {
         shopId,
         staffMemberId,
-        assignmentDate: { gte: startOfDay, lte: endOfDay },
+        assignmentDate: dbDate,
         status: 'ACTIVE',
       },
       include: {
@@ -93,9 +85,9 @@ taskRouter.get(
       orderBy: { createdAt: 'desc' },
     });
 
-    const summary = await getTaskSummary(staffMemberId, shopId, date);
+    const summary = await getTaskSummary(staffMemberId, shopId, dbDate);
 
-    res.json({ assignments, summary, date: date.toISOString().split('T')[0] });
+    res.json({ assignments, summary, date: dateKey });
   }
 );
 
@@ -105,27 +97,18 @@ taskRouter.get(
   async (req: Request, res: Response, next: NextFunction) => {
     const auth = (req as AuthenticatedRequest).auth;
     const { shopId } = req.params as { shopId: string };
-    const dateStr = req.query['date'] as string;
-
-    const date = dateStr ? new Date(dateStr) : new Date();
-    if (isNaN(date.getTime())) {
-      return next(new AppError(422, 'VALIDATION_ERROR', 'Invalid date format. Use YYYY-MM-DD.'));
-    }
+    const dateStr = req.query['date'] as string | undefined;
+    const { dbDate, dateKey } = dbDateForDay(dateStr);
 
     const hasAccess = auth.isOwner || auth.shopMemberships.some(
       (m) => m.shopId === shopId && (m.capabilities.includes('tasks.read_team') || m.capabilities.includes('staff.read'))
     );
     if (!hasAccess) return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
 
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
-
     const assignments = await prisma.taskAssignment.findMany({
       where: {
         shopId,
-        assignmentDate: { gte: startOfDay, lte: endOfDay },
+        assignmentDate: dbDate,
         status: 'ACTIVE',
       },
       include: {
@@ -165,7 +148,7 @@ taskRouter.get(
       orderBy: { createdAt: 'desc' },
     });
 
-    res.json({ assignments, date: date.toISOString().split('T')[0] });
+    res.json({ assignments, date: dateKey });
   }
 );
 
@@ -190,12 +173,13 @@ taskRouter.post(
     });
 
     const body = schema.parse(req.body);
+    const { dbDate } = dbDateForDay(body.assignmentDate);
 
     const assignment = await createAssignment({
       shopId,
       staffMemberId: staffId,
       createdByAccountId: auth.accountId,
-      assignmentDate: new Date(body.assignmentDate),
+      assignmentDate: dbDate,
       workflowProfileId: body.workflowProfileId,
       serviceTypeId: body.serviceTypeId,
       orderId: body.orderId,

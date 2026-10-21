@@ -50,3 +50,16 @@ export function anchorTimeForDay(bounds: DayBounds): Date {
   anchor.setHours(10, 0, 0, 0);
   return anchor;
 }
+
+/**
+ * Anchor date for PostgreSQL `@db.Date` fields (such as `task_assignments.assignment_date`).
+ * Because Prisma serializes Date to `@db.Date` by extracting the UTC calendar date (YYYY-MM-DD),
+ * passing a UTC midnight Date (`YYYY-MM-DDT00:00:00.000Z`) guarantees that the exact `dateKey`
+ * is matched without timezone shifts.
+ */
+export function dbDateForDay(dateStr?: string | null): { dbDate: Date; dateKey: string; isToday: boolean } {
+  const { dateKey, isToday } = dayBounds(dateStr);
+  const dbDate = new Date(`${dateKey}T00:00:00.000Z`);
+  return { dbDate, dateKey, isToday };
+}
+
