@@ -1,10 +1,12 @@
 // Tumbledry Operations PWA Service Worker (Network-First Auto-Updating)
-const CACHE_NAME = 'tumbledry-v2';
+const CACHE_NAME = 'tumbledry-v3';
 const STATIC_ASSETS = [
   '/manifest.json',
   '/favicon.ico',
   '/icon-192.png',
   '/icon-512.png',
+  '/icon-maskable-192.png',
+  '/icon-maskable-512.png',
 ];
 
 self.addEventListener('install', (event) => {
