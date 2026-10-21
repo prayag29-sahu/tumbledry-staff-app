@@ -90,6 +90,7 @@ export interface AuthAccountResponse {
     joiningDate?: string | null;
     dutyTimingNotes?: string | null;
     monthlySalary?: number | null;
+    securityDeposit?: number | null;
     shiftStartTime?: string | null;
     shiftEndTime?: string | null;
     lateThreshold?: string | null;
@@ -134,6 +135,7 @@ export async function getAccountProfile(accountId: string): Promise<AuthAccountR
           joiningDate: true,
           dutyTimingNotes: true,
           monthlySalary: true,
+          securityDeposit: true,
           shiftStartTime: true,
           shiftEndTime: true,
           lateThreshold: true,
@@ -158,6 +160,7 @@ export async function getAccountProfile(accountId: string): Promise<AuthAccountR
     joiningDate?: string | null;
     dutyTimingNotes?: string | null;
     monthlySalary?: number | null;
+    securityDeposit?: number | null;
     shiftStartTime?: string | null;
     shiftEndTime?: string | null;
     lateThreshold?: string | null;
@@ -183,6 +186,7 @@ export async function getAccountProfile(accountId: string): Promise<AuthAccountR
       joiningDate: null,
       dutyTimingNotes: null,
       monthlySalary: null,
+      securityDeposit: null,
       shiftStartTime: null,
       shiftEndTime: null,
       lateThreshold: null,
@@ -202,6 +206,7 @@ export async function getAccountProfile(accountId: string): Promise<AuthAccountR
       joiningDate: m.joiningDate ? m.joiningDate.toISOString() : null,
       dutyTimingNotes: m.dutyTimingNotes ?? null,
       monthlySalary: m.monthlySalary ? Number(m.monthlySalary) : null,
+      securityDeposit: m.securityDeposit ? Number(m.securityDeposit) : null,
       shiftStartTime: m.shiftStartTime ?? null,
       shiftEndTime: m.shiftEndTime ?? null,
       lateThreshold: m.lateThreshold ?? null,
