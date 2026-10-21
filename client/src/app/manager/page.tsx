@@ -8,7 +8,8 @@ import {
   ServiceType,
   WorkflowProfile,
 } from '../../types';
-import { localDateKey, addDaysToDateKey } from '../../lib/dateUtils';
+import { localDateKey, addDaysToDateKey, resolveDutyTiming, formatTime12h } from '../../lib/dateUtils';
+import { StaffProfileCard } from '../../components/StaffProfileCard';
 import {
   Users,
   Calendar,
@@ -117,6 +118,11 @@ interface ManagerStaffItem {
   dutyTimingNotes?: string | null;
   incentiveAmount?: number | null;
   attendanceEnabled?: boolean;
+  shiftStartTime?: string | null;
+  shiftEndTime?: string | null;
+  lateThreshold?: string | null;
+  halfDayThreshold?: string | null;
+  absentThreshold?: string | null;
   attendanceToday: StaffAttendance;
   /** Work-counting rule set directly on this staff member (Owner > Workforce) */
   workflowProfile?: WorkflowProfile | null;
@@ -308,7 +314,7 @@ function ManagerPageInner() {
   const [completingDirectiveId, setCompletingDirectiveId] = useState<string | null>(null);
 
   // Manager Self Attendance State & Live Camera Selfie Verification
-  const [managerSession, setManagerSession] = useState<{ id: string; checkInAt: string; checkOutAt: string | null; status: string; checkInPhotoPath?: string | null; checkOutPhotoPath?: string | null } | null>(null);
+  const [managerSession, setManagerSession] = useState<{ id: string; checkInAt: string; checkOutAt: string | null; status: string; checkInPhotoPath?: string | null; checkOutPhotoPath?: string | null; attendanceType?: string | null } | null>(null);
   const [isProcessingAttendance, setIsProcessingAttendance] = useState(false);
   const [attendanceMessage, setAttendanceMessage] = useState<string | null>(null);
   const [isLiveCameraOpen, setIsLiveCameraOpen] = useState(false);
@@ -822,7 +828,11 @@ function ManagerPageInner() {
   const managerAddress = user?.staffMember?.address || myStaffRecord?.staffMember?.address || 'Not provided';
   const managerRole = myStaffRecord?.positionCategory?.name || myMembership?.positionCategory || managerRoleLabel || 'Store Manager';
   const managerJoiningDate = myStaffRecord?.joiningDate || myMembership?.joiningDate;
-  const managerDutyTiming = myStaffRecord?.dutyTimingNotes || myMembership?.dutyTimingNotes || 'Not specified';
+  const managerDutyTiming = resolveDutyTiming(
+    myStaffRecord?.dutyTimingNotes || myMembership?.dutyTimingNotes,
+    myStaffRecord?.shiftStartTime ?? myMembership?.shiftStartTime,
+    myStaffRecord?.shiftEndTime ?? myMembership?.shiftEndTime
+  );
   const managerSalary = myStaffRecord?.monthlySalary ?? myMembership?.monthlySalary ?? null;
   const myCapabilities = myMembership?.capabilities ?? [];
 
@@ -2747,340 +2757,52 @@ function ManagerPageInner() {
           MAIN SCREEN 5: MANAGER PROFILE & ATTENDANCE (SCREEN 10)
       ══════════════════════════════════════════════════════════════════════════ */}
       {!activeDrilldown && currentNav === 'profile' && (
-        <div className="p-4 space-y-4 animate-fade-in">
-          {/* Header matching Screen 10 */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setCurrentNav('dashboard')}
-                className="p-1.5 rounded-xl hover:bg-surface-cream"
-              >
-                <ChevronLeft className="w-5 h-5 text-brand-forest" />
-              </button>
-              <h1 className="text-base font-black text-brand-forest">Manager Profile</h1>
-            </div>
-            <button
-              onClick={async () => {
-                await logout();
-                router.push('/login');
-              }}
-              className="p-2 rounded-xl bg-white border border-border-subtle text-red-600 hover:bg-red-50"
-              title="Logout"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Profile Identity Card matching Screen 10 */}
-          <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm flex flex-col items-center text-center space-y-3">
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-brand-lime to-[#6DA322] flex items-center justify-center font-black text-white text-2xl shadow-clay-sm border-2 border-white">
-              {user?.staffMember?.fullName?.charAt(0) || 'M'}
-            </div>
-            <div>
-              <h2 className="text-lg font-black text-brand-forest">
-                {user?.staffMember?.fullName || 'Manager'}
-              </h2>
-              <p className="text-xs text-content-muted font-semibold mt-0.5">
-                {managerRole} • {activeShopName || 'Branch'}
-              </p>
-            </div>
-
-            {/* Contact details row matching Screen 10 */}
-            <div className="grid grid-cols-2 gap-2 w-full pt-3 border-t border-border-subtle text-left text-xs">
-              <div className="p-2.5 rounded-xl bg-surface-cream/50">
-                <span className="text-[10px] text-content-muted block">Mobile</span>
-                <span className="font-bold text-brand-forest">
-                  {managerMobile}
-                </span>
-              </div>
-              <div className="p-2.5 rounded-xl bg-surface-cream/50">
-                <span className="text-[10px] text-content-muted block">Role</span>
-                <span className="font-bold text-brand-forest truncate block">
-                  {managerRole}
-                </span>
-              </div>
-              <div className="p-2.5 rounded-xl bg-surface-cream/50">
-                <span className="text-[10px] text-content-muted block">Joining Date</span>
-                <span className="font-bold text-brand-forest">
-                  {managerJoiningDate
-                    ? new Date(managerJoiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-                    : 'Not provided'}
-                </span>
-              </div>
-              <div className="p-2.5 rounded-xl bg-surface-cream/50">
-                <span className="text-[10px] text-content-muted block">Duty Timing</span>
-                <span className="font-bold text-brand-forest">{managerDutyTiming}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Subtabs: Attendance vs Profile Details matching Screen 10 */}
-          <div className="flex items-center gap-1 p-1 bg-surface-cream rounded-xl border border-border-subtle">
-            <button
-              onClick={() => setManagerProfileSubtab('attendance')}
-              className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all text-center ${managerProfileSubtab === 'attendance'
-                  ? 'bg-brand-forest text-white shadow-sm'
-                  : 'text-content-muted hover:text-brand-forest'
-                }`}
-            >
-              Attendance
-            </button>
-            <button
-              onClick={() => setManagerProfileSubtab('details')}
-              className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all text-center ${managerProfileSubtab === 'details'
-                  ? 'bg-brand-forest text-white shadow-sm'
-                  : 'text-content-muted hover:text-brand-forest'
-                }`}
-            >
-              Profile Details
-            </button>
-          </div>
-
-          {/* SUBTAB 1: ATTENDANCE & PHOTO VERIFICATION (Screen 10) */}
-          {managerProfileSubtab === 'attendance' && (
-            <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-black text-brand-forest">Mark Attendance</h3>
-                <span
-                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${managerSession?.status === 'OPEN'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-surface-cream text-content-muted'
-                    }`}
-                >
-                  {managerSession?.status === 'OPEN'
-                    ? `Checked In: ${new Date(managerSession.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
-                    : 'Not Checked In'}
-                </span>
-              </div>
-
-              {attendanceMessage && (
-                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800 text-center">
-                  {attendanceMessage}
-                </div>
-              )}
-
-              {/* Photo Verification Area (Live Camera Only) */}
-              <div className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-border-subtle rounded-2xl bg-surface-cream/40 space-y-2">
-                {managerSession?.checkInPhotoPath ? (
-                  <div className="relative w-32 h-32 rounded-xl overflow-hidden border border-border-subtle shadow-sm">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={managerSession.checkInPhotoPath} alt="Selfie preview" className="w-full h-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => setViewingAttendancePhoto({
-                        staffName: managerDisplayName,
-                        role: managerRoleLabel,
-                        photoUrl: managerSession.checkInPhotoPath!,
-                        checkOutPhotoUrl: managerSession.checkOutPhotoPath || undefined,
-                        timestamp: managerSession.checkInAt,
-                        checkOutTimestamp: managerSession.checkOutAt || undefined,
-                        status: managerSession.status,
-                      })}
-                      className="absolute inset-0 bg-black/25 flex items-center justify-center text-white text-[11px] font-bold opacity-0 hover:opacity-100 transition-opacity"
-                    >
-                      Enlarge
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center text-center space-y-1 py-4">
-                    <div className="w-12 h-12 rounded-full bg-[#EAF5E9] text-brand-forest flex items-center justify-center shadow-sm">
-                      <Camera className="w-6 h-6" />
-                    </div>
-                    <span className="text-xs font-bold text-brand-forest">Direct Live Camera Selfie</span>
-                    <span className="text-[10px] text-content-muted">Live front-camera selfie is saved with your attendance</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Check-In / Check-Out Actions (today only) */}
-              {!isViewingToday ? (
-                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-800 flex items-center justify-between gap-2">
-                  <span>Viewing {reportDateLabel}. Attendance can be marked only for today.</span>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDate(todayKey)}
-                    className="px-2.5 py-1 rounded-lg bg-brand-forest text-white font-black shrink-0"
-                  >
-                    Go to Today
-                  </button>
-                </div>
-              ) : managerSession?.status === 'OPEN' ? (
-                <button
-                  type="button"
-                  disabled={isProcessingAttendance}
-                  onClick={() => {
-                    setCameraAction('check-out');
-                    setIsLiveCameraOpen(true);
-                  }}
-                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-red-600 to-red-700 text-white text-xs font-black shadow-clay hover:opacity-95 transition-opacity flex items-center justify-center gap-2"
-                >
-                  <Camera className="w-4 h-4" />
-                  <span>{isProcessingAttendance ? 'Processing...' : 'Check Out with Live Camera'}</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={isProcessingAttendance}
-                  onClick={() => {
-                    setCameraAction('check-in');
-                    setIsLiveCameraOpen(true);
-                  }}
-                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay hover:opacity-95 transition-opacity flex items-center justify-center gap-2"
-                >
-                  <Camera className="w-4 h-4" />
-                  <span>{isProcessingAttendance ? 'Verifying...' : 'Check In with Live Camera'}</span>
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* SUBTAB 2: PROFILE DETAILS */}
-          {managerProfileSubtab === 'details' && (
-            <div className="space-y-4">
-              {/* Personal & Employment Details Card */}
-              <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3.5 text-xs">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-xs font-black text-brand-forest">Personal & Employment Details</h3>
-                    <p className="text-[10px] text-content-muted">Your verified profile details in this store</p>
-                  </div>
-                  {/* <button
-                    type="button"
-                    onClick={() => {
-                      setEditFullName(user?.staffMember?.fullName || '');
-                      setEditMobile(managerMobile !== 'Not provided' ? managerMobile : (user?.staffMember?.mobile || ''));
-                      setEditAddress(managerAddress !== 'Not provided' ? managerAddress : (user?.staffMember?.address || ''));
-                      setEditDutyTiming(managerDutyTiming !== 'Not specified' ? managerDutyTiming : '');
-                      setEditDetailsError(null);
-                      setEditDetailsSuccess(null);
-                      setIsEditDetailsOpen(true);
-                    }}
-                    className="px-2.5 py-1.5 rounded-xl bg-brand-forest text-white text-[11px] font-black hover:opacity-90 transition-opacity flex items-center gap-1 shadow-sm"
-                  >
-                    <Pencil className="w-3 h-3" />
-                    <span>Edit Details</span>
-                  </button> */}
-                </div>
-
-                <div className="space-y-2 pt-1">
-                  <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
-                    <span className="text-content-muted text-[11px] flex items-center gap-1.5">
-                      <User className="w-3.5 h-3.5 text-brand-forest" />
-                      Full Name
-                    </span>
-                    <span className="font-bold text-brand-forest">{user?.staffMember?.fullName || 'Manager'}</span>
-                  </div>
-
-                  <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
-                    <span className="text-content-muted text-[11px] flex items-center gap-1.5">
-                      <Phone className="w-3.5 h-3.5 text-brand-forest" />
-                      Mobile Number
-                    </span>
-                    <span className="font-bold text-brand-forest">{managerMobile}</span>
-                  </div>
-
-                  <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
-                    <span className="text-content-muted text-[11px] flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-brand-forest" />
-                      Address
-                    </span>
-                    <span className="font-bold text-brand-forest text-right max-w-[200px] truncate" title={managerAddress}>
-                      {managerAddress}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
-                    <span className="text-content-muted text-[11px] flex items-center gap-1.5">
-                      <Briefcase className="w-3.5 h-3.5 text-brand-forest" />
-                      Designation
-                    </span>
-                    <span className="font-bold text-brand-forest">{managerRole}</span>
-                  </div>
-
-                  <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
-                    <span className="text-content-muted text-[11px] flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-brand-forest" />
-                      Duty Timings
-                    </span>
-                    <span className="font-bold text-brand-forest">{managerDutyTiming}</span>
-                  </div>
-
-                  <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
-                    <span className="text-content-muted text-[11px] flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-brand-forest" />
-                      Joining Date
-                    </span>
-                    <span className="font-bold text-brand-forest">
-                      {managerJoiningDate
-                        ? new Date(managerJoiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-                        : 'Not provided'}
-                    </span>
-                  </div>
-
-                  {managerSalary != null && (
-                    <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
-                      <span className="text-content-muted text-[11px] flex items-center gap-1.5">
-                        <CreditCard className="w-3.5 h-3.5 text-brand-forest" />
-                        Monthly Salary
-                      </span>
-                      <span className="font-bold text-brand-forest">₹ {managerSalary.toLocaleString('en-IN')}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* My Permissions Card (Human Understandable) */}
-              <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3 text-xs">
-                <div>
-                  <h3 className="text-xs font-black text-brand-forest">My Permissions in this Shop</h3>
-                  <p className="text-[10px] text-content-muted">Set by Owner in Roles &amp; Permissions catalogue.</p>
-                </div>
-                {user?.isOwner ? (
-                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-surface-cream/50 border border-border-subtle">
-                    <span className="text-base select-none">👑</span>
-                    <div>
-                      <span className="font-black text-brand-forest text-xs">Full Owner Administration</span>
-                      <p className="text-[10px] text-content-muted">Unrestricted master access across all store systems &amp; staff.</p>
-                    </div>
-                  </div>
-                ) : myCapabilities.length === 0 ? (
-                  <p className="text-content-muted text-xs">No permissions assigned.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {myCapabilities.map((c) => {
-                      const meta = HUMAN_CAPABILITIES[c] || {
-                        label: c.replace(/_/g, ' ').replace(/\./g, ' › '),
-                        desc: 'Authorized operational action',
-                        icon: '✓',
-                      };
-                      return (
-                        <div key={c} className="flex items-start gap-2.5 p-2.5 rounded-xl bg-surface-cream/50 border border-border-subtle/80">
-                          <span className="text-base select-none mt-0.5">{meta.icon}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="font-black text-brand-forest text-xs">{meta.label}</span>
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Granted</span>
-                            </div>
-                            <p className="text-[10px] text-content-muted mt-0.5 leading-snug">{meta.desc}</p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Custom fields (Extra details) */}
-              {activeShopId && user?.staffMember?.id && (
-                <StaffExtraDetails
-                  key={user.staffMember.id}
-                  shopId={activeShopId}
-                  staffMemberId={user.staffMember.id}
-                  canEdit={hasCapability('staff.update')}
-                />
-              )}
-            </div>
-          )}
+        <div className="p-4">
+          <StaffProfileCard
+            title="Manager Profile"
+            onBack={() => setCurrentNav('dashboard')}
+            staff={{
+              fullName: user?.staffMember?.fullName || 'Manager',
+              mobile: managerMobile,
+              address: managerAddress,
+              profilePhotoPath: user?.staffMember?.profilePhotoPath,
+              employmentStatus: user?.staffMember?.employmentStatus || 'ACTIVE',
+            }}
+            membership={{
+              shopId: activeShopId || undefined,
+              shopName: activeShopName || undefined,
+              roleName: managerRole,
+              positionCategory: myStaffRecord?.positionCategory?.name || myMembership?.positionCategory,
+              joiningDate: managerJoiningDate,
+              dutyTimingNotes: myStaffRecord?.dutyTimingNotes || myMembership?.dutyTimingNotes,
+              monthlySalary: managerSalary,
+              incentiveAmount: myStaffRecord?.incentiveAmount ?? myMembership?.incentiveAmount,
+              shiftStartTime: myStaffRecord?.shiftStartTime ?? myMembership?.shiftStartTime,
+              shiftEndTime: myStaffRecord?.shiftEndTime ?? myMembership?.shiftEndTime,
+              lateThreshold: myStaffRecord?.lateThreshold ?? myMembership?.lateThreshold,
+              halfDayThreshold: myStaffRecord?.halfDayThreshold ?? myMembership?.halfDayThreshold,
+              absentThreshold: myStaffRecord?.absentThreshold ?? myMembership?.absentThreshold,
+              capabilities: myCapabilities,
+            }}
+            session={{
+              id: managerSession?.id,
+              status: managerSession?.status || 'CLOSED',
+              attendanceType: managerSession?.attendanceType || undefined,
+              checkInAt: managerSession?.checkInAt,
+              checkOutAt: managerSession?.checkOutAt,
+              checkInPhotoPath: managerSession?.checkInPhotoPath,
+              checkOutPhotoPath: managerSession?.checkOutPhotoPath,
+            }}
+            isProcessingAttendance={isProcessingAttendance}
+            onCheckInWithPhoto={async (photoData) => {
+              setCameraAction('check-in');
+              await handleCameraPhotoCapture(photoData);
+            }}
+            onCheckOutWithPhoto={async (photoData) => {
+              setCameraAction('check-out');
+              await handleCameraPhotoCapture(photoData);
+            }}
+          />
         </div>
       )}
 

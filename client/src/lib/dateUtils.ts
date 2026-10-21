@@ -27,3 +27,48 @@ export function formatDisplayDate(dateStr: string): string {
     year: 'numeric',
   });
 }
+
+/**
+ * Converts a "HH:mm" 24h string (e.g. "19:30" or "09:00") or 12h string (e.g. "07:30 PM")
+ * into a formatted 12-hour IST string, e.g. "07:30 PM", "09:00 AM".
+ */
+export function formatTime12h(timeStr: string | null | undefined): string {
+  if (!timeStr) return '';
+  const trimmed = timeStr.trim();
+  if (trimmed.toUpperCase().includes('AM') || trimmed.toUpperCase().includes('PM')) {
+    return trimmed;
+  }
+  const parts = trimmed.split(':');
+  if (parts.length < 2) return trimmed;
+  let h = parseInt(parts[0], 10);
+  const m = parts[1].slice(0, 2).padStart(2, '0');
+  if (isNaN(h)) return trimmed;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12;
+  if (h === 0) h = 12;
+  const hStr = String(h).padStart(2, '0');
+  return `${hStr}:${m} ${ampm}`;
+}
+
+/**
+ * Resolves the effective duty timing string.
+ * If manual dutyTimingNotes is set, returns that.
+ * Otherwise, if shiftStartTime and shiftEndTime are set, computes:
+ * "09:30 AM – 08:30 PM" automatically.
+ */
+export function resolveDutyTiming(
+  notes?: string | null,
+  startTime?: string | null,
+  endTime?: string | null
+): string {
+  if (notes && notes.trim() && notes.trim() !== 'Not specified') {
+    return notes.trim();
+  }
+  if (startTime && endTime) {
+    return `${formatTime12h(startTime)} – ${formatTime12h(endTime)}`;
+  }
+  if (startTime) {
+    return `From ${formatTime12h(startTime)}`;
+  }
+  return 'Not specified';
+}

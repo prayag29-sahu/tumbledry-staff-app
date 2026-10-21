@@ -26,6 +26,7 @@ export interface AccountSession {
     mobile?: string | null;
     address?: string | null;
     profilePhotoPath?: string | null;
+    employmentStatus?: string | null;
   } | null;
   shopMemberships: {
     shopId: string;
@@ -37,6 +38,13 @@ export interface AccountSession {
     joiningDate?: string | null;
     dutyTimingNotes?: string | null;
     monthlySalary?: number | null;
+    shiftStartTime?: string | null;
+    shiftEndTime?: string | null;
+    lateThreshold?: string | null;
+    halfDayThreshold?: string | null;
+    absentThreshold?: string | null;
+    incentiveAmount?: number | null;
+    attendanceEnabled?: boolean;
   }[];
 }
 

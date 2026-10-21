@@ -10,6 +10,7 @@ import { DamageModal } from '../../components/DamageModal';
 import { DamageIncidentViewerModal, DamageIncidentRecord } from '../../components/DamageIncidentViewerModal';
 import { LiveCameraModal } from '../../components/LiveCameraModal';
 import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
+import { StaffProfileCard } from '../../components/StaffProfileCard';
 import {
   Calendar, Layers, CheckCircle2, Clock, AlertTriangle, RotateCcw,
   Sparkles, Check, X, User, LogOut, Camera, TrendingUp, Droplets,
@@ -169,15 +170,16 @@ export default function WashermanPage() {
     finally { setCompletingUnitId(null); }
   };
 
-  const handleAttendanceCapture = async (photoData: string) => {
+  const handleAttendanceCapture = async (photoData: string, actionOverride?: 'check-in' | 'check-out') => {
     if (!activeShopId || !staffMemberId) return;
+    const act = actionOverride || cameraAction;
     setIsLiveCameraOpen(false); setIsProcessingAttendance(true); setAttendanceMessage(null);
     try {
-      const ep = cameraAction === 'check-in'
+      const ep = act === 'check-in'
         ? `/api/shops/${activeShopId}/attendance/check-in`
         : `/api/shops/${activeShopId}/attendance/check-out`;
       await apiRequest(ep, { method: 'POST', body: JSON.stringify({ staffMemberId, photoData }) });
-      setAttendanceMessage(cameraAction === 'check-in' ? '\u2713 Checked in!' : '\u2713 Checked out!');
+      setAttendanceMessage(act === 'check-in' ? '\u2713 Checked in!' : '\u2713 Checked out!');
       await fetchAttendanceSession();
     } catch (err) { setAttendanceMessage(err instanceof Error ? err.message : 'Failed.'); }
     finally { setIsProcessingAttendance(false); }
@@ -462,113 +464,40 @@ export default function WashermanPage() {
       )}
 
       {activeTab === 'profile' && (
-        <div className="space-y-4">
-          <div className="bg-gradient-to-br from-brand-forest to-[#1a3623] rounded-2xl p-5 text-white shadow-clay-lg">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center shrink-0">
-                {user.staffMember?.profilePhotoPath
-                  // eslint-disable-next-line @next/next/no-img-element
-                  ? <img src={user.staffMember.profilePhotoPath} alt="Profile" className="w-14 h-14 rounded-2xl object-cover"/>
-                  : <Droplets className="w-7 h-7 text-brand-lime"/>}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-base font-black text-white">{user.staffMember?.fullName||'Washerman'}</h3>
-                <p className="text-xs text-white/70 mt-0.5">Washerman &#183; {membership?.shopName}</p>
-                {membership?.joiningDate && <p className="text-[11px] text-white/50 mt-1">Since {new Date(membership.joiningDate).toLocaleDateString('en-IN',{month:'short',year:'numeric'})}</p>}
-              </div>
-            </div>
-          </div>
-
-          {(user.staffMember?.mobile||user.staffMember?.address) && (
-            <div className="bg-surface-card rounded-2xl border border-border-subtle shadow-clay p-4 space-y-3">
-              <h4 className="text-xs font-black text-brand-forest uppercase tracking-widest">Contact</h4>
-              {user.staffMember.mobile && (
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-brand-lime/15 flex items-center justify-center shrink-0"><Phone className="w-4 h-4 text-brand-forest"/></div>
-                  <div><p className="text-[11px] text-content-muted">Mobile</p><p className="text-sm font-bold text-brand-forest">{user.staffMember.mobile}</p></div>
-                </div>
-              )}
-              {user.staffMember.address && (
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-brand-lime/15 flex items-center justify-center shrink-0 mt-0.5"><MapPin className="w-4 h-4 text-brand-forest"/></div>
-                  <div><p className="text-[11px] text-content-muted">Address</p><p className="text-sm font-bold text-brand-forest">{user.staffMember.address}</p></div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {(membership?.dutyTimingNotes||membership?.monthlySalary!=null) && (
-            <div className="bg-surface-card rounded-2xl border border-border-subtle shadow-clay p-4 space-y-3">
-              <h4 className="text-xs font-black text-brand-forest uppercase tracking-widest">Employment</h4>
-              {membership.dutyTimingNotes && (
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-brand-lime/15 flex items-center justify-center shrink-0"><Clock className="w-4 h-4 text-brand-forest"/></div>
-                  <div><p className="text-[11px] text-content-muted">Duty Timing</p><p className="text-sm font-bold text-brand-forest">{membership.dutyTimingNotes}</p></div>
-                </div>
-              )}
-              {membership.monthlySalary!=null && (
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-brand-lime/15 flex items-center justify-center shrink-0"><Building2 className="w-4 h-4 text-brand-forest"/></div>
-                  <div><p className="text-[11px] text-content-muted">Monthly Salary</p><p className="text-sm font-bold text-brand-forest">&#8377;{membership.monthlySalary.toLocaleString('en-IN')}</p></div>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="bg-surface-card rounded-2xl border border-border-subtle shadow-clay p-4 space-y-3">
-            <h4 className="text-xs font-black text-brand-forest uppercase tracking-widest">Today&apos;s Attendance</h4>
-            {attendanceMessage && (
-              <div className={`text-xs font-bold p-2.5 rounded-xl border ${attendanceMessage.startsWith('\u2713')?'bg-status-success/10 text-status-success border-status-success/30':'bg-status-danger/10 text-status-danger border-status-danger/30'}`}>{attendanceMessage}</div>
-            )}
-            {attendanceSession ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 bg-surface-cream rounded-xl border border-border-subtle">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${attendanceSession.checkOutAt?'bg-content-muted':'bg-status-success animate-pulse'}`}/>
-                    <span className="text-xs font-bold text-brand-forest">{attendanceSession.checkOutAt?'Shift Completed':'Currently On Floor'}</span>
-                  </div>
-                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-lg ${attendanceSession.checkOutAt?'bg-surface-card text-content-muted border border-border-subtle':'bg-status-success/15 text-status-success border border-status-success/30'}`}>{attendanceSession.status}</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="p-3 rounded-xl bg-surface-cream border border-border-subtle cursor-pointer hover:bg-surface-hover transition-colors"
-                    onClick={()=>attendanceSession.checkInPhotoPath&&setViewingAttendancePhoto({staffName:user.staffMember?.fullName||'',role:'Washerman',checkInPhotoPath:attendanceSession.checkInPhotoPath||undefined,checkInAt:attendanceSession.checkInAt||undefined,status:attendanceSession.status})}>
-                    <p className="text-[11px] text-content-muted">Check In</p>
-                    <p className="text-sm font-bold text-brand-forest mt-0.5">{attendanceSession.checkInAt?new Date(attendanceSession.checkInAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'\u2014'}</p>
-                    {attendanceSession.checkInPhotoPath&&<p className="text-[10px] text-brand-lime mt-0.5">View photo &#8594;</p>}
-                  </div>
-                  <div className="p-3 rounded-xl bg-surface-cream border border-border-subtle cursor-pointer hover:bg-surface-hover transition-colors"
-                    onClick={()=>attendanceSession.checkOutPhotoPath&&setViewingAttendancePhoto({staffName:user.staffMember?.fullName||'',role:'Washerman',checkOutPhotoUrl:attendanceSession.checkOutPhotoPath||undefined,checkOutAt:attendanceSession.checkOutAt||undefined,status:attendanceSession.status})}>
-                    <p className="text-[11px] text-content-muted">Check Out</p>
-                    <p className="text-sm font-bold text-brand-forest mt-0.5">{attendanceSession.checkOutAt?new Date(attendanceSession.checkOutAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'\u2014'}</p>
-                    {attendanceSession.checkOutPhotoPath&&<p className="text-[10px] text-brand-lime mt-0.5">View photo &#8594;</p>}
-                  </div>
-                </div>
-                {!attendanceSession.checkOutAt && (
-                  <button onClick={()=>{setCameraAction('check-out');setIsLiveCameraOpen(true);}} disabled={isProcessingAttendance}
-                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-brand-forest text-white font-bold text-sm hover:bg-brand-forest/90 transition-colors disabled:opacity-60">
-                    <Camera className="w-4 h-4"/>{isProcessingAttendance?'Processing\u2026':'Check Out with Selfie'}
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-                  <Clock className="w-5 h-5 text-amber-600 shrink-0"/>
-                  <p className="text-xs font-semibold text-amber-800">Not checked in today</p>
-                </div>
-                <button onClick={()=>{setCameraAction('check-in');setIsLiveCameraOpen(true);}} disabled={isProcessingAttendance}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-brand-lime text-brand-forest font-bold text-sm hover:bg-brand-lime/90 transition-colors disabled:opacity-60">
-                  <Camera className="w-4 h-4"/>{isProcessingAttendance?'Processing\u2026':'Check In with Selfie'}
-                </button>
-              </div>
-            )}
-          </div>
-
-          <button onClick={async()=>{await logout();router.replace('/login');}}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-status-danger/30 text-status-danger font-bold text-sm hover:bg-status-danger/10 transition-colors">
-            <LogOut className="w-4 h-4"/>Sign Out
-          </button>
-        </div>
+        <StaffProfileCard
+          title="Washerman Profile"
+          onBack={() => setActiveTab('tasks')}
+          staff={{
+            fullName: user.staffMember?.fullName || 'Washerman',
+            mobile: user.staffMember?.mobile,
+            address: user.staffMember?.address,
+            profilePhotoPath: user.staffMember?.profilePhotoPath,
+            employmentStatus: user.staffMember?.employmentStatus || 'ACTIVE',
+          }}
+          membership={{
+            shopId: activeShopId || undefined,
+            shopName: membership?.shopName,
+            roleName: membership?.roleName || 'Washerman',
+            positionCategory: membership?.positionCategory,
+            joiningDate: membership?.joiningDate,
+            dutyTimingNotes: membership?.dutyTimingNotes,
+            monthlySalary: membership?.monthlySalary,
+            incentiveAmount: membership?.incentiveAmount,
+            shiftStartTime: membership?.shiftStartTime,
+            shiftEndTime: membership?.shiftEndTime,
+            lateThreshold: membership?.lateThreshold,
+            halfDayThreshold: membership?.halfDayThreshold,
+            absentThreshold: membership?.absentThreshold,
+          }}
+          session={attendanceSession}
+          isProcessingAttendance={isProcessingAttendance}
+          onCheckInWithPhoto={async (photoData) => {
+            await handleAttendanceCapture(photoData, 'check-in');
+          }}
+          onCheckOutWithPhoto={async (photoData) => {
+            await handleAttendanceCapture(photoData, 'check-out');
+          }}
+        />
       )}
 
       {damageTarget && (

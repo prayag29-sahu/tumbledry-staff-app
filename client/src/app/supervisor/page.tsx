@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../lib/api';
-import { localDateKey } from '../../lib/dateUtils';
+import { localDateKey, resolveDutyTiming } from '../../lib/dateUtils';
+import { StaffProfileCard, ProfileAttendanceSession } from '../../components/StaffProfileCard';
 import {
   PositionCategory,
   CustomFieldDefinition,
@@ -317,6 +318,45 @@ export default function SupervisorPage() {
 
   // Drilldown Views: null | 'add_staff' (Screens 3&4) | 'staff_profile' (Screens 6-9) | 'supervisor_profile'
   const [activeDrilldown, setActiveDrilldown] = useState<'add_staff' | 'staff_profile' | 'supervisor_profile' | null>(null);
+
+  const mySupervisorMembership = user?.shopMemberships?.find((m) => m.shopId === activeShopId);
+  const [supervisorSession, setSupervisorSession] = useState<ProfileAttendanceSession | null>(null);
+  const [isProcessingSupervisorAtt, setIsProcessingSupervisorAtt] = useState(false);
+
+  const fetchSupervisorSession = useCallback(async () => {
+    if (!activeShopId) return;
+    try {
+      const data = await apiRequest<{ session: ProfileAttendanceSession | null }>(
+        `/api/shops/${activeShopId}/attendance/my-session?date=${localDateKey()}`
+      );
+      setSupervisorSession(data.session);
+    } catch {
+      setSupervisorSession(null);
+    }
+  }, [activeShopId]);
+
+  useEffect(() => {
+    if (activeDrilldown === 'supervisor_profile') {
+      fetchSupervisorSession();
+    }
+  }, [activeDrilldown, fetchSupervisorSession]);
+
+  const handleSupervisorAttCapture = async (photoData: string, action: 'check-in' | 'check-out') => {
+    const supervisorStaffId = user?.staffMember?.id;
+    if (!activeShopId || !supervisorStaffId) return;
+    setIsProcessingSupervisorAtt(true);
+    try {
+      const ep = action === 'check-in'
+        ? `/api/shops/${activeShopId}/attendance/check-in`
+        : `/api/shops/${activeShopId}/attendance/check-out`;
+      await apiRequest(ep, { method: 'POST', body: JSON.stringify({ staffMemberId: supervisorStaffId, photoData }) });
+      await fetchSupervisorSession();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Attendance capture failed.');
+    } finally {
+      setIsProcessingSupervisorAtt(false);
+    }
+  };
 
   // Selected staff for Profile view
   const [selectedStaff, setSelectedStaff] = useState<EnrichedStaffItem | null>(null);
@@ -1671,7 +1711,9 @@ export default function SupervisorPage() {
                 <Clock className="w-4 h-4 text-brand-forest" />
                 <div>
                   <span className="text-content-muted block text-[10px]">Duty Timing</span>
-                  <span className="font-bold text-brand-forest">{selectedStaff.dutyTimingNotes || 'Not specified'}</span>
+                  <span className="font-bold text-brand-forest">
+                    {resolveDutyTiming(selectedStaff.dutyTimingNotes, selectedStaff.shiftStartTime, selectedStaff.shiftEndTime)}
+                  </span>
                 </div>
               </div>
 
@@ -1684,6 +1726,53 @@ export default function SupervisorPage() {
                   </span>
                 </div>
               </div>
+
+              {/* Shift & Attendance Timings (IST) Card */}
+              {(selectedStaff.shiftStartTime || selectedStaff.shiftEndTime || selectedStaff.lateThreshold) && (
+                <div className="p-3.5 rounded-xl bg-amber-50/50 border border-amber-200/80 space-y-2 mt-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-black text-brand-forest flex items-center gap-1.5 uppercase tracking-wide">
+                      <Clock className="w-3.5 h-3.5 text-amber-600" />
+                      Shift & Attendance Policy (IST)
+                    </span>
+                    <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                      12-Hour IST
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+                    {selectedStaff.shiftStartTime && (
+                      <div className="p-2 rounded-lg bg-white border border-border-subtle">
+                        <span className="text-[10px] text-content-muted block">Shift Start</span>
+                        <span className="font-bold text-brand-forest">{formatTime12h(selectedStaff.shiftStartTime)}</span>
+                      </div>
+                    )}
+                    {selectedStaff.lateThreshold && (
+                      <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200">
+                        <span className="text-[10px] text-emerald-800 block">On-Time Cutoff</span>
+                        <span className="font-bold text-emerald-900">{formatTime12h(selectedStaff.lateThreshold)}</span>
+                      </div>
+                    )}
+                    {selectedStaff.halfDayThreshold && (
+                      <div className="p-2 rounded-lg bg-amber-50 border border-amber-200">
+                        <span className="text-[10px] text-amber-800 block">Late Cutoff</span>
+                        <span className="font-bold text-amber-900">{formatTime12h(selectedStaff.halfDayThreshold)}</span>
+                      </div>
+                    )}
+                    {selectedStaff.absentThreshold && (
+                      <div className="p-2 rounded-lg bg-rose-50 border border-rose-200">
+                        <span className="text-[10px] text-rose-800 block">Half-Day Cutoff</span>
+                        <span className="font-bold text-rose-900">{formatTime12h(selectedStaff.absentThreshold)}</span>
+                      </div>
+                    )}
+                    {selectedStaff.shiftEndTime && (
+                      <div className="p-2 rounded-lg bg-white border border-border-subtle">
+                        <span className="text-[10px] text-content-muted block">Shift End</span>
+                        <span className="font-bold text-brand-forest">{formatTime12h(selectedStaff.shiftEndTime)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Custom Fields Box matching Screen 6 & Owner Architecture */}
               <div className="mt-2">
@@ -3180,106 +3269,43 @@ export default function SupervisorPage() {
           SCREEN: SUPERVISOR PROFILE & ROLE DETAILS
       ══════════════════════════════════════════════════════════════════════════ */}
       {activeDrilldown === 'supervisor_profile' && (
-        <div className="p-4 space-y-4 animate-fade-in max-w-md mx-auto pb-24">
-          {/* Back Header */}
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => setActiveDrilldown(null)}
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-forest hover:text-brand-lime transition-colors py-1.5 px-2.5 rounded-xl bg-surface-cream border border-border-subtle shadow-sm"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Back to Dashboard</span>
-            </button>
-            <span className="text-[11px] font-bold text-content-muted">Profile Overview</span>
-          </div>
-
-          {/* Supervisor Identity Card */}
-          <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-4">
-            <div className="flex items-center gap-3.5">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-lime to-[#6DA322] flex items-center justify-center font-black text-white text-xl shadow-clay-sm border border-white/40">
-                {user?.staffMember?.fullName?.charAt(0) || user?.username?.charAt(0).toUpperCase() || 'S'}
-              </div>
-              <div>
-                <h3 className="text-base font-extrabold text-brand-forest">
-                  {user?.staffMember?.fullName || 'Supervisor'}
-                </h3>
-                <div className="flex items-center gap-2 mt-1.5">
-                  <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black bg-brand-forest text-brand-lime uppercase tracking-wider">
-                    Supervisor
-                  </span>
-                  <span className="text-[11px] font-medium text-content-muted flex items-center gap-1">
-                    <span>🏬 {activeShopName || 'Branch'}</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Attendance Status Callout */}
-            <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200/80 text-xs space-y-1">
-              <div className="flex items-center justify-between font-bold text-amber-900">
-                <span className="flex items-center gap-1.5">
-                  <CalendarCheck2 className="w-4 h-4 text-amber-700" />
-                  <span>Attendance Status:</span>
-                </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-200/80 text-amber-900">
-                  Exempt from Floor Roll
-                </span>
-              </div>
-              <p className="text-[11px] text-amber-800 leading-relaxed">
-                Supervisor attendance is managed at the Owner level and is not required for daily floor roster.
-              </p>
-            </div>
-          </div>
-
-          {/* Key Supervisor Responsibilities */}
-          <div className="bg-white p-4 rounded-2xl border border-border-subtle shadow-sm space-y-3">
-            <h4 className="text-xs font-black text-brand-forest uppercase tracking-wider">
-              Operational Scope & Capabilities
-            </h4>
-            <div className="space-y-2 text-xs">
-              <div className="flex items-start gap-2 text-content-muted">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span><strong className="text-brand-forest">Staff Management:</strong> Register, update & configure floor staff credentials.</span>
-              </div>
-              <div className="flex items-start gap-2 text-content-muted">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span><strong className="text-brand-forest">Floor Attendance:</strong> Mark daily shifts (Present, Half Day, Check Out) for active staff.</span>
-              </div>
-              <div className="flex items-start gap-2 text-content-muted">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span><strong className="text-brand-forest">Workflow Dispatch:</strong> Monitor piece counts & operational processing stages.</span>
-              </div>
-              <div className="flex items-start gap-2 text-content-muted">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span><strong className="text-brand-forest">Quality & Damage:</strong> Log defect incidents and submit escalation tickets.</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Account Actions */}
-          <div className="bg-white p-4 rounded-2xl border border-border-subtle shadow-sm space-y-2.5">
-            <button
-              onClick={() => router.push('/profile')}
-              className="w-full py-2.5 px-3 rounded-xl bg-surface-cream border border-border-subtle text-xs font-bold text-brand-forest hover:bg-surface-hover flex items-center justify-between transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <KeyRound className="w-4 h-4 text-amber-600" />
-                <span>Update Password & Security</span>
-              </div>
-              <ChevronRight className="w-4 h-4 text-content-muted" />
-            </button>
-
-            <button
-              onClick={async () => {
-                await logout();
-                router.push('/login');
-              }}
-              className="w-full py-2.5 px-3 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 text-xs font-bold flex items-center justify-center gap-2 transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>Sign Out of Portal</span>
-            </button>
-          </div>
+        <div className="p-4">
+          <StaffProfileCard
+            title="Supervisor Profile"
+            onBack={() => setActiveDrilldown(null)}
+            staff={{
+              fullName: user?.staffMember?.fullName || 'Supervisor',
+              mobile: user?.staffMember?.mobile,
+              address: user?.staffMember?.address,
+              profilePhotoPath: user?.staffMember?.profilePhotoPath,
+              employmentStatus: user?.staffMember?.employmentStatus || 'ACTIVE',
+            }}
+            membership={{
+              shopId: activeShopId || undefined,
+              shopName: activeShopName || mySupervisorMembership?.shopName,
+              roleName: mySupervisorMembership?.roleName || 'Supervisor',
+              positionCategory: mySupervisorMembership?.positionCategory,
+              joiningDate: mySupervisorMembership?.joiningDate,
+              dutyTimingNotes: mySupervisorMembership?.dutyTimingNotes,
+              monthlySalary: mySupervisorMembership?.monthlySalary,
+              incentiveAmount: mySupervisorMembership?.incentiveAmount,
+              shiftStartTime: mySupervisorMembership?.shiftStartTime,
+              shiftEndTime: mySupervisorMembership?.shiftEndTime,
+              lateThreshold: mySupervisorMembership?.lateThreshold,
+              halfDayThreshold: mySupervisorMembership?.halfDayThreshold,
+              absentThreshold: mySupervisorMembership?.absentThreshold,
+              attendanceEnabled: mySupervisorMembership?.attendanceEnabled,
+              capabilities: mySupervisorMembership?.capabilities,
+            }}
+            session={supervisorSession}
+            isProcessingAttendance={isProcessingSupervisorAtt}
+            onCheckInWithPhoto={async (photoData) => {
+              await handleSupervisorAttCapture(photoData, 'check-in');
+            }}
+            onCheckOutWithPhoto={async (photoData) => {
+              await handleSupervisorAttCapture(photoData, 'check-out');
+            }}
+          />
         </div>
       )}
 
