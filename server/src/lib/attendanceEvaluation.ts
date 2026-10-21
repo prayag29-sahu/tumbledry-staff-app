@@ -198,9 +198,10 @@ export function evaluateAttendance(
   }
 
   // 3. Check if check-in is after On-time cutoff (e.g. after 09:35 AM IST up to 10:00 AM IST -> LATE)
-  const onTimeCutoff = config.lateThreshold || config.shiftStartTime;
-  if (onTimeCutoff) {
-    const onTimeMin = timeStringToMinutes(onTimeCutoff);
+  // Strictly applies ONLY when lateThreshold is explicitly filled and configured by owner/supervisor.
+  // Never automatically marks staff as LATE when lateThreshold is not configured or left empty.
+  if (config.lateThreshold && config.lateThreshold.trim() !== '') {
+    const onTimeMin = timeStringToMinutes(config.lateThreshold);
     if (checkInMin > onTimeMin) {
       const delayMinutes = checkInMin - onTimeMin;
       return {
@@ -212,7 +213,7 @@ export function evaluateAttendance(
         isLate: true,
         isHalfDay: false,
         delayMinutes,
-        statusReason: `Checked in ${delayMinutes}m after ${formatTime12h(onTimeCutoff)} IST`,
+        statusReason: `Checked in ${delayMinutes}m after ${formatTime12h(config.lateThreshold)} IST`,
       };
     }
   }

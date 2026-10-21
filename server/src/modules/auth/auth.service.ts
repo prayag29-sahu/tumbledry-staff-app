@@ -78,6 +78,7 @@ export interface AuthAccountResponse {
     mobile?: string | null;
     address?: string | null;
     profilePhotoPath?: string | null;
+    employmentStatus?: string | null;
   } | null;
   shopMemberships: Array<{
     shopId: string;
@@ -89,6 +90,13 @@ export interface AuthAccountResponse {
     joiningDate?: string | null;
     dutyTimingNotes?: string | null;
     monthlySalary?: number | null;
+    shiftStartTime?: string | null;
+    shiftEndTime?: string | null;
+    lateThreshold?: string | null;
+    halfDayThreshold?: string | null;
+    absentThreshold?: string | null;
+    incentiveAmount?: number | null;
+    attendanceEnabled?: boolean;
   }>;
 }
 
@@ -108,6 +116,7 @@ export async function getAccountProfile(accountId: string): Promise<AuthAccountR
           mobile: true,
           address: true,
           profilePhotoPath: true,
+          employmentStatus: true,
         },
       },
       shopMemberships: {
@@ -125,6 +134,13 @@ export async function getAccountProfile(accountId: string): Promise<AuthAccountR
           joiningDate: true,
           dutyTimingNotes: true,
           monthlySalary: true,
+          shiftStartTime: true,
+          shiftEndTime: true,
+          lateThreshold: true,
+          halfDayThreshold: true,
+          absentThreshold: true,
+          incentiveAmount: true,
+          attendanceEnabled: true,
         },
       },
     },
@@ -142,6 +158,13 @@ export async function getAccountProfile(accountId: string): Promise<AuthAccountR
     joiningDate?: string | null;
     dutyTimingNotes?: string | null;
     monthlySalary?: number | null;
+    shiftStartTime?: string | null;
+    shiftEndTime?: string | null;
+    lateThreshold?: string | null;
+    halfDayThreshold?: string | null;
+    absentThreshold?: string | null;
+    incentiveAmount?: number | null;
+    attendanceEnabled?: boolean;
   }> = [];
 
   if (account.isOwner) {
@@ -160,6 +183,13 @@ export async function getAccountProfile(accountId: string): Promise<AuthAccountR
       joiningDate: null,
       dutyTimingNotes: null,
       monthlySalary: null,
+      shiftStartTime: null,
+      shiftEndTime: null,
+      lateThreshold: null,
+      halfDayThreshold: null,
+      absentThreshold: null,
+      incentiveAmount: null,
+      attendanceEnabled: false,
     }));
   } else {
     shopMemberships = account.shopMemberships.map((m) => ({
@@ -172,6 +202,13 @@ export async function getAccountProfile(accountId: string): Promise<AuthAccountR
       joiningDate: m.joiningDate ? m.joiningDate.toISOString() : null,
       dutyTimingNotes: m.dutyTimingNotes ?? null,
       monthlySalary: m.monthlySalary ? Number(m.monthlySalary) : null,
+      shiftStartTime: m.shiftStartTime ?? null,
+      shiftEndTime: m.shiftEndTime ?? null,
+      lateThreshold: m.lateThreshold ?? null,
+      halfDayThreshold: m.halfDayThreshold ?? null,
+      absentThreshold: m.absentThreshold ?? null,
+      incentiveAmount: m.incentiveAmount ? Number(m.incentiveAmount) : null,
+      attendanceEnabled: m.attendanceEnabled !== false,
     }));
   }
 
