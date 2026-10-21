@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { AccountSession } from '../types';
 import { apiRequest, setAccessToken, setRefreshToken, getRefreshToken } from '../lib/api';
 
@@ -149,7 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return currentMembership?.capabilities?.includes(capability) || false;
   };
 
-  const refreshUser = async (): Promise<AccountSession | null> => {
+  const refreshUser = useCallback(async (): Promise<AccountSession | null> => {
     try {
       const meData = await apiRequest<{ account: AccountSession }>('/api/auth/me');
       if (meData?.account) {
@@ -161,7 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // ignore
     }
     return user;
-  };
+  }, [user]);
 
   const updateUser = (updated: AccountSession) => {
     setUser(updated);

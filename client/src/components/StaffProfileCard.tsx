@@ -22,6 +22,7 @@ import {
 import { resolveDutyTiming, formatTime12h, formatDisplayDate } from '../lib/dateUtils';
 import { LiveCameraModal } from './LiveCameraModal';
 import { AttendancePhotoViewerModal } from './AttendancePhotoViewerModal';
+import { StaffExtraDetails } from './owner/StaffExtraDetails';
 
 export interface ProfileStaffDetails {
   fullName: string;
@@ -34,12 +35,14 @@ export interface ProfileStaffDetails {
 export interface ProfileMembershipDetails {
   shopId?: string;
   shopName?: string;
+  staffMemberId?: string;
   roleName: string;
   positionCategory?: string | null;
   joiningDate?: string | null;
   dutyTimingNotes?: string | null;
-  monthlySalary?: number | null;
-  incentiveAmount?: number | null;
+  monthlySalary?: number | string | null;
+  incentiveAmount?: number | string | null;
+  securityDeposit?: number | string | null;
   shiftStartTime?: string | null;
   shiftEndTime?: string | null;
   lateThreshold?: string | null;
@@ -112,8 +115,20 @@ export function StaffProfileCard({
     membership?.shiftStartTime,
     membership?.shiftEndTime
   );
-  const salaryLabel = membership?.monthlySalary != null ? `₹ ${membership.monthlySalary.toLocaleString('en-IN')}` : null;
-  const incentiveLabel = membership?.incentiveAmount != null ? `₹ ${membership.incentiveAmount.toLocaleString('en-IN')}` : null;
+
+  const parseAmount = (val: unknown) => {
+    if (val == null || val === '') return null;
+    const num = typeof val === 'number' ? val : Number(val);
+    return isNaN(num) ? null : num;
+  };
+
+  const numSalary = parseAmount(membership?.monthlySalary);
+  const numIncentive = parseAmount(membership?.incentiveAmount);
+  const numSecurityDeposit = parseAmount(membership?.securityDeposit);
+
+  const salaryLabel = numSalary != null ? `₹ ${numSalary.toLocaleString('en-IN')}` : null;
+  const incentiveLabel = numIncentive != null ? `₹ ${numIncentive.toLocaleString('en-IN')}` : null;
+  const securityDepositLabel = numSecurityDeposit != null ? `₹ ${numSecurityDeposit.toLocaleString('en-IN')}` : null;
 
   // Attendance indicators
   const isCheckedIn = !!session?.checkInAt;
@@ -187,6 +202,7 @@ export function StaffProfileCard({
         </div>
 
         {/* 4 Quick Info Cards (2x2 Grid exactly as uploaded screenshot) */}
+        {/* Quick Info Cards (Adaptive DB-centric grid) */}
         <div className="grid grid-cols-2 gap-2 w-full pt-3 border-t border-border-subtle text-left text-xs">
           <div className="p-2.5 rounded-xl bg-surface-cream/50">
             <span className="text-[10px] text-content-muted block">Mobile</span>
@@ -215,6 +231,42 @@ export function StaffProfileCard({
               {dutyTimingLabel}
             </span>
           </div>
+
+          {salaryLabel && (
+            <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200/70">
+              <span className="text-[10px] text-emerald-800 font-bold block flex items-center gap-1">
+                <CreditCard className="w-3 h-3 text-emerald-600" />
+                Monthly Salary
+              </span>
+              <span className="font-black text-emerald-950 truncate block mt-0.5">
+                {salaryLabel}
+              </span>
+            </div>
+          )}
+
+          {incentiveLabel && (
+            <div className="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200/80 shadow-sm">
+              <span className="text-[10px] text-amber-900 font-bold block flex items-center gap-1">
+                <Gift className="w-3 h-3 text-amber-600" />
+                Incentive
+              </span>
+              <span className="font-black text-amber-950 text-sm truncate block mt-0.5">
+                {incentiveLabel}
+              </span>
+            </div>
+          )}
+
+          {securityDepositLabel && (
+            <div className="p-2.5 rounded-xl bg-blue-50/70 border border-blue-200/70">
+              <span className="text-[10px] text-blue-800 font-bold block flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3 text-blue-600" />
+                Security Deposit
+              </span>
+              <span className="font-black text-blue-950 truncate block mt-0.5">
+                {securityDepositLabel}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -435,7 +487,7 @@ export function StaffProfileCard({
               {salaryLabel && (
                 <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
                   <span className="text-content-muted text-[11px] flex items-center gap-1.5">
-                    <CreditCard className="w-3.5 h-3.5 text-brand-forest" />
+                    <CreditCard className="w-3.5 h-3.5 text-emerald-700" />
                     Monthly Salary
                   </span>
                   <span className="font-bold text-brand-forest">{salaryLabel}</span>
@@ -445,12 +497,36 @@ export function StaffProfileCard({
               {incentiveLabel && (
                 <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
                   <span className="text-content-muted text-[11px] flex items-center gap-1.5">
-                    <Gift className="w-3.5 h-3.5 text-brand-forest" />
+                    <Gift className="w-3.5 h-3.5 text-amber-700" />
                     Incentive
                   </span>
-                  <span className="font-bold text-brand-forest">{incentiveLabel}</span>
+                  <span className="font-black text-amber-900 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200">
+                    {incentiveLabel}
+                  </span>
                 </div>
               )}
+
+              {securityDepositLabel && (
+                <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
+                  <span className="text-content-muted text-[11px] flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-blue-700" />
+                    Security Deposit
+                  </span>
+                  <span className="font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200">
+                    {securityDepositLabel}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/60">
+                <span className="text-content-muted text-[11px] flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-brand-forest" />
+                  Employment Status
+                </span>
+                <span className="font-bold text-brand-forest uppercase px-2 py-0.5 rounded bg-surface-cream text-[10px]">
+                  {staff.employmentStatus || 'ACTIVE'}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -509,7 +585,7 @@ export function StaffProfileCard({
             </div>
           )}
 
-          {/* Permissions Card (if applicable) */}
+          {/* Store Permissions (if applicable) */}
           {!hidePermissions && membership?.capabilities && membership.capabilities.length > 0 && (
             <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3 text-xs">
               <div className="flex items-center gap-2">
@@ -527,6 +603,15 @@ export function StaffProfileCard({
                 ))}
               </div>
             </div>
+          )}
+
+          {/* Custom Store Fields (Aadhaar, PAN, Bank Details, etc.) */}
+          {membership?.shopId && membership?.staffMemberId && (
+            <StaffExtraDetails
+              shopId={membership.shopId}
+              staffMemberId={membership.staffMemberId}
+              canEdit={false}
+            />
           )}
         </div>
       )}

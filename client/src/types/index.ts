@@ -38,6 +38,7 @@ export interface AccountSession {
     joiningDate?: string | null;
     dutyTimingNotes?: string | null;
     monthlySalary?: number | null;
+    securityDeposit?: number | null;
     shiftStartTime?: string | null;
     shiftEndTime?: string | null;
     lateThreshold?: string | null;

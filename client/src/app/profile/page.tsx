@@ -10,7 +10,7 @@ import { KeyRound, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { user, activeShopId, activeRole, logout, isLoading: isAuthLoading } = useAuth();
+  const { user, activeShopId, activeRole, logout, refreshUser, isLoading: isAuthLoading } = useAuth();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -21,6 +21,11 @@ export default function ProfilePage() {
 
   const [attendanceSession, setAttendanceSession] = useState<ProfileAttendanceSession | null>(null);
   const [isProcessingAttendance, setIsProcessingAttendance] = useState(false);
+
+  // Fetch freshest user profile and membership from server on mount
+  useEffect(() => {
+    refreshUser();
+  }, [refreshUser]);
 
   const currentShop = user?.shopMemberships?.find((m) => m.shopId === activeShopId);
   const staffMemberId = user?.staffMember?.id;
@@ -144,12 +149,14 @@ export default function ProfilePage() {
         membership={{
           shopId: activeShopId || undefined,
           shopName: currentShop?.shopName,
+          staffMemberId: staffMemberId || user.staffMember?.id,
           roleName: currentShop?.roleName || roleDisplay,
           positionCategory: currentShop?.positionCategory,
           joiningDate: currentShop?.joiningDate,
           dutyTimingNotes: currentShop?.dutyTimingNotes,
           monthlySalary: currentShop?.monthlySalary,
           incentiveAmount: currentShop?.incentiveAmount,
+          securityDeposit: currentShop?.securityDeposit,
           shiftStartTime: currentShop?.shiftStartTime,
           shiftEndTime: currentShop?.shiftEndTime,
           lateThreshold: currentShop?.lateThreshold,

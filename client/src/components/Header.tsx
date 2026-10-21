@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import { Building2, ChevronDown, User, ShieldCheck, Download } from 'lucide-react';
-import { Logo } from './Logo';
 import { usePwa } from './PwaProvider';
 
 export function Header() {
@@ -21,17 +20,12 @@ export function Header() {
   return (
     <header className="sticky top-0 z-40 w-full bg-[#FFFDF7]/90 backdrop-blur-md border-b border-[#E4E4D8]/80 shadow-sm px-4 py-3">
       <div className="max-w-4xl mx-auto flex items-center justify-between">
-        {/* Brand & Active Role */}
-        <Link href="/" className="flex items-center gap-3">
-          <Logo size="md" showWordmark={false} />
-          <div className="pl-2.5 border-l border-border-subtle/80 flex flex-col justify-center">
-            <div className="flex items-center gap-1.5">
-              <span className="inline-block w-2 h-2 rounded-full bg-brand-lime animate-pulse"></span>
-              <span className="text-xs font-black text-brand-forest uppercase tracking-wider">
-                {activeRole}
-              </span>
-            </div>
-          </div>
+        {/* Active Role */}
+        <Link href="/" className="flex items-center gap-2 hover:opacity-85 transition-opacity">
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-brand-lime animate-pulse"></span>
+          <span className="text-xs font-black text-brand-forest uppercase tracking-wider">
+            {activeRole}
+          </span>
         </Link>
 
         {/* Shop Switcher & Profile link */}
