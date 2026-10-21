@@ -138,12 +138,13 @@ model ShopMembership {
   isActive             Boolean   @default(true) @map("is_active")
 
   // Attendance & Shift Schedule (Configured per staff member by Owner/Supervisor, IST timezone)
-  shiftStartTime       String?   @map("shift_start_time")        // e.g. "09:30" (IST HH:mm)
-  shiftEndTime         String?   @map("shift_end_time")          // e.g. "19:30" (IST HH:mm)
-  lateThreshold        String?   @map("late_threshold")          // e.g. "09:45" (IST check-in after this is LATE)
-  halfDayThreshold     String?   @map("half_day_threshold")      // e.g. "12:00" (IST check-in after this is HALF DAY)
-  halfDayMinHours      Decimal?  @map("half_day_min_hours") @db.Decimal(4, 2) // e.g. 4.0 hours (worked duration < this = HALF DAY)
-  fullDayMinHours      Decimal?  @map("full_day_min_hours") @db.Decimal(4, 2) // e.g. 8.0 hours
+  shiftStartTime       String?   @map("shift_start_time")        // e.g. "09:00" Check-in / Shift Start (IST HH:mm)
+  shiftEndTime         String?   @map("shift_end_time")          // e.g. "19:30" Shift End / Check-out (IST HH:mm)
+  lateThreshold        String?   @map("late_threshold")          // e.g. "09:35" (Check-in <= this = PRESENT; > this = LATE)
+  halfDayThreshold     String?   @map("half_day_threshold")      // e.g. "10:00" (Check-in <= this = LATE; > this = HALF_DAY)
+  absentThreshold      String?   @map("absent_threshold")        // e.g. "12:00" (Check-in > this = ABSENT)
+  halfDayMinHours      Decimal?  @map("half_day_min_hours") @db.Decimal(4, 2)
+  fullDayMinHours      Decimal?  @map("full_day_min_hours") @db.Decimal(4, 2)
 
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")

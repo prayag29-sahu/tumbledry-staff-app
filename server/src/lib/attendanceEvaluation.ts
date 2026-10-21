@@ -5,12 +5,11 @@
  */
 
 export interface ShiftTimingConfig {
-  shiftStartTime?: string | null;     // e.g. "09:30" (IST HH:mm)
-  shiftEndTime?: string | null;       // e.g. "19:30" (IST HH:mm)
-  lateThreshold?: string | null;      // e.g. "09:45" (IST check-in after this is LATE)
-  halfDayThreshold?: string | null;   // e.g. "12:00" (IST check-in after this is HALF DAY)
-  halfDayMinHours?: number | string | { toString(): string } | null; // e.g. 4.0 hours (worked duration < this = HALF DAY)
-  fullDayMinHours?: number | string | { toString(): string } | null; // e.g. 8.0 hours
+  shiftStartTime?: string | null;     // e.g. "09:00" Check-in / Shift Start (IST HH:mm)
+  shiftEndTime?: string | null;       // e.g. "19:30" Shift End / Check-out (IST HH:mm)
+  lateThreshold?: string | null;      // e.g. "09:35" (Check-in <= this = PRESENT; > this = LATE)
+  halfDayThreshold?: string | null;   // e.g. "10:00" (Check-in <= this = LATE; > this = HALF_DAY)
+  absentThreshold?: string | null;    // e.g. "12:00" (Check-in > this = ABSENT)
 }
 
 export interface SessionData {
@@ -48,7 +47,7 @@ export function toISTTimeString(date: Date | string): string {
 }
 
 /**
- * Converts a UTC Date to Indian Standard Time (IST) 12-hour formatted time, e.g. "09:45 AM".
+ * Converts a UTC Date to Indian Standard Time (IST) 12-hour formatted time with AM/PM, e.g. "09:45 AM".
  */
 export function toISTTime12h(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
@@ -63,18 +62,56 @@ export function toISTTime12h(date: Date | string): string {
 }
 
 /**
- * Parses "HH:mm" time string into minutes since midnight.
+ * Converts a "HH:mm" 24h string (e.g. "19:30" or "09:00") or 12h string (e.g. "07:30 PM")
+ * into a formatted 12-hour IST string, e.g. "07:30 PM", "09:00 AM".
+ */
+export function formatTime12h(timeStr: string | null | undefined): string {
+  if (!timeStr) return '';
+  const trimmed = timeStr.trim();
+  if (trimmed.toUpperCase().includes('AM') || trimmed.toUpperCase().includes('PM')) {
+    return trimmed;
+  }
+  const parts = trimmed.split(':');
+  if (parts.length < 2) return trimmed;
+  let h = parseInt(parts[0], 10);
+  const m = parts[1].slice(0, 2).padStart(2, '0');
+  if (isNaN(h)) return trimmed;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12;
+  if (h === 0) h = 12;
+  const hStr = String(h).padStart(2, '0');
+  return `${hStr}:${m} ${ampm}`;
+}
+
+/**
+ * Parses time string into minutes since midnight.
+ * Supports both 24-hour ("19:30", "09:35") and 12-hour ("07:30 PM", "09:35 AM") clock strings.
  */
 export function timeStringToMinutes(timeStr: string): number {
   if (!timeStr) return 0;
-  const parts = timeStr.split(':');
-  const h = parseInt(parts[0], 10) || 0;
+  const trimmed = timeStr.trim().toUpperCase();
+  const isPM = trimmed.includes('PM');
+  const isAM = trimmed.includes('AM');
+  const clean = trimmed.replace(/[AP]M/g, '').trim();
+  const parts = clean.split(':');
+  let h = parseInt(parts[0], 10) || 0;
   const m = parseInt(parts[1], 10) || 0;
+
+  if (isPM && h < 12) h += 12;
+  if (isAM && h === 12) h = 0;
+
   return h * 60 + m;
 }
 
 /**
- * Pure, deterministic evaluation of attendance status based on staff's DB shift timings.
+ * Deterministic evaluation of attendance status based on DB-configured time cutoffs (IST, 12-hour clock).
+ * 
+ * Rules configured by Owner / Supervisor:
+ * 1. checkIn <= lateThreshold                     -> PRESENT (On-time check-in window)
+ * 2. lateThreshold < checkIn <= halfDayThreshold  -> LATE (Late window)
+ * 3. halfDayThreshold < checkIn <= absentThreshold -> HALF_DAY (Half-day window)
+ * 4. checkIn > absentThreshold                    -> ABSENT (Checked in after absent cutoff)
+ * 5. No check-in recorded                         -> ABSENT
  */
 export function evaluateAttendance(
   session: SessionData | null | undefined,
@@ -95,105 +132,101 @@ export function evaluateAttendance(
     };
   }
 
-  const checkInIST = toISTTimeString(session.checkInAt);
-  const checkOutIST = session.checkOutAt ? toISTTimeString(session.checkOutAt) : null;
-  const checkInMin = timeStringToMinutes(checkInIST);
+  const checkInIST12 = toISTTime12h(session.checkInAt);
+  const checkOutIST12 = session.checkOutAt ? toISTTime12h(session.checkOutAt) : null;
+  const checkInIST24 = toISTTimeString(session.checkInAt);
+  const checkInMin = timeStringToMinutes(checkInIST24);
 
   const isOnFloor = session.status === 'OPEN' && !session.checkOutAt;
   const isShiftCompleted = session.status === 'CLOSED' || !!session.checkOutAt;
 
-  // Calculate duration in minutes if checkout occurred or current time if open
-  let durationMinutes = session.durationMinutes ?? null;
-  if (durationMinutes == null && session.checkInAt && session.checkOutAt) {
-    const startMs = new Date(session.checkInAt).getTime();
-    const endMs = new Date(session.checkOutAt).getTime();
-    if (endMs > startMs) {
-      durationMinutes = Math.floor((endMs - startMs) / 60000);
-    }
-  }
-
-  // If no DB shift configs are set by Owner or Supervisor:
+  // If no timing configs are set by Owner or Supervisor in DB, default to PRESENT
   if (
     !config ||
     (!config.shiftStartTime &&
       !config.lateThreshold &&
       !config.halfDayThreshold &&
-      !config.halfDayMinHours &&
-      !config.fullDayMinHours)
+      !config.absentThreshold)
   ) {
     return {
       attendanceType: 'PRESENT',
       isOnFloor,
       isShiftCompleted,
-      checkInTimeIST: checkInIST,
-      checkOutTimeIST: checkOutIST,
+      checkInTimeIST: checkInIST12,
+      checkOutTimeIST: checkOutIST12,
       isLate: false,
       isHalfDay: false,
       delayMinutes: 0,
-      statusReason: null,
+      statusReason: 'On-time check-in (no custom timings configured)',
     };
   }
 
-  let isHalfDay = false;
-  let isLate = false;
-  let delayMinutes = 0;
-  let statusReason: string | null = null;
+  // 1. Check if check-in is after Absent Cutoff (e.g. after 12:00 PM IST -> ABSENT)
+  if (config.absentThreshold) {
+    const absentMin = timeStringToMinutes(config.absentThreshold);
+    if (checkInMin > absentMin) {
+      return {
+        attendanceType: 'ABSENT',
+        isOnFloor,
+        isShiftCompleted,
+        checkInTimeIST: checkInIST12,
+        checkOutTimeIST: checkOutIST12,
+        isLate: false,
+        isHalfDay: false,
+        delayMinutes: 0,
+        statusReason: `Checked in after Absent Cutoff (${formatTime12h(config.absentThreshold)} IST)`,
+      };
+    }
+  }
 
-  // 1. Check-in after Half-Day threshold (e.g. after 12:00 IST)
+  // 2. Check if check-in is after Half-Day threshold (e.g. after 10:00 AM IST up to 12:00 PM IST -> HALF_DAY)
   if (config.halfDayThreshold) {
     const halfDayMin = timeStringToMinutes(config.halfDayThreshold);
-    if (checkInMin >= halfDayMin) {
-      isHalfDay = true;
-      statusReason = `Checked in after Half-Day cutoff (${config.halfDayThreshold} IST)`;
+    if (checkInMin > halfDayMin) {
+      return {
+        attendanceType: 'HALF_DAY',
+        isOnFloor,
+        isShiftCompleted,
+        checkInTimeIST: checkInIST12,
+        checkOutTimeIST: checkOutIST12,
+        isLate: false,
+        isHalfDay: true,
+        delayMinutes: 0,
+        statusReason: `Checked in after Half-Day Cutoff (${formatTime12h(config.halfDayThreshold)} IST)`,
+      };
     }
   }
 
-  // 2. Worked duration less than minimum required half-day hours (e.g. worked < 4 hours)
-  if (!isHalfDay && isShiftCompleted && config.halfDayMinHours != null && durationMinutes != null) {
-    const minMins = Number(config.halfDayMinHours) * 60;
-    if (durationMinutes < minMins) {
-      isHalfDay = true;
-      statusReason = `Worked ${Math.round(durationMinutes / 60 * 10) / 10}h (less than min ${config.halfDayMinHours}h requirement)`;
+  // 3. Check if check-in is after On-time cutoff (e.g. after 09:35 AM IST up to 10:00 AM IST -> LATE)
+  const onTimeCutoff = config.lateThreshold || config.shiftStartTime;
+  if (onTimeCutoff) {
+    const onTimeMin = timeStringToMinutes(onTimeCutoff);
+    if (checkInMin > onTimeMin) {
+      const delayMinutes = checkInMin - onTimeMin;
+      return {
+        attendanceType: 'LATE',
+        isOnFloor,
+        isShiftCompleted,
+        checkInTimeIST: checkInIST12,
+        checkOutTimeIST: checkOutIST12,
+        isLate: true,
+        isHalfDay: false,
+        delayMinutes,
+        statusReason: `Checked in ${delayMinutes}m after ${formatTime12h(onTimeCutoff)} IST`,
+      };
     }
   }
 
-  // 3. Late Check-in threshold check (e.g. check-in after 09:45 IST)
-  if (!isHalfDay) {
-    const compareThreshold = config.lateThreshold || config.shiftStartTime;
-    if (compareThreshold) {
-      const lateCutoffMin = timeStringToMinutes(compareThreshold);
-      if (checkInMin > lateCutoffMin) {
-        isLate = true;
-        delayMinutes = checkInMin - lateCutoffMin;
-        statusReason = `Checked in ${delayMinutes}m after ${compareThreshold} IST`;
-      }
-    }
-  }
-
-  // 4. Check if duration is below Full-Day requirement but above Half-Day requirement
-  if (!isHalfDay && isShiftCompleted && config.fullDayMinHours != null && durationMinutes != null) {
-    const fullDayMins = Number(config.fullDayMinHours) * 60;
-    if (durationMinutes < fullDayMins) {
-      isHalfDay = true;
-      statusReason = `Worked ${Math.round(durationMinutes / 60 * 10) / 10}h (less than full day ${config.fullDayMinHours}h requirement)`;
-    }
-  }
-
-  const attendanceType: 'PRESENT' | 'LATE' | 'HALF_DAY' | 'ABSENT' = isHalfDay
-    ? 'HALF_DAY'
-    : isLate
-    ? 'LATE'
-    : 'PRESENT';
-
+  // 4. On-time check-in within window (e.g. 09:00 AM - 09:35 AM IST -> PRESENT)
   return {
-    attendanceType,
+    attendanceType: 'PRESENT',
     isOnFloor,
     isShiftCompleted,
-    checkInTimeIST: checkInIST,
-    checkOutTimeIST: checkOutIST,
-    isLate,
-    isHalfDay,
-    delayMinutes,
-    statusReason,
+    checkInTimeIST: checkInIST12,
+    checkOutTimeIST: checkOutIST12,
+    isLate: false,
+    isHalfDay: false,
+    delayMinutes: 0,
+    statusReason: 'On-time check-in',
   };
 }

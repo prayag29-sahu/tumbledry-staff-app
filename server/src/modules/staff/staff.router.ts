@@ -119,8 +119,7 @@ staffRouter.get(
         shiftEndTime?: string | null;
         lateThreshold?: string | null;
         halfDayThreshold?: string | null;
-        halfDayMinHours?: unknown;
-        fullDayMinHours?: unknown;
+        absentThreshold?: string | null;
       };
       const isAttEnabled = mWithAtt.attendanceEnabled !== false;
 
@@ -129,8 +128,7 @@ staffRouter.get(
         shiftEndTime: mWithAtt.shiftEndTime,
         lateThreshold: mWithAtt.lateThreshold,
         halfDayThreshold: mWithAtt.halfDayThreshold,
-        halfDayMinHours: mWithAtt.halfDayMinHours != null ? Number(mWithAtt.halfDayMinHours) : null,
-        fullDayMinHours: mWithAtt.fullDayMinHours != null ? Number(mWithAtt.fullDayMinHours) : null,
+        absentThreshold: mWithAtt.absentThreshold,
       });
 
       return {
@@ -141,8 +139,8 @@ staffRouter.get(
         },
         attendanceEnabled: isAttEnabled,
         attendanceToday: session ? {
-          isPresent: true,
-          attendanceType: evalResult.attendanceType, // 'PRESENT' | 'LATE' | 'HALF_DAY'
+          isPresent: evalResult.attendanceType !== 'ABSENT',
+          attendanceType: evalResult.attendanceType, // 'PRESENT' | 'LATE' | 'HALF_DAY' | 'ABSENT'
           isOnFloor: evalResult.isOnFloor,
           isShiftCompleted: evalResult.isShiftCompleted,
           isLate: evalResult.isLate,
@@ -161,8 +159,7 @@ staffRouter.get(
             shiftEndTime: mWithAtt.shiftEndTime ?? null,
             lateThreshold: mWithAtt.lateThreshold ?? null,
             halfDayThreshold: mWithAtt.halfDayThreshold ?? null,
-            halfDayMinHours: mWithAtt.halfDayMinHours != null ? Number(mWithAtt.halfDayMinHours) : null,
-            fullDayMinHours: mWithAtt.fullDayMinHours != null ? Number(mWithAtt.fullDayMinHours) : null,
+            absentThreshold: mWithAtt.absentThreshold ?? null,
           },
         } : {
           isPresent: false,
@@ -185,8 +182,7 @@ staffRouter.get(
             shiftEndTime: mWithAtt.shiftEndTime ?? null,
             lateThreshold: mWithAtt.lateThreshold ?? null,
             halfDayThreshold: mWithAtt.halfDayThreshold ?? null,
-            halfDayMinHours: mWithAtt.halfDayMinHours != null ? Number(mWithAtt.halfDayMinHours) : null,
-            fullDayMinHours: mWithAtt.fullDayMinHours != null ? Number(mWithAtt.fullDayMinHours) : null,
+            absentThreshold: mWithAtt.absentThreshold ?? null,
           },
         },
       };
@@ -228,6 +224,7 @@ staffRouter.post(
       shiftEndTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
       lateThreshold: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
       halfDayThreshold: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
+      absentThreshold: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
       halfDayMinHours: z.number().min(0).max(24).nullable().optional(),
       fullDayMinHours: z.number().min(0).max(24).nullable().optional(),
       customFieldValues: z.record(z.string(), z.string().nullable().optional()).optional(),
@@ -358,6 +355,7 @@ staffRouter.post(
           shiftEndTime: body.shiftEndTime ?? null,
           lateThreshold: body.lateThreshold ?? null,
           halfDayThreshold: body.halfDayThreshold ?? null,
+          absentThreshold: body.absentThreshold ?? null,
           halfDayMinHours: body.halfDayMinHours ?? null,
           fullDayMinHours: body.fullDayMinHours ?? null,
         },
@@ -781,6 +779,7 @@ staffRouter.patch(
       shiftEndTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
       lateThreshold: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
       halfDayThreshold: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
+      absentThreshold: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).nullable().optional(),
       halfDayMinHours: z.number().min(0).max(24).nullable().optional(),
       fullDayMinHours: z.number().min(0).max(24).nullable().optional(),
     });
@@ -814,6 +813,7 @@ staffRouter.patch(
           ...(body.shiftEndTime !== undefined ? { shiftEndTime: body.shiftEndTime } : {}),
           ...(body.lateThreshold !== undefined ? { lateThreshold: body.lateThreshold } : {}),
           ...(body.halfDayThreshold !== undefined ? { halfDayThreshold: body.halfDayThreshold } : {}),
+          ...(body.absentThreshold !== undefined ? { absentThreshold: body.absentThreshold } : {}),
           ...(body.halfDayMinHours !== undefined ? { halfDayMinHours: body.halfDayMinHours } : {}),
           ...(body.fullDayMinHours !== undefined ? { fullDayMinHours: body.fullDayMinHours } : {}),
         },
