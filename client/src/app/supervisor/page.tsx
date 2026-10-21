@@ -53,6 +53,36 @@ import {
 import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
 import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
 
+function formatTime12h(timeStr: string | null | undefined): string {
+  if (!timeStr) return '';
+  const trimmed = timeStr.trim();
+  if (trimmed.toUpperCase().includes('AM') || trimmed.toUpperCase().includes('PM')) {
+    return trimmed;
+  }
+  const parts = trimmed.split(':');
+  if (parts.length < 2) return trimmed;
+  let h = parseInt(parts[0], 10);
+  const m = parts[1].slice(0, 2).padStart(2, '0');
+  if (isNaN(h)) return trimmed;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12;
+  if (h === 0) h = 12;
+  const hStr = String(h).padStart(2, '0');
+  return `${hStr}:${m} ${ampm}`;
+}
+
+function formatISTTime12h(date: Date | string | null | undefined): string {
+  if (!date) return '';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(d);
+}
+
 interface EnrichedStaffItem {
   id: string; // membership id
   role: string;
@@ -89,6 +119,7 @@ interface EnrichedStaffItem {
   shiftEndTime?: string | null;
   lateThreshold?: string | null;
   halfDayThreshold?: string | null;
+  absentThreshold?: string | null;
   halfDayMinHours?: number | null;
   fullDayMinHours?: number | null;
   shiftSchedule?: {
@@ -96,6 +127,7 @@ interface EnrichedStaffItem {
     shiftEndTime: string | null;
     lateThreshold: string | null;
     halfDayThreshold: string | null;
+    absentThreshold?: string | null;
     halfDayMinHours: number | null;
     fullDayMinHours: number | null;
   } | null;
@@ -352,8 +384,7 @@ export default function SupervisorPage() {
   const [addShiftEndTime, setAddShiftEndTime] = useState('');
   const [addLateThreshold, setAddLateThreshold] = useState('');
   const [addHalfDayThreshold, setAddHalfDayThreshold] = useState('');
-  const [addHalfDayMinHours, setAddHalfDayMinHours] = useState('');
-  const [addFullDayMinHours, setAddFullDayMinHours] = useState('');
+  const [addAbsentThreshold, setAddAbsentThreshold] = useState('');
   const [isSubmittingStaff, setIsSubmittingStaff] = useState(false);
   const [addStaffSuccess, setAddStaffSuccess] = useState<{ name: string; username: string; password: string } | null>(null);
 
@@ -374,8 +405,7 @@ export default function SupervisorPage() {
   const [editShiftEndTime, setEditShiftEndTime] = useState('');
   const [editLateThreshold, setEditLateThreshold] = useState('');
   const [editHalfDayThreshold, setEditHalfDayThreshold] = useState('');
-  const [editHalfDayMinHours, setEditHalfDayMinHours] = useState('');
-  const [editFullDayMinHours, setEditFullDayMinHours] = useState('');
+  const [editAbsentThreshold, setEditAbsentThreshold] = useState('');
   const [isSavingEditStaff, setIsSavingEditStaff] = useState(false);
   const [editStaffError, setEditStaffError] = useState<string | null>(null);
 
@@ -668,8 +698,7 @@ export default function SupervisorPage() {
     setAddShiftEndTime('');
     setAddLateThreshold('');
     setAddHalfDayThreshold('');
-    setAddHalfDayMinHours('');
-    setAddFullDayMinHours('');
+    setAddAbsentThreshold('');
     setAddStaffSuccess(null);
   };
 
@@ -698,8 +727,7 @@ export default function SupervisorPage() {
         shiftEndTime: addShiftEndTime || undefined,
         lateThreshold: addLateThreshold || undefined,
         halfDayThreshold: addHalfDayThreshold || undefined,
-        halfDayMinHours: addHalfDayMinHours ? parseFloat(addHalfDayMinHours) : undefined,
-        fullDayMinHours: addFullDayMinHours ? parseFloat(addFullDayMinHours) : undefined,
+        absentThreshold: addAbsentThreshold || undefined,
         customFieldValues: addCustomFieldDraft,
       };
 
@@ -757,20 +785,7 @@ export default function SupervisorPage() {
     setEditShiftEndTime(staff.shiftEndTime || staff.shiftSchedule?.shiftEndTime || '');
     setEditLateThreshold(staff.lateThreshold || staff.shiftSchedule?.lateThreshold || '');
     setEditHalfDayThreshold(staff.halfDayThreshold || staff.shiftSchedule?.halfDayThreshold || '');
-    setEditHalfDayMinHours(
-      staff.halfDayMinHours != null
-        ? String(staff.halfDayMinHours)
-        : staff.shiftSchedule?.halfDayMinHours != null
-        ? String(staff.shiftSchedule.halfDayMinHours)
-        : ''
-    );
-    setEditFullDayMinHours(
-      staff.fullDayMinHours != null
-        ? String(staff.fullDayMinHours)
-        : staff.shiftSchedule?.fullDayMinHours != null
-        ? String(staff.shiftSchedule.fullDayMinHours)
-        : ''
-    );
+    setEditAbsentThreshold(staff.absentThreshold || staff.shiftSchedule?.absentThreshold || '');
     setEditStaffError(null);
     setIsEditStaffModalOpen(true);
   };
@@ -803,8 +818,7 @@ export default function SupervisorPage() {
         shiftEndTime: editShiftEndTime || null,
         lateThreshold: editLateThreshold || null,
         halfDayThreshold: editHalfDayThreshold || null,
-        halfDayMinHours: editHalfDayMinHours ? parseFloat(editHalfDayMinHours) : null,
-        fullDayMinHours: editFullDayMinHours ? parseFloat(editFullDayMinHours) : null,
+        absentThreshold: editAbsentThreshold || null,
       };
 
       await apiRequest(`/api/shops/${activeShopId}/staff/${editStaffTarget.staffMember.id}`, {
@@ -831,15 +845,15 @@ export default function SupervisorPage() {
         shiftEndTime: editShiftEndTime || null,
         lateThreshold: editLateThreshold || null,
         halfDayThreshold: editHalfDayThreshold || null,
-        halfDayMinHours: editHalfDayMinHours ? parseFloat(editHalfDayMinHours) : null,
-        fullDayMinHours: editFullDayMinHours ? parseFloat(editFullDayMinHours) : null,
+        absentThreshold: editAbsentThreshold || null,
         shiftSchedule: {
           shiftStartTime: editShiftStartTime || null,
           shiftEndTime: editShiftEndTime || null,
           lateThreshold: editLateThreshold || null,
           halfDayThreshold: editHalfDayThreshold || null,
-          halfDayMinHours: editHalfDayMinHours ? parseFloat(editHalfDayMinHours) : null,
-          fullDayMinHours: editFullDayMinHours ? parseFloat(editFullDayMinHours) : null,
+          absentThreshold: editAbsentThreshold || null,
+          halfDayMinHours: null,
+          fullDayMinHours: null,
         },
       };
 
@@ -1365,63 +1379,60 @@ export default function SupervisorPage() {
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <label className="block text-[10px] font-bold text-brand-forest mb-0.5">Shift Start</label>
+                          <label className="block text-[10px] font-bold text-brand-forest mb-0.5">Shift Start (IST)</label>
                           <input
                             type="time"
                             value={addShiftStartTime}
                             onChange={(e) => setAddShiftStartTime(e.target.value)}
                             className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-border-subtle text-xs font-semibold text-brand-forest"
                           />
+                          <span className="text-[9px] text-content-muted block mt-0.5">Check-in start</span>
                         </div>
                         <div>
-                          <label className="block text-[10px] font-bold text-brand-forest mb-0.5">Shift End</label>
-                          <input
-                            type="time"
-                            value={addShiftEndTime}
-                            onChange={(e) => setAddShiftEndTime(e.target.value)}
-                            className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-border-subtle text-xs font-semibold text-brand-forest"
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Late Cutoff</label>
+                          <label className="block text-[10px] font-bold text-emerald-800 mb-0.5">On-Time Cutoff (IST)</label>
                           <input
                             type="time"
                             value={addLateThreshold}
                             onChange={(e) => setAddLateThreshold(e.target.value)}
-                            className="w-full px-2.5 py-1.5 rounded-lg bg-amber-50/70 border border-amber-300 text-xs font-semibold text-amber-950"
+                            placeholder="09:35"
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-emerald-50/70 border border-emerald-300 text-xs font-semibold text-emerald-950"
                           />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-bold text-orange-950 mb-0.5">Half-Day Cutoff</label>
-                          <input
-                            type="time"
-                            value={addHalfDayThreshold}
-                            onChange={(e) => setAddHalfDayThreshold(e.target.value)}
-                            className="w-full px-2.5 py-1.5 rounded-lg bg-orange-50/70 border border-orange-300 text-xs font-semibold text-orange-950"
-                          />
+                          <span className="text-[9px] text-emerald-800 block mt-0.5">Present if check-in ≤ this</span>
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <label className="block text-[10px] font-bold text-brand-forest mb-0.5">Min Half-Day (Hrs)</label>
+                          <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Late Cutoff (IST)</label>
                           <input
-                            type="number" step="0.5" min="1" max="12" placeholder="4.0"
-                            value={addHalfDayMinHours}
-                            onChange={(e) => setAddHalfDayMinHours(e.target.value)}
-                            className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-border-subtle text-xs font-semibold text-brand-forest"
+                            type="time"
+                            value={addHalfDayThreshold}
+                            onChange={(e) => setAddHalfDayThreshold(e.target.value)}
+                            placeholder="10:00"
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-amber-50/70 border border-amber-300 text-xs font-semibold text-amber-950"
                           />
+                          <span className="text-[9px] text-amber-800 block mt-0.5">Late if check-in ≤ this</span>
                         </div>
                         <div>
-                          <label className="block text-[10px] font-bold text-brand-forest mb-0.5">Min Full-Day (Hrs)</label>
+                          <label className="block text-[10px] font-bold text-rose-900 mb-0.5">Half-Day Cutoff (IST)</label>
                           <input
-                            type="number" step="0.5" min="1" max="16" placeholder="8.0"
-                            value={addFullDayMinHours}
-                            onChange={(e) => setAddFullDayMinHours(e.target.value)}
-                            className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-border-subtle text-xs font-semibold text-brand-forest"
+                            type="time"
+                            value={addAbsentThreshold}
+                            onChange={(e) => setAddAbsentThreshold(e.target.value)}
+                            placeholder="12:00"
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-rose-50/70 border border-rose-300 text-xs font-semibold text-rose-950"
                           />
+                          <span className="text-[9px] text-rose-800 block mt-0.5">Half-Day if ≤ this; Absent if after</span>
                         </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-brand-forest mb-0.5">Shift End (IST)</label>
+                        <input
+                          type="time"
+                          value={addShiftEndTime}
+                          onChange={(e) => setAddShiftEndTime(e.target.value)}
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-border-subtle text-xs font-semibold text-brand-forest"
+                        />
+                        <span className="text-[9px] text-content-muted block mt-0.5">Check-out / shift end time</span>
                       </div>
                     </div>
 
@@ -2427,10 +2438,10 @@ export default function SupervisorPage() {
                   </span>
                 </div>
                 <p className="text-[10px] text-content-muted leading-tight">
-                  Evaluated strictly in Indian Standard Time (IST). Check-in after Late Cutoff is evaluated as LATE; check-in after Half-Day Cutoff or less worked duration is evaluated as HALF DAY.
+                  Evaluated strictly in Indian Standard Time (IST). Check-in on or before On-Time Cutoff is <strong>PRESENT</strong>; between On-Time & Late Cutoff is <strong>LATE</strong>; between Late & Half-Day Cutoff is <strong>HALF DAY</strong>; after Half-Day Cutoff is <strong>ABSENT</strong>.
                 </p>
 
-                {/* Shift Hours */}
+                {/* Timing Windows Row 1: Shift Start & On-Time Cutoff */}
                 <div className="grid grid-cols-2 gap-2.5">
                   <div>
                     <label className="block text-[11px] font-bold text-brand-forest mb-1">
@@ -2442,21 +2453,24 @@ export default function SupervisorPage() {
                       onChange={(e) => setEditShiftStartTime(e.target.value)}
                       className="w-full px-3 py-2 rounded-xl bg-white border border-border-subtle text-xs font-bold text-brand-forest focus:ring-2 focus:ring-brand-forest"
                     />
+                    <span className="text-[9px] text-content-muted block mt-0.5">Check-in start</span>
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-brand-forest mb-1">
-                      Shift End (IST)
+                    <label className="block text-[11px] font-bold text-emerald-800 mb-1">
+                      On-Time Cutoff (IST)
                     </label>
                     <input
                       type="time"
-                      value={editShiftEndTime}
-                      onChange={(e) => setEditShiftEndTime(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-border-subtle text-xs font-bold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                      value={editLateThreshold}
+                      onChange={(e) => setEditLateThreshold(e.target.value)}
+                      placeholder="09:35"
+                      className="w-full px-3 py-2 rounded-xl bg-emerald-50/70 border border-emerald-300 text-xs font-bold text-emerald-950 focus:ring-2 focus:ring-emerald-500"
                     />
+                    <span className="text-[9px] text-emerald-800/90 block mt-0.5">Present if clock-in ≤ this</span>
                   </div>
                 </div>
 
-                {/* Late & Half-Day Cutoffs */}
+                {/* Timing Windows Row 2: Late Cutoff & Half-Day / Absent Cutoff */}
                 <div className="grid grid-cols-2 gap-2.5">
                   <div>
                     <label className="block text-[11px] font-bold text-amber-900 mb-1">
@@ -2464,58 +2478,40 @@ export default function SupervisorPage() {
                     </label>
                     <input
                       type="time"
-                      value={editLateThreshold}
-                      onChange={(e) => setEditLateThreshold(e.target.value)}
+                      value={editHalfDayThreshold}
+                      onChange={(e) => setEditHalfDayThreshold(e.target.value)}
+                      placeholder="10:00"
                       className="w-full px-3 py-2 rounded-xl bg-amber-50/70 border border-amber-300 text-xs font-bold text-amber-950 focus:ring-2 focus:ring-amber-500"
                     />
-                    <span className="text-[9px] text-amber-800/80 block mt-0.5">Late if clock-in &gt; this</span>
+                    <span className="text-[9px] text-amber-800/90 block mt-0.5">Late if clock-in ≤ this</span>
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-orange-950 mb-1">
+                    <label className="block text-[11px] font-bold text-rose-900 mb-1">
                       Half-Day Cutoff (IST)
                     </label>
                     <input
                       type="time"
-                      value={editHalfDayThreshold}
-                      onChange={(e) => setEditHalfDayThreshold(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl bg-orange-50/70 border border-orange-300 text-xs font-bold text-orange-950 focus:ring-2 focus:ring-orange-500"
+                      value={editAbsentThreshold}
+                      onChange={(e) => setEditAbsentThreshold(e.target.value)}
+                      placeholder="12:00"
+                      className="w-full px-3 py-2 rounded-xl bg-rose-50/70 border border-rose-300 text-xs font-bold text-rose-950 focus:ring-2 focus:ring-rose-500"
                     />
-                    <span className="text-[9px] text-orange-900/80 block mt-0.5">Half Day if clock-in &gt; this</span>
+                    <span className="text-[9px] text-rose-800/90 block mt-0.5">Half-Day if ≤ this; Absent if after</span>
                   </div>
                 </div>
 
-                {/* Minimum Worked Hours (Half Day & Full Day) */}
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block text-[11px] font-bold text-brand-forest mb-1">
-                      Min Half-Day (Hrs)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="1"
-                      max="12"
-                      placeholder="4.0"
-                      value={editHalfDayMinHours}
-                      onChange={(e) => setEditHalfDayMinHours(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-border-subtle text-xs font-bold text-brand-forest focus:ring-2 focus:ring-brand-forest"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-brand-forest mb-1">
-                      Min Full-Day (Hrs)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="1"
-                      max="16"
-                      placeholder="8.0"
-                      value={editFullDayMinHours}
-                      onChange={(e) => setEditFullDayMinHours(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-border-subtle text-xs font-bold text-brand-forest focus:ring-2 focus:ring-brand-forest"
-                    />
-                  </div>
+                {/* Timing Windows Row 3: Shift End */}
+                <div>
+                  <label className="block text-[11px] font-bold text-brand-forest mb-1">
+                    Shift End (IST)
+                  </label>
+                  <input
+                    type="time"
+                    value={editShiftEndTime}
+                    onChange={(e) => setEditShiftEndTime(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-border-subtle text-xs font-bold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                  />
+                  <span className="text-[9px] text-content-muted block mt-0.5">Check-out / shift end time</span>
                 </div>
               </div>
 
@@ -3433,10 +3429,15 @@ export default function SupervisorPage() {
                           {staff.shiftSchedule?.shiftStartTime ? (
                             <div className="flex items-center gap-1.5 mt-1 text-[10px] text-brand-forest font-semibold flex-wrap">
                               <Clock className="w-3 h-3 text-brand-forest shrink-0" />
-                              <span>Shift: {staff.shiftSchedule.shiftStartTime} – {staff.shiftSchedule.shiftEndTime || 'Flexible'} IST</span>
+                              <span>Shift: {formatTime12h(staff.shiftSchedule.shiftStartTime)} – {staff.shiftSchedule.shiftEndTime ? formatTime12h(staff.shiftSchedule.shiftEndTime) : 'Flexible'} IST</span>
                               {staff.shiftSchedule.lateThreshold && (
                                 <span className="text-[9px] text-amber-800 font-bold bg-amber-50 px-1 rounded border border-amber-200">
-                                  Late &gt; {staff.shiftSchedule.lateThreshold}
+                                  Late &gt; {formatTime12h(staff.shiftSchedule.lateThreshold)}
+                                </span>
+                              )}
+                              {staff.shiftSchedule.absentThreshold && (
+                                <span className="text-[9px] text-rose-800 font-bold bg-rose-50 px-1 rounded border border-rose-200">
+                                  Absent &gt; {formatTime12h(staff.shiftSchedule.absentThreshold)}
                                 </span>
                               )}
                             </div>
@@ -3489,12 +3490,12 @@ export default function SupervisorPage() {
 
                         {staff.attendanceToday?.checkInAt && (
                           <span className="block text-[10px] text-content-muted font-mono">
-                            In: {staff.attendanceToday.checkInTimeIST || new Date(staff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                            In: {staff.attendanceToday.checkInTimeIST || formatISTTime12h(staff.attendanceToday.checkInAt)}
                           </span>
                         )}
                         {staff.attendanceToday?.checkOutAt && (
                           <span className="block text-[10px] text-blue-700 font-mono">
-                            Out: {staff.attendanceToday.checkOutTimeIST || new Date(staff.attendanceToday.checkOutAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                            Out: {staff.attendanceToday.checkOutTimeIST || formatISTTime12h(staff.attendanceToday.checkOutAt)}
                           </span>
                         )}
                         {staff.attendanceToday?.statusReason && (
