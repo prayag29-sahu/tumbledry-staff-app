@@ -11,6 +11,8 @@ import { localDateKey } from '../../lib/dateUtils';
 import {
   Calendar,
   Truck,
+  PhoneCall,
+  MessageSquare,
   PackageCheck,
   CheckCircle2,
   Clock,
@@ -43,6 +45,28 @@ export default function DeliveryPage() {
 
   const staffMemberId = user?.staffMember?.id;
   const membership = user?.shopMemberships?.find((m) => m.shopId === activeShopId);
+  const [todayAttendance, setTodayAttendance] = useState<{ id: string; checkInAt: string | null } | null>(null);
+
+  const fetchAttendanceStatus = useCallback(async () => {
+    if (!activeShopId) return;
+    try {
+      const res = await apiRequest<{ session: { id: string; checkInAt: string | null } | null }>(
+        `/api/shops/${activeShopId}/attendance/my-session`
+      );
+      setTodayAttendance(res.session);
+    } catch {
+      setTodayAttendance(null);
+    }
+  }, [activeShopId]);
+
+  useEffect(() => {
+    fetchAttendanceStatus();
+  }, [fetchAttendanceStatus]);
+
+  const todayKey = localDateKey();
+  const isViewingToday = selectedDate === todayKey;
+  const hasCheckedInToday = Boolean(todayAttendance?.checkInAt);
+
 
   const fetchTasks = useCallback(async (showLoading = true) => {
     if (!activeShopId || !staffMemberId) return;
@@ -70,6 +94,14 @@ export default function DeliveryPage() {
 
   const handleCompleteUnit = async (unit: TaskUnit) => {
     if (!activeShopId || unit.status === 'COMPLETED' || completingUnitId) return;
+    if (!isViewingToday) {
+      alert('Tasks can only be marked as completed on their assigned date (today).');
+      return;
+    }
+    if (!hasCheckedInToday) {
+      alert('Attendance check-in is required before completing tasks today. Please clock in under Attendance first.');
+      return;
+    }
     setCompletingUnitId(unit.id);
 
     try {
@@ -118,6 +150,28 @@ export default function DeliveryPage() {
           />
         </div>
       </div>
+
+            {/* Attendance Check-in Required Banner */}
+      {!hasCheckedInToday && (
+        <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-950 flex items-center justify-between gap-3 text-xs font-semibold shadow-sm animate-fade-in">
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+            <span>Attendance check-in is required before you can complete tasks today.</span>
+          </div>
+          <a
+            href="/attendance"
+            className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shrink-0 shadow-sm transition-all"
+          >
+            Clock In
+          </a>
+        </div>
+      )}
+
+      {!isViewingToday && (
+        <div className="p-3 rounded-2xl bg-blue-50 border border-blue-200 text-blue-900 text-xs font-semibold text-center shadow-sm">
+          Viewing {selectedDate} — past/future tasks are view-only. Only today&apos;s tasks can be marked complete.
+        </div>
+      )}
 
       {/* Progress Ring */}
           <ProgressRing
@@ -284,7 +338,7 @@ export default function DeliveryPage() {
                       {unit && (
                         <button
                           onClick={() => handleCompleteUnit(unit)}
-                          disabled={isDone || isPending}
+                          disabled={isDone || isPending || !hasCheckedInToday || !isViewingToday} title={isDone ? 'Completed' : !isViewingToday ? 'Cannot complete past/future tasks' : !hasCheckedInToday ? 'Attendance check-in required to complete tasks' : 'Deliver Order'}
                           className={`flex-1 sm:flex-initial px-5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
                             isDone
                               ? 'bg-status-success/15 text-status-success border border-status-success/30 cursor-default'
@@ -375,10 +429,10 @@ export default function DeliveryPage() {
                     </div>
                     <div>
                       <h4 className="text-sm font-extrabold text-brand-forest">
-                        Pickup Batch ({assignment.pickupCount || assignment.taskUnits.length} Pickups)
+                        {assignment.customerMobile ? `Pickup • Guest: ${assignment.customerMobile}` : `Pickup Batch (${assignment.pickupCount || assignment.taskUnits.length} Pickups)`}
                       </h4>
                       <p className="text-xs text-content-muted">
-                        {assignment.notes || 'Client pickup route'}
+                        {assignment.notes || 'Guest pickup request'}
                       </p>
                     </div>
                   </div>
@@ -405,6 +459,38 @@ export default function DeliveryPage() {
                     </button>
                   </div>
                 </div>
+
+                                {/* Guest Contact Actions for Delivery Boy */}
+                {assignment.customerMobile && (
+                  <div className="mt-3 p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 flex items-center justify-between gap-3 text-xs">
+                    <div className="space-y-0.5 min-w-0">
+                      <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider block">
+                        Guest Mobile Number
+                      </span>
+                      <strong className="text-sm font-black text-brand-forest tracking-wide block">
+                        {assignment.customerMobile}
+                      </strong>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <a
+                        href={`tel:${assignment.customerMobile.replace(/\D/g, '')}`}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-brand-forest text-white font-bold text-xs shadow-sm hover:opacity-95 transition-all"
+                      >
+                        <PhoneCall className="w-3.5 h-3.5 text-brand-lime" />
+                        <span>Call</span>
+                      </a>
+                      <a
+                        href={`https://wa.me/91${assignment.customerMobile.replace(/\D/g, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow-sm hover:opacity-95 transition-all"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-white" />
+                        <span>WhatsApp</span>
+                      </a>
+                    </div>
+                  </div>
+                )}
 
                 {/* Reported Damage Banner for Pickups */}
                 {hasBatchDamage && (
@@ -471,7 +557,7 @@ export default function DeliveryPage() {
                             {seqNum}
                           </span>
                           <span className="text-xs font-bold text-brand-forest">
-                            Pickup #{seqNum}
+                            {assignment.customerMobile ? `Guest: ${assignment.customerMobile}` : `Pickup #${seqNum}`}
                           </span>
                           {unitDmg && (
                             <button
@@ -513,7 +599,8 @@ export default function DeliveryPage() {
 
                           <button
                             onClick={() => handleCompleteUnit(unit)}
-                            disabled={isDone || isPending}
+                            disabled={isDone || isPending || !hasCheckedInToday || !isViewingToday}
+                            title={isDone ? 'Completed' : !isViewingToday ? 'Cannot complete past/future tasks' : !hasCheckedInToday ? 'Attendance check-in required to complete tasks' : 'Pick Up'}
                             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
                               isDone
                                 ? 'bg-status-success/15 text-status-success border border-status-success/30 cursor-default'

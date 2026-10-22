@@ -83,6 +83,7 @@ export interface TaskAssignment {
   orderId?: string | null;
   pieceCount?: number | null;
   pickupCount?: number | null;
+  customerMobile?: string | null;
   selectedActivities: string[];
   notes?: string | null;
   status: 'ACTIVE' | 'CANCELLED' | 'REASSIGNED';
@@ -122,9 +123,60 @@ export interface AttendanceSession {
   checkOutPhotoPath?: string | null;
   durationMinutes?: number | null;
   status: AttendanceStatus;
+  attendanceType?: 'PRESENT' | 'LATE' | 'HALF_DAY' | 'ABSENT' | 'EXEMPT';
+  isOnFloor?: boolean;
+  isShiftCompleted?: boolean;
+  isLate?: boolean;
+  isHalfDay?: boolean;
+  delayMinutes?: number;
+  statusReason?: string | null;
+  checkInTimeIST?: string | null;
+  checkOutTimeIST?: string | null;
   staffMember?: {
     fullName: string;
   };
+}
+
+export interface AttendanceHistoryRecord {
+  id: string;
+  date: string;
+  checkInAt?: string | null;
+  checkOutAt?: string | null;
+  checkInTimeIST?: string | null;
+  checkOutTimeIST?: string | null;
+  attendanceType: 'PRESENT' | 'LATE' | 'HALF_DAY' | 'ABSENT';
+  isOnFloor: boolean;
+  isShiftCompleted: boolean;
+  isLate: boolean;
+  isHalfDay: boolean;
+  delayMinutes: number;
+  durationMinutes: number;
+  durationHours: number;
+  status: string;
+  statusReason?: string | null;
+  checkInPhotoPath?: string | null;
+  checkOutPhotoPath?: string | null;
+}
+
+export interface AttendanceHistoryResponse {
+  year: number;
+  month: number;
+  shiftSchedule?: {
+    shiftStartTime?: string | null;
+    shiftEndTime?: string | null;
+    lateThreshold?: string | null;
+    halfDayThreshold?: string | null;
+    absentThreshold?: string | null;
+  };
+  summary: {
+    totalSessions: number;
+    presentDays: number;
+    lateDays: number;
+    halfDays: number;
+    absentDays: number;
+    totalHoursWorked: number;
+  };
+  records: AttendanceHistoryRecord[];
 }
 
 export interface DamageIncident {

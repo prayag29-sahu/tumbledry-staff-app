@@ -203,6 +203,7 @@ interface StaffAssignment {
   orderId?: string | null;
   pieceCount?: number | null;
   pickupCount?: number | null;
+  customerMobile?: string | null;
   notes?: string | null;
   workflowProfileId?: string | null;
   serviceTypeId?: string | null;
@@ -301,7 +302,7 @@ function ManagerPageInner() {
   const [taskServiceTypeId, setTaskServiceTypeId] = useState('');
   const [taskSelectedActivities, setTaskSelectedActivities] = useState<string[]>([]);
   const [deliveryType, setDeliveryType] = useState<'DELIVERY' | 'PICKUP'>('DELIVERY');
-  const [taskPickupCount, setTaskPickupCount] = useState<number | ''>('');
+  const [taskCustomerMobile, setTaskCustomerMobile] = useState('');
   const [taskPickupLocation, setTaskPickupLocation] = useState('');
   const [taskNotes, setTaskNotes] = useState('');
   const [isSubmittingTask, setIsSubmittingTask] = useState(false);
@@ -315,6 +316,7 @@ function ManagerPageInner() {
 
   // Manager Self Attendance State & Live Camera Selfie Verification
   const [managerSession, setManagerSession] = useState<{ id: string; checkInAt: string; checkOutAt: string | null; status: string; checkInPhotoPath?: string | null; checkOutPhotoPath?: string | null; attendanceType?: string | null } | null>(null);
+  const [managerShiftSchedule, setManagerShiftSchedule] = useState<{ shiftStartTime?: string | null; shiftEndTime?: string | null; lateThreshold?: string | null; halfDayThreshold?: string | null; absentThreshold?: string | null } | null>(null);
   const [isProcessingAttendance, setIsProcessingAttendance] = useState(false);
   const [attendanceMessage, setAttendanceMessage] = useState<string | null>(null);
   const [isLiveCameraOpen, setIsLiveCameraOpen] = useState(false);
@@ -405,11 +407,17 @@ function ManagerPageInner() {
         }
       })
       .catch(() => null);
-    const sessP = apiRequest<{ session: { id: string; checkInAt: string; checkOutAt: string | null; status: string; checkInPhotoPath?: string | null; checkOutPhotoPath?: string | null } | null }>(
+    const sessP = apiRequest<{
+      session: { id: string; checkInAt: string; checkOutAt: string | null; status: string; checkInPhotoPath?: string | null; checkOutPhotoPath?: string | null; attendanceType?: string | null } | null;
+      shiftSchedule?: { shiftStartTime?: string | null; shiftEndTime?: string | null; lateThreshold?: string | null; halfDayThreshold?: string | null; absentThreshold?: string | null } | null;
+    }>(
       `/api/shops/${activeShopId}/attendance/my-session?date=${selectedDate}`
     )
       .then((r) => {
-        if (isCurrent() && r && r.session !== undefined) setManagerSession(r.session);
+        if (isCurrent() && r) {
+          if (r.session !== undefined) setManagerSession(r.session);
+          if (r.shiftSchedule !== undefined) setManagerShiftSchedule(r.shiftSchedule);
+        }
       })
       .catch(() => null);
     const staticP = loadStatic
@@ -559,7 +567,7 @@ function ManagerPageInner() {
     setTaskCreateDate(selectedDate);
     setTaskOrderId('');
     setTaskPieces('');
-    setTaskPickupCount('');
+    setTaskCustomerMobile('');
     setTaskPickupLocation('');
     setTaskNotes('');
     setDirectiveTitle('');
@@ -641,8 +649,10 @@ function ManagerPageInner() {
             if (taskPieces) payload.pieceCount = Number(taskPieces);
             if (taskNotes.trim()) payload.notes = taskNotes.trim();
           } else {
-            if (!taskPickupCount || Number(taskPickupCount) < 1) throw new Error('Pickup count must be at least 1.');
-            payload.pickupCount = Number(taskPickupCount);
+            const cleanMobile = taskCustomerMobile.replace(/\D/g, '');
+            if (!cleanMobile || cleanMobile.length < 10) throw new Error('Valid 10-digit Guest Mobile Number is required for pickup.');
+            payload.customerMobile = cleanMobile;
+            payload.pickupCount = 1;
             const combinedNotes = [
               taskPickupLocation.trim() ? `Location: ${taskPickupLocation.trim()}` : '',
               taskNotes.trim(),
@@ -670,7 +680,7 @@ function ManagerPageInner() {
         setTaskFeedback({ type: 'success', message: 'Task assigned successfully!' });
         setTaskOrderId('');
         setTaskPieces('');
-        setTaskPickupCount('');
+        setTaskCustomerMobile('');
         setTaskPickupLocation('');
         setTaskNotes('');
       }
@@ -722,6 +732,64 @@ function ManagerPageInner() {
     }
   };
 
+
+  
+  // Check-in and Check-out timing window calculations (IST)
+  const timingWindow = useMemo(() => {
+    if (!managerShiftSchedule?.shiftEndTime) {
+      return {
+        isCheckInAllowed: true,
+        checkInReason: '',
+        isCheckOutAllowed: true,
+        checkOutReason: '',
+      };
+    }
+    const clean = managerShiftSchedule.shiftEndTime.trim().toUpperCase().replace(/[AP]M/g, '').trim();
+    const [hStr, mStr] = clean.split(':');
+    let h = parseInt(hStr, 10) || 0;
+    const m = parseInt(mStr, 10) || 0;
+    if (managerShiftSchedule.shiftEndTime.toUpperCase().includes('PM') && h < 12) h += 12;
+    if (managerShiftSchedule.shiftEndTime.toUpperCase().includes('AM') && h === 12) h = 0;
+    const shiftEndMin = h * 60 + m;
+    const checkoutCloseMin = shiftEndMin + 90;
+
+    let dispH = Math.floor(shiftEndMin / 60);
+    const dispM = String(shiftEndMin % 60).padStart(2, '0');
+    const ampm = dispH >= 12 ? 'PM' : 'AM';
+    dispH = dispH % 12 || 12;
+    const shiftEndLabel = `${String(dispH).padStart(2, '0')}:${dispM} ${ampm}`;
+
+    const now = new Date();
+    const istStr = new Intl.DateTimeFormat('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(now);
+    const [nowH, nowM] = istStr.split(':').map(Number);
+    const currentMin = (nowH || 0) * 60 + (nowM || 0);
+
+    const isCheckInAllowed = currentMin < shiftEndMin;
+    const checkInReason = isCheckInAllowed
+      ? ''
+      : `Check-in closed (Shift ended at ${shiftEndLabel} IST)`;
+
+    const isBeforeEnd = currentMin < shiftEndMin;
+    const isPastClose = currentMin > checkoutCloseMin;
+    const isCheckOutAllowed = !isBeforeEnd && !isPastClose;
+    const checkOutReason = isBeforeEnd
+      ? `Check-out opens at ${shiftEndLabel} (Shift End)`
+      : isPastClose
+        ? `Check-out closed (90 min past shift end expired)`
+        : '';
+
+    return {
+      isCheckInAllowed,
+      checkInReason,
+      isCheckOutAllowed,
+      checkOutReason,
+    };
+  }, [managerShiftSchedule]);
 
   // Filter staff list by search query and role filter chips (Screen 3)
   const roleCounts = useMemo(() => {
@@ -1104,16 +1172,19 @@ function ManagerPageInner() {
                   /* Screen 8: Pickup Sub-form */
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-xs font-bold text-brand-forest mb-1">No. of Pieces *</label>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">Guest Mobile Number *</label>
                       <input
-                        type="number"
-                        min="1"
-                        placeholder="Enter pickup count"
-                        value={taskPickupCount}
-                        onChange={(e) => setTaskPickupCount(e.target.value ? parseInt(e.target.value) : '')}
+                        type="tel"
+                        maxLength={10}
+                        placeholder="e.g. 9876543210"
+                        value={taskCustomerMobile}
+                        onChange={(e) => setTaskCustomerMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
                         required
-                        className="w-full px-3 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                        className="w-full px-3 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest tracking-wider"
                       />
+                      <p className="text-[10px] text-content-muted mt-1">
+                        Delivery boy will see this mobile number directly to coordinate the guest pickup.
+                      </p>
                     </div>
 
                     <div>
@@ -1271,7 +1342,7 @@ function ManagerPageInner() {
                             {a.orderId ? a.orderId : 'Pickup'}
                           </span>
                           <span className="text-content-muted font-medium">
-                            {a.pieceCount ? `${a.pieceCount} pcs` : a.pickupCount ? `${a.pickupCount} pcs` : ''}
+                            {a.customerMobile ? `Guest: ${a.customerMobile}` : a.pieceCount ? `${a.pieceCount} pcs` : a.pickupCount ? `${a.pickupCount} pcs` : ''}
                           </span>
                         </div>
                         <p className="text-[11px] text-content-muted truncate max-w-[200px]">
@@ -1699,7 +1770,7 @@ function ManagerPageInner() {
                                   {assignment.orderId ? assignment.orderId : 'Pickup'}
                                 </span>
                                 <span className="text-[11px] text-content-muted font-bold">
-                                  {assignment.pieceCount ? `${assignment.pieceCount} pcs` : assignment.pickupCount ? `${assignment.pickupCount} pcs` : ''}
+                                  {assignment.customerMobile ? `Guest: ${assignment.customerMobile}` : assignment.pieceCount ? `${assignment.pieceCount} pcs` : assignment.pickupCount ? `${assignment.pickupCount} pcs` : ''}
                                 </span>
                               </div>
                               <p className="text-[11px] text-content-muted font-medium truncate max-w-[180px]">
@@ -2530,13 +2601,22 @@ function ManagerPageInner() {
                   <h3 className="text-sm font-black">{managerDisplayName}</h3>
                 </div>
               </div>
-              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${managerSession?.status === 'OPEN'
-                  ? 'bg-emerald-400 text-emerald-950'
-                  : managerSession?.checkOutAt
-                    ? 'bg-blue-300 text-blue-950'
-                    : 'bg-amber-400 text-amber-950'
-                }`}>
-                {managerSession?.status === 'OPEN' ? 'Checked In' : managerSession?.checkOutAt ? 'Completed Shift' : 'Not Marked'}
+              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                managerSession?.attendanceType === 'ABSENT'
+                  ? 'bg-red-400 text-red-950'
+                  : managerSession?.status === 'OPEN'
+                    ? 'bg-emerald-400 text-emerald-950'
+                    : managerSession?.checkOutAt
+                      ? 'bg-blue-300 text-blue-950'
+                      : 'bg-amber-400 text-amber-950'
+              }`}>
+                {managerSession?.attendanceType === 'ABSENT'
+                  ? (managerSession.status === 'OPEN' ? 'Absent (On Floor)' : 'Absent')
+                  : managerSession?.status === 'OPEN'
+                    ? 'Checked In'
+                    : managerSession?.checkOutAt
+                      ? 'Completed Shift'
+                      : 'Not Marked'}
               </span>
             </div>
 
@@ -2592,28 +2672,52 @@ function ManagerPageInner() {
                 {managerSession?.status === 'OPEN' ? (
                   <button
                     type="button"
-                    disabled={isProcessingAttendance}
+                    disabled={isProcessingAttendance || !timingWindow.isCheckOutAllowed}
                     onClick={() => {
+                      if (!timingWindow.isCheckOutAllowed) return;
                       setCameraAction('check-out');
                       setIsLiveCameraOpen(true);
                     }}
-                    className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-700 active:scale-[0.99] text-white text-xs font-black shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                    title={timingWindow.checkOutReason}
+                    className={`w-full py-2.5 rounded-xl text-xs font-black shadow-sm flex items-center justify-center gap-2 transition-all ${
+                      timingWindow.isCheckOutAllowed
+                        ? 'bg-red-600 hover:bg-red-700 active:scale-[0.99] text-white cursor-pointer'
+                        : 'bg-white/20 text-white/60 cursor-not-allowed border border-white/20'
+                    }`}
                   >
                     <Camera className="w-4 h-4" />
-                    <span>{isProcessingAttendance ? 'Processing...' : 'Check Out with Live Camera'}</span>
+                    <span>
+                      {isProcessingAttendance
+                        ? 'Processing...'
+                        : timingWindow.isCheckOutAllowed
+                          ? 'Check Out with Live Camera'
+                          : timingWindow.checkOutReason}
+                    </span>
                   </button>
                 ) : (
                   <button
                     type="button"
-                    disabled={isProcessingAttendance}
+                    disabled={isProcessingAttendance || !timingWindow.isCheckInAllowed}
                     onClick={() => {
+                      if (!timingWindow.isCheckInAllowed) return;
                       setCameraAction('check-in');
                       setIsLiveCameraOpen(true);
                     }}
-                    className="w-full py-2.5 rounded-xl bg-brand-lime hover:bg-[#8fd033] active:scale-[0.99] text-brand-forest text-xs font-black shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                    title={timingWindow.checkInReason}
+                    className={`w-full py-2.5 rounded-xl text-xs font-black shadow-sm flex items-center justify-center gap-2 transition-all ${
+                      timingWindow.isCheckInAllowed
+                        ? 'bg-brand-lime hover:bg-[#8fd033] active:scale-[0.99] text-brand-forest cursor-pointer'
+                        : 'bg-white/20 text-white/60 cursor-not-allowed border border-white/20'
+                    }`}
                   >
                     <Camera className="w-4 h-4 text-brand-forest" />
-                    <span>{isProcessingAttendance ? 'Verifying...' : 'Check In with Live Camera'}</span>
+                    <span>
+                      {isProcessingAttendance
+                        ? 'Verifying...'
+                        : timingWindow.isCheckInAllowed
+                          ? 'Check In with Live Camera'
+                          : timingWindow.checkInReason}
+                    </span>
                   </button>
                 )}
               </div>

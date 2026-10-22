@@ -6,6 +6,7 @@ import { AppError } from '../../middleware/errorHandler';
 import { logAudit } from '../../lib/audit';
 import { dayBounds, dbDateForDay } from '../../lib/dateRange';
 import { attendancePhotoPresence, mediaUrlIf } from '../../lib/media';
+import { evaluateAttendance } from '../../lib/attendanceEvaluation';
 
 export const shopsRouter = Router();
 
@@ -327,23 +328,44 @@ shopsRouter.get('/:shopId/supervisor/dashboard', async (req: Request, res: Respo
   let completedShiftCount = 0;
   let presentCount = 0;
   let halfDayCount = 0;
+  let absentCount = 0;
 
   for (const m of attendanceTrackedStaff) {
     const session = sessionMap.get(m.staffMemberId);
+    const mWithAtt = m as typeof m & {
+      shiftStartTime?: string | null;
+      shiftEndTime?: string | null;
+      lateThreshold?: string | null;
+      halfDayThreshold?: string | null;
+      absentThreshold?: string | null;
+    };
+    const evalResult = evaluateAttendance(session, {
+      shiftStartTime: mWithAtt.shiftStartTime,
+      shiftEndTime: mWithAtt.shiftEndTime,
+      lateThreshold: mWithAtt.lateThreshold,
+      halfDayThreshold: mWithAtt.halfDayThreshold,
+      absentThreshold: mWithAtt.absentThreshold,
+    });
+
     if (session) {
-      presentCount++;
+      if (evalResult.attendanceType === 'ABSENT') {
+        absentCount++;
+      } else {
+        presentCount++;
+        if (evalResult.attendanceType === 'HALF_DAY') halfDayCount++;
+      }
+
       if (session.status === 'OPEN' && !session.checkOutAt) {
         activeOnFloorCount++;
       } else {
         completedShiftCount++;
-        const mins = session.durationMinutes ?? 0;
-        if (mins > 0 && mins <= 240) halfDayCount++;
       }
+    } else {
+      absentCount++;
     }
   }
 
   const totalStaff = attendanceTrackedStaff.length;
-  const absentCount = Math.max(0, totalStaff - presentCount);
   const exemptStaff = staffMemberships
     .filter((m) => (m as typeof m & { attendanceEnabled?: boolean }).attendanceEnabled === false)
     .map((m) => ({ staffId: m.staffMemberId, fullName: m.staffMember.fullName, position: m.positionCategory?.name || 'Staff' }));

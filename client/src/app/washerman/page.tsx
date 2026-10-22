@@ -71,6 +71,26 @@ export default function WashermanPage() {
   const [viewingDamageIncident, setViewingDamageIncident] = useState<DamageIncidentRecord | null>(null);
 
   const staffMemberId = user?.staffMember?.id;
+  const [todayAttendance, setTodayAttendance] = useState<{ id: string; checkInAt: string | null } | null>(null);
+
+  const fetchAttendanceStatus = useCallback(async () => {
+    if (!activeShopId) return;
+    try {
+      const res = await apiRequest<{ session: { id: string; checkInAt: string | null } | null }>(
+        `/api/shops/${activeShopId}/attendance/my-session`
+      );
+      setTodayAttendance(res.session);
+    } catch {
+      setTodayAttendance(null);
+    }
+  }, [activeShopId]);
+
+  useEffect(() => {
+    fetchAttendanceStatus();
+  }, [fetchAttendanceStatus]);
+
+  const hasCheckedInToday = Boolean(todayAttendance?.checkInAt);
+
 
   const fetchTasks = useCallback(async (showLoading = true) => {
     if (!activeShopId || !staffMemberId) return;
@@ -119,6 +139,14 @@ export default function WashermanPage() {
 
   const handleCompleteUnit = async (unit: TaskUnit) => {
     if (!activeShopId || unit.status === 'COMPLETED' || completingUnitId) return;
+    if (selectedDate !== localDateKey()) {
+      alert('Tasks can only be marked as completed on their assigned date (today).');
+      return;
+    }
+    if (!hasCheckedInToday) {
+      alert('Attendance check-in is required before you can complete tasks today. Please clock in under Attendance first.');
+      return;
+    }
     setCompletingUnitId(unit.id);
     setAssignments(prev => prev.map(asg => asg.id !== unit.taskAssignmentId ? asg : {
       ...asg, taskUnits: asg.taskUnits.map(u => u.id === unit.id
@@ -321,8 +349,8 @@ export default function WashermanPage() {
                             const isHistoric = selectedDate !== localDateKey();
                             return (
                               <button key={unit.id} onClick={() => handleCompleteUnit(unit)}
-                                disabled={isDone || isPending || isHistoric}
-                                title={isHistoric ? 'Cannot complete tasks for past dates' : isDone ? 'Already done' : `Mark ${unit.activityCode || 'Done'}`}
+                                disabled={isDone || isPending || isHistoric || !hasCheckedInToday}
+                                title={isHistoric ? 'Cannot complete tasks for past dates' : !hasCheckedInToday ? 'Attendance check-in required to complete tasks' : isDone ? 'Already done' : `Mark ${unit.activityCode || 'Done'}`}
                                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${isDone ? 'bg-status-success/15 text-status-success border border-status-success/30 cursor-default' : isHistoric ? 'bg-surface-cream text-content-muted border border-border-subtle cursor-not-allowed opacity-60' : 'clay-btn-secondary text-brand-forest hover:border-brand-lime'}`}>
                                 {isDone ? <CheckCircle2 className="w-3.5 h-3.5" /> : isPending ? <Clock className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-brand-lime" />}
                                 <span>{unit.activityCode || 'Done'}</span>

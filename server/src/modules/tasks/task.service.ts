@@ -1,6 +1,6 @@
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
-import { dbDateForDay } from '../../lib/dateRange';
+import { dbDateForDay, dayBounds } from '../../lib/dateRange';
 import { logger } from '../../config/logger';
 import { WorkflowType } from '@prisma/client';
 
@@ -14,6 +14,7 @@ export interface CreateAssignmentInput {
   orderId?: string;
   pieceCount?: number;
   pickupCount?: number;
+  customerMobile?: string;
   selectedActivities: string[]; // activity codes e.g. ["WASH","DRY"]
   notes?: string;
   idempotencyKey: string;
@@ -130,11 +131,7 @@ export async function createAssignment(input: CreateAssignmentInput) {
 
   if (workflowProfile.workflowType === WorkflowType.COUNT_BASED) {
     if (!input.pickupCount || input.pickupCount < 1) {
-      if (input.workflowProfileId === 'wfp-directive' || workflowProfile.id === 'wfp-directive') {
-        input.pickupCount = 1;
-      } else {
-        throw new AppError(422, 'VALIDATION_ERROR', 'Pickup count is required and must be a positive integer.');
-      }
+      input.pickupCount = 1;
     }
   }
 
@@ -171,6 +168,7 @@ export async function createAssignment(input: CreateAssignmentInput) {
         orderId: input.orderId ?? null,
         pieceCount: input.pieceCount ?? null,
         pickupCount: input.pickupCount ?? null,
+        customerMobile: input.customerMobile ?? null,
         selectedActivities: input.selectedActivities,
         notes: input.notes ?? null,
         idempotencyKey: input.idempotencyKey,
@@ -275,7 +273,7 @@ export async function completeTaskUnit(
       shopId: true,
       staffMemberId: true,
       status: true,
-      taskAssignment: { select: { status: true } },
+      taskAssignment: { select: { status: true, assignmentDate: true } },
     },
   });
 
@@ -283,6 +281,28 @@ export async function completeTaskUnit(
   if (unit.shopId !== shopId) throw new AppError(403, 'FORBIDDEN', 'Access denied.');
   if (unit.staffMemberId !== staffMemberId && !isPrivileged) throw new AppError(403, 'FORBIDDEN', 'This task is not assigned to you.');
   if (unit.taskAssignment.status !== 'ACTIVE') throw new AppError(409, 'CONFLICT', 'Assignment is no longer active.');
+
+  // Validate task can only be completed on its assigned date (today)
+  const today = dayBounds();
+  const assignBounds = dayBounds(unit.taskAssignment.assignmentDate.toISOString().slice(0, 10));
+  if (assignBounds.dateKey !== today.dateKey) {
+    throw new AppError(400, 'TASK_DATE_MISMATCH', 'Tasks can only be marked as completed on their assigned date (today). Past or future tasks cannot be completed.');
+  }
+
+  // Validate that staff attendance check-in has been marked for today
+  const attendanceToday = await prisma.attendanceSession.findFirst({
+    where: {
+      shopId: unit.shopId,
+      staffMemberId: unit.staffMemberId,
+      checkInAt: { gte: today.startOfDay, lte: today.endOfDay },
+    },
+    select: { id: true, checkInAt: true },
+  });
+
+  if (!attendanceToday || !attendanceToday.checkInAt) {
+    throw new AppError(403, 'ATTENDANCE_REQUIRED', 'Attendance check-in is required before tasks can be marked complete.');
+  }
+
   if (unit.status === 'COMPLETED') return; // idempotent
   if (unit.status === 'CANCELLED') throw new AppError(409, 'CONFLICT', 'Task unit has been cancelled.');
 
@@ -313,7 +333,7 @@ export async function toggleTaskUnit(
       shopId: true,
       staffMemberId: true,
       status: true,
-      taskAssignment: { select: { status: true } },
+      taskAssignment: { select: { status: true, assignmentDate: true } },
     },
   });
 
@@ -323,6 +343,28 @@ export async function toggleTaskUnit(
   if (unit.taskAssignment.status !== 'ACTIVE') throw new AppError(409, 'CONFLICT', 'Assignment is no longer active.');
 
   const nextStatus = unit.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED';
+
+  if (nextStatus === 'COMPLETED') {
+    const today = dayBounds();
+    const assignBounds = dayBounds(unit.taskAssignment.assignmentDate.toISOString().slice(0, 10));
+    if (assignBounds.dateKey !== today.dateKey) {
+      throw new AppError(400, 'TASK_DATE_MISMATCH', 'Tasks can only be marked as completed on their assigned date (today). Past or future tasks cannot be completed.');
+    }
+
+    const attendanceToday = await prisma.attendanceSession.findFirst({
+      where: {
+        shopId: unit.shopId,
+        staffMemberId: unit.staffMemberId,
+        checkInAt: { gte: today.startOfDay, lte: today.endOfDay },
+      },
+      select: { id: true, checkInAt: true },
+    });
+
+    if (!attendanceToday || !attendanceToday.checkInAt) {
+      throw new AppError(403, 'ATTENDANCE_REQUIRED', 'Attendance check-in is required before tasks can be marked complete.');
+    }
+  }
+
   return prisma.taskUnit.update({
     where: { id: taskUnitId },
     data: {

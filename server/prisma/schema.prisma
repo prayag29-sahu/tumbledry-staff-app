@@ -357,6 +357,7 @@ model TaskAssignment {
   orderId             String?        @map("order_id")
   pieceCount          Int?           @map("piece_count")
   pickupCount         Int?           @map("pickup_count")
+  customerMobile      String?        @map("customer_mobile")
   selectedActivities  String[]       @default([]) @map("selected_activities") // activity codes used when generating units
   notes               String?
   status              AssignmentStatus @default(ACTIVE)

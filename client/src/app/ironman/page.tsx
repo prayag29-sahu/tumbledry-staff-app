@@ -40,6 +40,28 @@ export default function IronmanPage() {
   const [viewingDamageIncident, setViewingDamageIncident] = useState<DamageIncidentRecord | null>(null);
 
   const staffMemberId = user?.staffMember?.id;
+  const [todayAttendance, setTodayAttendance] = useState<{ id: string; checkInAt: string | null } | null>(null);
+
+  const fetchAttendanceStatus = useCallback(async () => {
+    if (!activeShopId) return;
+    try {
+      const res = await apiRequest<{ session: { id: string; checkInAt: string | null } | null }>(
+        `/api/shops/${activeShopId}/attendance/my-session`
+      );
+      setTodayAttendance(res.session);
+    } catch {
+      setTodayAttendance(null);
+    }
+  }, [activeShopId]);
+
+  useEffect(() => {
+    fetchAttendanceStatus();
+  }, [fetchAttendanceStatus]);
+
+  const todayKey = localDateKey();
+  const isViewingToday = selectedDate === todayKey;
+  const hasCheckedInToday = Boolean(todayAttendance?.checkInAt);
+
   const membership = user?.shopMemberships?.find((m) => m.shopId === activeShopId);
 
   const fetchTasks = useCallback(async (showLoading = true) => {
@@ -68,6 +90,14 @@ export default function IronmanPage() {
 
   const handleCompleteUnit = async (unit: TaskUnit) => {
     if (!activeShopId || unit.status === 'COMPLETED' || completingUnitId) return;
+    if (!isViewingToday) {
+      alert('Tasks can only be marked as completed on their assigned date (today).');
+      return;
+    }
+    if (!hasCheckedInToday) {
+      alert('Attendance check-in is required before you can complete tasks today. Please clock in under Attendance first.');
+      return;
+    }
     setCompletingUnitId(unit.id);
 
     // 1. Optimistic Update in UI
@@ -326,7 +356,8 @@ export default function IronmanPage() {
                               <button
                                 key={unit.id}
                                 onClick={() => handleCompleteUnit(unit)}
-                                disabled={isDone || isPending}
+                                disabled={isDone || isPending || !hasCheckedInToday || !isViewingToday}
+                                title={isDone ? 'Already done' : !isViewingToday ? 'Cannot complete past/future tasks' : !hasCheckedInToday ? 'Attendance check-in required to complete tasks' : `Mark ${unit.activityCode || 'Done'}`}
                                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
                                   isDone
                                     ? 'bg-status-success/15 text-status-success border border-status-success/30 cursor-default'

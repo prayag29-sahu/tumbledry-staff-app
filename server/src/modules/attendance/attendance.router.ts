@@ -6,7 +6,12 @@ import { AppError } from '../../middleware/errorHandler';
 import { logAudit } from '../../lib/audit';
 import { dayBounds, anchorTimeForDay } from '../../lib/dateRange';
 import { attendancePhotoPresence, mediaUrlIf } from '../../lib/media';
-import { evaluateAttendance } from '../../lib/attendanceEvaluation';
+import {
+  evaluateAttendance,
+  toISTTimeString,
+  timeStringToMinutes,
+  formatTime12h,
+} from '../../lib/attendanceEvaluation';
 
 /** Session columns WITHOUT the heavy photo blobs (photos are served via signed media URLs). */
 const SESSION_LIGHT_SELECT = {
@@ -85,6 +90,23 @@ attendanceRouter.post(
     }
 
     const checkInAt = new Date(); // server timestamp
+
+    // Enforce check-in window: cannot check in after shift end time
+    if (membership.shiftEndTime && membership.shiftEndTime.trim() !== '') {
+      const currentIST = toISTTimeString(checkInAt);
+      const currentMin = timeStringToMinutes(currentIST);
+      const shiftEndMin = timeStringToMinutes(membership.shiftEndTime);
+      if (currentMin >= shiftEndMin) {
+        return next(
+          new AppError(
+            400,
+            'SHIFT_ENDED',
+            `Check-in is closed for today. Shift ended at ${formatTime12h(membership.shiftEndTime)} IST.`
+          )
+        );
+      }
+    }
+
     const evaluation = evaluateAttendance(
       { checkInAt, status: 'OPEN' },
       membership
@@ -162,6 +184,34 @@ attendanceRouter.post(
     }
 
     const checkOutAt = new Date();
+
+    // Enforce check-out window: only after shift end time and within 90 minutes after shift end time
+    if (membership.shiftEndTime && membership.shiftEndTime.trim() !== '') {
+      const currentIST = toISTTimeString(checkOutAt);
+      const currentMin = timeStringToMinutes(currentIST);
+      const shiftEndMin = timeStringToMinutes(membership.shiftEndTime);
+      const checkoutCloseMin = shiftEndMin + 90;
+
+      if (currentMin < shiftEndMin) {
+        return next(
+          new AppError(
+            400,
+            'SHIFT_NOT_ENDED',
+            `Check-out opens only after shift end time (${formatTime12h(membership.shiftEndTime)} IST).`
+          )
+        );
+      }
+      if (currentMin > checkoutCloseMin) {
+        return next(
+          new AppError(
+            400,
+            'CHECKOUT_WINDOW_CLOSED',
+            `Check-out window closed. Check-out was only allowed within 90 minutes of shift end (${formatTime12h(membership.shiftEndTime)} IST).`
+          )
+        );
+      }
+    }
+
     const durationMinutes = Math.floor(
       (checkOutAt.getTime() - openSession.checkInAt.getTime()) / 60000
     );
@@ -216,10 +266,17 @@ attendanceRouter.get(
 
     const membership = await prisma.shopMembership.findFirst({
       where: { accountId: auth.accountId, shopId, isActive: true },
-      select: { staffMemberId: true },
+      select: {
+        staffMemberId: true,
+        shiftStartTime: true,
+        shiftEndTime: true,
+        lateThreshold: true,
+        halfDayThreshold: true,
+        absentThreshold: true,
+      },
     });
     if (!membership) {
-      res.json({ session: null });
+      res.json({ session: null, shiftSchedule: null, evaluated: null });
       return;
     }
 
@@ -235,7 +292,146 @@ attendanceRouter.get(
       select: SESSION_LIGHT_SELECT,
     });
 
-    res.json({ session: session ? (await withPhotoUrls([session]))[0] : null });
+    const sessionWithPhoto = session ? (await withPhotoUrls([session]))[0] : null;
+    const evaluation = evaluateAttendance(session, membership);
+
+    res.json({
+      session: sessionWithPhoto
+        ? {
+            ...sessionWithPhoto,
+            attendanceType: evaluation.attendanceType,
+            isOnFloor: evaluation.isOnFloor,
+            isShiftCompleted: evaluation.isShiftCompleted,
+            isLate: evaluation.isLate,
+            isHalfDay: evaluation.isHalfDay,
+            delayMinutes: evaluation.delayMinutes,
+            statusReason: evaluation.statusReason,
+            checkInTimeIST: evaluation.checkInTimeIST,
+            checkOutTimeIST: evaluation.checkOutTimeIST,
+          }
+        : null,
+      shiftSchedule: {
+        shiftStartTime: membership.shiftStartTime ?? null,
+        shiftEndTime: membership.shiftEndTime ?? null,
+        lateThreshold: membership.lateThreshold ?? null,
+        halfDayThreshold: membership.halfDayThreshold ?? null,
+        absentThreshold: membership.absentThreshold ?? null,
+      },
+      evaluated: evaluation,
+    });
+  }
+);
+
+// GET /api/shops/:shopId/attendance/my-history?year=YYYY&month=MM — Full monthly attendance history for staff
+attendanceRouter.get(
+  '/shops/:shopId/attendance/my-history',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
+    const { shopId } = req.params as { shopId: string };
+
+    const membership = await prisma.shopMembership.findFirst({
+      where: { accountId: auth.accountId, shopId, isActive: true },
+      select: {
+        staffMemberId: true,
+        shiftStartTime: true,
+        shiftEndTime: true,
+        lateThreshold: true,
+        halfDayThreshold: true,
+        absentThreshold: true,
+      },
+    });
+    if (!membership) {
+      return next(new AppError(403, 'FORBIDDEN', 'No active membership in this shop.'));
+    }
+
+    const now = new Date();
+    let year = parseInt(req.query['year'] as string, 10);
+    let month = parseInt(req.query['month'] as string, 10);
+    if (isNaN(year) || year < 2020 || year > 2050) year = now.getFullYear();
+    if (isNaN(month) || month < 1 || month > 12) month = now.getMonth() + 1;
+
+    // First and last day of the selected month
+    const startOfMonth = new Date(year, month - 1, 1, 0, 0, 0, 0);
+    const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999);
+
+    const sessions = await prisma.attendanceSession.findMany({
+      where: {
+        staffMemberId: membership.staffMemberId,
+        shopId,
+        checkInAt: { gte: startOfMonth, lte: endOfMonth },
+      },
+      orderBy: { checkInAt: 'desc' },
+      select: SESSION_LIGHT_SELECT,
+    });
+
+    const sessionsWithPhotos = await withPhotoUrls(sessions);
+
+    let presentDays = 0;
+    let lateDays = 0;
+    let halfDays = 0;
+    let absentDays = 0;
+    let totalMinutesWorked = 0;
+
+    const history = sessionsWithPhotos.map((s) => {
+      const evaluation = evaluateAttendance(s, membership);
+      if (evaluation.attendanceType === 'PRESENT') presentDays++;
+      else if (evaluation.attendanceType === 'LATE') {
+        lateDays++;
+        presentDays++;
+      } else if (evaluation.attendanceType === 'HALF_DAY') halfDays++;
+      else if (evaluation.attendanceType === 'ABSENT') absentDays++;
+
+      const durationMins = s.durationMinutes ?? (
+        s.checkOutAt && s.checkInAt
+          ? Math.max(0, Math.floor((s.checkOutAt.getTime() - s.checkInAt.getTime()) / 60000))
+          : 0
+      );
+      totalMinutesWorked += durationMins;
+
+      const dateKey = s.checkInAt ? s.checkInAt.toISOString().slice(0, 10) : '';
+
+      return {
+        id: s.id,
+        date: dateKey,
+        checkInAt: s.checkInAt,
+        checkOutAt: s.checkOutAt,
+        checkInTimeIST: evaluation.checkInTimeIST,
+        checkOutTimeIST: evaluation.checkOutTimeIST,
+        attendanceType: evaluation.attendanceType,
+        isOnFloor: evaluation.isOnFloor,
+        isShiftCompleted: evaluation.isShiftCompleted,
+        isLate: evaluation.isLate,
+        isHalfDay: evaluation.isHalfDay,
+        delayMinutes: evaluation.delayMinutes,
+        durationMinutes: durationMins,
+        durationHours: Number((durationMins / 60).toFixed(1)),
+        status: s.status,
+        statusReason: evaluation.statusReason,
+        checkInPhotoPath: s.checkInPhotoPath,
+        checkOutPhotoPath: s.checkOutPhotoPath,
+      };
+    });
+
+    res.json({
+      year,
+      month,
+      shiftSchedule: {
+        shiftStartTime: membership.shiftStartTime ?? null,
+        shiftEndTime: membership.shiftEndTime ?? null,
+        lateThreshold: membership.lateThreshold ?? null,
+        halfDayThreshold: membership.halfDayThreshold ?? null,
+        absentThreshold: membership.absentThreshold ?? null,
+      },
+      summary: {
+        totalSessions: sessions.length,
+        presentDays,
+        lateDays,
+        halfDays,
+        absentDays,
+        totalHoursWorked: Number((totalMinutesWorked / 60).toFixed(1)),
+      },
+      records: history,
+    });
   }
 );
 
