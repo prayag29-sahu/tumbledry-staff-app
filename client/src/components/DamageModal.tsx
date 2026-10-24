@@ -4,16 +4,27 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { apiRequest } from '../lib/api';
 import { AlertTriangle, X, Camera, Check, RefreshCw, SwitchCamera, Upload } from 'lucide-react';
 
+export interface DamageCaptureResult {
+  photoPath: string | null;
+  notes: string;
+  pieceNumber?: number;
+}
+
 interface DamageModalProps {
   isOpen: boolean;
   onClose: () => void;
   shopId: string;
-  staffMemberId: string;
-  taskAssignmentId: string;
+  staffMemberId?: string;
+  taskAssignmentId?: string;
   taskUnitId?: string | null;
   pieceNumber?: number | null;
   orderId?: string | null;
   onSuccess?: () => void;
+  onCapture?: (data: DamageCaptureResult) => void;
+  initialPhoto?: string | null;
+  initialNotes?: string;
+  title?: string;
+  allowPieceNumberChange?: boolean;
 }
 
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
@@ -28,9 +39,23 @@ export function DamageModal({
   pieceNumber,
   orderId,
   onSuccess,
+  onCapture,
+  initialPhoto,
+  initialNotes,
+  title,
+  allowPieceNumberChange = false,
 }: DamageModalProps) {
-  const [notes, setNotes] = useState('');
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [notes, setNotes] = useState(initialNotes || '');
+  const [photoPreview, setPhotoPreview] = useState<string | null>(initialPhoto || null);
+  const [selectedPieceNumber, setSelectedPieceNumber] = useState<number>(pieceNumber || 1);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (initialNotes !== undefined) setNotes(initialNotes);
+      if (initialPhoto !== undefined) setPhotoPreview(initialPhoto);
+      if (pieceNumber !== undefined && pieceNumber !== null) setSelectedPieceNumber(pieceNumber);
+    }
+  }, [isOpen, initialNotes, initialPhoto, pieceNumber]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -191,6 +216,23 @@ export function DamageModal({
     setIsSubmitting(true);
     setError(null);
 
+    if (onCapture) {
+      onCapture({
+        photoPath: photoPreview,
+        notes: notes.trim(),
+        pieceNumber: selectedPieceNumber,
+      });
+      setIsSubmitting(false);
+      onClose();
+      return;
+    }
+
+    if (!taskAssignmentId || !staffMemberId) {
+      setError('Task assignment information is required to record damage.');
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       await apiRequest(`/api/shops/${shopId}/damage`, {
         method: 'POST',
@@ -198,7 +240,7 @@ export function DamageModal({
           staffMemberId,
           taskAssignmentId,
           taskUnitId: taskUnitId || undefined,
-          pieceNumber: pieceNumber || undefined,
+          pieceNumber: selectedPieceNumber || undefined,
           notes: notes.trim() || undefined,
           photoPath: photoPreview || undefined,
         }),
@@ -224,7 +266,7 @@ export function DamageModal({
               <AlertTriangle className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-extrabold text-brand-forest">Report Damage Evidence</h3>
+              <h3 className="text-base font-extrabold text-brand-forest">{title || 'Report Damage Evidence'}</h3>
               <p className="text-xs text-content-muted">
                 {orderId ? `Order ${orderId}` : 'Incident'}{' '}
                 {pieceNumber ? `— Piece #${pieceNumber}` : ''}
@@ -245,6 +287,21 @@ export function DamageModal({
             <div className="p-3 rounded-xl bg-status-danger/10 border border-status-danger/30 text-xs font-bold text-status-danger flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {(allowPieceNumberChange || onCapture) && (
+            <div>
+              <label className="block text-xs font-bold text-brand-forest mb-1">
+                Piece Number
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={selectedPieceNumber}
+                onChange={(e) => setSelectedPieceNumber(e.target.value ? parseInt(e.target.value) : 1)}
+                className="w-24 px-3 py-2 rounded-xl bg-surface-cream border border-border-subtle text-xs font-bold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+              />
             </div>
           )}
 
@@ -435,7 +492,7 @@ export function DamageModal({
               ) : (
                 <>
                   <Check className="w-4 h-4" />
-                  <span>Submit Incident</span>
+                  <span>{onCapture ? 'Attach Evidence' : 'Submit Incident'}</span>
                 </>
               )}
             </button>

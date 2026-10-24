@@ -42,6 +42,7 @@ import {
   DamageIncidentViewerModal,
   DamageIncidentRecord,
 } from '../../components/DamageIncidentViewerModal';
+import { DamageModal } from '../../components/DamageModal';
 import { LiveCameraModal } from '../../components/LiveCameraModal';
 import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
 import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
@@ -305,6 +306,18 @@ function ManagerPageInner() {
   const [taskCustomerMobile, setTaskCustomerMobile] = useState('');
   const [taskPickupLocation, setTaskPickupLocation] = useState('');
   const [taskNotes, setTaskNotes] = useState('');
+  const [taskDamage, setTaskDamage] = useState<{
+    hasDamage: boolean;
+    pieceNumber: number | '';
+    notes: string;
+    photoPath: string | null;
+  }>({
+    hasDamage: false,
+    pieceNumber: 1,
+    notes: '',
+    photoPath: null,
+  });
+  const [isTaskDamageModalOpen, setIsTaskDamageModalOpen] = useState(false);
   const [isSubmittingTask, setIsSubmittingTask] = useState(false);
   const [taskFeedback, setTaskFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -672,6 +685,15 @@ function ManagerPageInner() {
           if (taskNotes.trim()) payload.notes = taskNotes.trim();
         }
 
+        if (taskDamage.hasDamage) {
+          payload.initialDamage = {
+            hasDamage: true,
+            pieceNumber: taskDamage.pieceNumber ? Number(taskDamage.pieceNumber) : 1,
+            notes: taskDamage.notes.trim() || undefined,
+            photoPath: taskDamage.photoPath || undefined,
+          };
+        }
+
         await apiRequest(`/api/shops/${activeShopId}/staff/${selectedStaff.staffMember.id}/tasks`, {
           method: 'POST',
           body: JSON.stringify(payload),
@@ -683,6 +705,12 @@ function ManagerPageInner() {
         setTaskCustomerMobile('');
         setTaskPickupLocation('');
         setTaskNotes('');
+        setTaskDamage({
+          hasDamage: false,
+          pieceNumber: 1,
+          notes: '',
+          photoPath: null,
+        });
       }
 
       // Refresh today's assignments for this staff
@@ -1299,6 +1327,108 @@ function ManagerPageInner() {
               </div>
             )}
 
+            {/* Pre-existing Damage Reporting (Reusing Staff DamageModal) */}
+            {isSelectedStaffFloor() && (
+              <div className="rounded-2xl border border-dashed border-red-300 bg-rose-50/50 p-3.5 space-y-2.5">
+                <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={taskDamage.hasDamage}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setTaskDamage((prev) => ({ ...prev, hasDamage: checked }));
+                      if (checked && !taskDamage.photoPath) {
+                        setIsTaskDamageModalOpen(true);
+                      }
+                    }}
+                    className="w-4 h-4 mt-0.5 rounded border-border-subtle text-status-danger focus:ring-status-danger cursor-pointer"
+                  />
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-status-danger" />
+                      <span className="text-xs font-bold text-red-950">
+                        Order me pre-existing damage hai? (Report Damage)
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-content-muted mt-0.5">
+                      Tick karein agar kapde me pehle se daag, cut ya defect hai. Photo &amp; note record DB me save hoga aur Owner, Supervisor aur Staff sabko dikhega.
+                    </p>
+                  </div>
+                </label>
+
+                {taskDamage.hasDamage && (
+                  <div className="pt-2 border-t border-red-200/80 space-y-2 animate-fade-in">
+                    {taskDamage.photoPath || taskDamage.notes ? (
+                      <div className="p-2.5 rounded-xl bg-white border border-red-200 flex items-center justify-between gap-3 shadow-2xs">
+                        <div className="flex items-center gap-2.5">
+                          {taskDamage.photoPath ? (
+                            <img
+                              src={taskDamage.photoPath}
+                              alt="Damage Evidence"
+                              className="w-12 h-12 rounded-lg object-cover border border-red-300 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 rounded-lg bg-red-100 flex items-center justify-center text-status-danger shrink-0">
+                              <AlertTriangle className="w-5 h-5" />
+                            </div>
+                          )}
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-bold text-red-950">
+                                Piece #{taskDamage.pieceNumber || 1}
+                              </span>
+                              {taskDamage.photoPath && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                                  Photo Attached
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-red-900 font-medium line-clamp-1">
+                              {taskDamage.notes || 'Damage noted'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setIsTaskDamageModalOpen(true)}
+                            className="px-2.5 py-1.5 rounded-lg bg-surface-cream text-brand-forest hover:bg-surface-hover border border-border-subtle text-xs font-bold"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setTaskDamage({
+                                hasDamage: false,
+                                pieceNumber: 1,
+                                notes: '',
+                                photoPath: null,
+                              })
+                            }
+                            className="p-1.5 rounded-lg bg-red-100 text-status-danger hover:bg-red-200 text-xs font-bold"
+                            title="Remove"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setIsTaskDamageModalOpen(true)}
+                        className="w-full py-2.5 px-3 rounded-xl bg-white border border-red-200 hover:border-red-300 text-xs font-bold text-red-950 flex items-center justify-center gap-2 shadow-2xs hover:bg-red-50/50 transition-all"
+                      >
+                        <Camera className="w-4 h-4 text-status-danger" />
+                        <span>Take Photo / Describe Damage Evidence</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Create Task Button */}
             <button
               type="submit"
@@ -1344,6 +1474,17 @@ function ManagerPageInner() {
                           <span className="text-content-muted font-medium">
                             {a.customerMobile ? `Guest: ${a.customerMobile}` : a.pieceCount ? `${a.pieceCount} pcs` : a.pickupCount ? `${a.pickupCount} pcs` : ''}
                           </span>
+                          {a.damageIncidents && a.damageIncidents.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setViewingDamageIncident(a.damageIncidents![0])}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-100 text-status-danger text-[10px] font-black hover:bg-red-200 transition-colors"
+                              title="View Damage Evidence"
+                            >
+                              <AlertTriangle className="w-3 h-3 text-status-danger" />
+                              <span>{a.damageIncidents.length} Dmg</span>
+                            </button>
+                          )}
                         </div>
                         <p className="text-[11px] text-content-muted truncate max-w-[200px]">
                           {a.notes ? a.notes : uniqueActs}
@@ -2986,6 +3127,27 @@ function ManagerPageInner() {
           </button>
         </div>
       </nav>
+
+      {/* Reused Staff DamageModal for Task Creation */}
+      <DamageModal
+        isOpen={isTaskDamageModalOpen}
+        onClose={() => setIsTaskDamageModalOpen(false)}
+        shopId={activeShopId || ''}
+        orderId={taskOrderId || undefined}
+        pieceNumber={typeof taskDamage.pieceNumber === 'number' ? taskDamage.pieceNumber : 1}
+        initialPhoto={taskDamage.photoPath}
+        initialNotes={taskDamage.notes}
+        title="Attach Pre-existing Damage Evidence"
+        allowPieceNumberChange={true}
+        onCapture={(data) => {
+          setTaskDamage({
+            hasDamage: true,
+            photoPath: data.photoPath,
+            notes: data.notes,
+            pieceNumber: data.pieceNumber || 1,
+          });
+        }}
+      />
 
       {/* Damage Incident Evidence Viewer Modal */}
       {viewingDamageIncident && (

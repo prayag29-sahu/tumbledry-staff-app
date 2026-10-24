@@ -52,6 +52,7 @@ import {
   DamageIncidentViewerModal,
   DamageIncidentRecord,
 } from '../../components/DamageIncidentViewerModal';
+import { DamageModal } from '../../components/DamageModal';
 import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
 import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
 
@@ -468,6 +469,18 @@ export default function SupervisorPage() {
   const [taskServiceTypeId, setTaskServiceTypeId] = useState('');
   const [taskSelectedActivities, setTaskSelectedActivities] = useState<string[]>(['WASH', 'DRY']);
   const [taskNotes, setTaskNotes] = useState('');
+  const [taskDamage, setTaskDamage] = useState<{
+    hasDamage: boolean;
+    pieceNumber: number | '';
+    notes: string;
+    photoPath: string | null;
+  }>({
+    hasDamage: false,
+    pieceNumber: 1,
+    notes: '',
+    photoPath: null,
+  });
+  const [isTaskDamageModalOpen, setIsTaskDamageModalOpen] = useState(false);
   const [isSubmittingTask, setIsSubmittingTask] = useState(false);
   const [taskFeedback, setTaskFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [services, setServices] = useState<ServiceType[]>([]);
@@ -989,7 +1002,7 @@ export default function SupervisorPage() {
         if (!taskPieces || Number(taskPieces) < 1) throw new Error('Piece count must be at least 1.');
         if (taskSelectedActivities.length === 0) throw new Error('Select at least one activity.');
 
-        const payload = {
+        const payload: Record<string, unknown> = {
           assignmentDate: staffTaskDate,
           workflowProfileId,
           orderId: taskOrderId.trim(),
@@ -1000,6 +1013,15 @@ export default function SupervisorPage() {
           idempotencyKey,
         };
 
+        if (taskDamage.hasDamage) {
+          payload.initialDamage = {
+            hasDamage: true,
+            pieceNumber: taskDamage.pieceNumber ? Number(taskDamage.pieceNumber) : 1,
+            notes: taskDamage.notes.trim() || undefined,
+            photoPath: taskDamage.photoPath || undefined,
+          };
+        }
+
         await apiRequest(`/api/shops/${activeShopId}/staff/${selectedStaff.staffMember.id}/tasks`, {
           method: 'POST',
           body: JSON.stringify(payload),
@@ -1009,6 +1031,12 @@ export default function SupervisorPage() {
         setTaskOrderId('');
         setTaskPieces('');
         setTaskNotes('');
+        setTaskDamage({
+          hasDamage: false,
+          pieceNumber: 1,
+          notes: '',
+          photoPath: null,
+        });
       }
 
       fetchStaffDayTasks(selectedStaff.staffMember.id, staffTaskDate);
@@ -2826,6 +2854,108 @@ export default function SupervisorPage() {
                       className="w-full px-3.5 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
                     />
                   </div>
+
+                  {/* Pre-existing Damage Reporting (Reusing Staff DamageModal) */}
+                  {isSelectedStaffFloor() && (
+                    <div className="rounded-2xl border border-dashed border-red-300 bg-rose-50/50 p-3.5 space-y-2.5">
+                      <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={taskDamage.hasDamage}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setTaskDamage((prev) => ({ ...prev, hasDamage: checked }));
+                            if (checked && !taskDamage.photoPath) {
+                              setIsTaskDamageModalOpen(true);
+                            }
+                          }}
+                          className="w-4 h-4 mt-0.5 rounded border-border-subtle text-status-danger focus:ring-status-danger cursor-pointer"
+                        />
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <AlertTriangle className="w-4 h-4 text-status-danger" />
+                            <span className="text-xs font-bold text-red-950">
+                              Order me pre-existing damage hai? (Report Damage)
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-content-muted mt-0.5">
+                            Tick karein agar kapde me pehle se daag, cut ya defect hai. Photo &amp; note record DB me save hoga aur sabko show hoga.
+                          </p>
+                        </div>
+                      </label>
+
+                      {taskDamage.hasDamage && (
+                        <div className="pt-2 border-t border-red-200/80 space-y-2 animate-fade-in">
+                          {taskDamage.photoPath || taskDamage.notes ? (
+                            <div className="p-2.5 rounded-xl bg-white border border-red-200 flex items-center justify-between gap-3 shadow-2xs">
+                              <div className="flex items-center gap-2.5">
+                                {taskDamage.photoPath ? (
+                                  <img
+                                    src={taskDamage.photoPath}
+                                    alt="Damage Evidence"
+                                    className="w-12 h-12 rounded-lg object-cover border border-red-300 shrink-0"
+                                  />
+                                ) : (
+                                  <div className="w-12 h-12 rounded-lg bg-red-100 flex items-center justify-center text-status-danger shrink-0">
+                                    <AlertTriangle className="w-5 h-5" />
+                                  </div>
+                                )}
+                                <div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-xs font-bold text-red-950">
+                                      Piece #{taskDamage.pieceNumber || 1}
+                                    </span>
+                                    {taskDamage.photoPath && (
+                                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                                        Photo Attached
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[11px] text-red-900 font-medium line-clamp-1">
+                                    {taskDamage.notes || 'Damage noted'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setIsTaskDamageModalOpen(true)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-surface-cream text-brand-forest hover:bg-surface-hover border border-border-subtle text-xs font-bold"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setTaskDamage({
+                                      hasDamage: false,
+                                      pieceNumber: 1,
+                                      notes: '',
+                                      photoPath: null,
+                                    })
+                                  }
+                                  className="p-1.5 rounded-lg bg-red-100 text-status-danger hover:bg-red-200 text-xs font-bold"
+                                  title="Remove"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setIsTaskDamageModalOpen(true)}
+                              className="w-full py-2.5 px-3 rounded-xl bg-white border border-red-200 hover:border-red-300 text-xs font-bold text-red-950 flex items-center justify-center gap-2 shadow-2xs hover:bg-red-50/50 transition-all"
+                            >
+                              <Camera className="w-4 h-4 text-status-danger" />
+                              <span>Take Photo / Describe Damage Evidence</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
 
@@ -3933,6 +4063,27 @@ export default function SupervisorPage() {
           </button>
         </div>
       </nav>
+
+      {/* Reused Staff DamageModal for Task Creation */}
+      <DamageModal
+        isOpen={isTaskDamageModalOpen}
+        onClose={() => setIsTaskDamageModalOpen(false)}
+        shopId={activeShopId || ''}
+        orderId={taskOrderId || undefined}
+        pieceNumber={typeof taskDamage.pieceNumber === 'number' ? taskDamage.pieceNumber : 1}
+        initialPhoto={taskDamage.photoPath}
+        initialNotes={taskDamage.notes}
+        title="Attach Pre-existing Damage Evidence"
+        allowPieceNumberChange={true}
+        onCapture={(data) => {
+          setTaskDamage({
+            hasDamage: true,
+            photoPath: data.photoPath,
+            notes: data.notes,
+            pieceNumber: data.pieceNumber || 1,
+          });
+        }}
+      />
 
       {/* Damage Incident Evidence Viewer Modal */}
       {viewingDamageIncident && (
