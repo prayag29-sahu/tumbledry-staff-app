@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticate, AuthenticatedRequest } from '../../middleware/auth';
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
+import { uploadToSupabaseStorageIfConfigured } from '../../lib/storage';
 
 export const damageRouter = Router();
 damageRouter.use(authenticate as unknown as (req: Request, res: Response, next: NextFunction) => void);
@@ -54,6 +55,12 @@ damageRouter.post(
       if (unit) targetUnitId = unit.id;
     }
 
+    const storedPhotoPath = await uploadToSupabaseStorageIfConfigured(
+      body.photoPath,
+      'damage',
+      `damage_${shopId}`
+    );
+
     const incident = await prisma.damageIncident.create({
       data: {
         shopId,
@@ -63,7 +70,7 @@ damageRouter.post(
         pieceNumber: body.pieceNumber ?? null,
         reportedByAccountId: auth.accountId,
         notes: body.notes ?? null,
-        photoPath: body.photoPath ?? null,
+        photoPath: storedPhotoPath ?? null,
       },
       include: {
         staffMember: { select: { id: true, fullName: true } },

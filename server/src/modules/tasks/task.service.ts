@@ -3,6 +3,14 @@ import { AppError } from '../../middleware/errorHandler';
 import { dbDateForDay, dayBounds } from '../../lib/dateRange';
 import { logger } from '../../config/logger';
 import { WorkflowType } from '@prisma/client';
+import { uploadToSupabaseStorageIfConfigured } from '../../lib/storage';
+
+export interface InitialDamageReportInput {
+  hasDamage: boolean;
+  notes?: string;
+  photoPath?: string;
+  pieceNumber?: number;
+}
 
 export interface CreateAssignmentInput {
   shopId: string;
@@ -18,6 +26,7 @@ export interface CreateAssignmentInput {
   selectedActivities: string[]; // activity codes e.g. ["WASH","DRY"]
   notes?: string;
   idempotencyKey: string;
+  initialDamage?: InitialDamageReportInput;
 }
 
 export interface TaskUnitSummary {
@@ -59,7 +68,22 @@ export async function createAssignment(input: CreateAssignmentInput) {
   // Validate idempotency — if the same key exists, return existing assignment
   const existing = await prisma.taskAssignment.findUnique({
     where: { idempotencyKey: input.idempotencyKey },
-    include: { taskUnits: true },
+    include: {
+      taskUnits: true,
+      damageIncidents: {
+        select: {
+          id: true,
+          pieceNumber: true,
+          status: true,
+          notes: true,
+          photoPath: true,
+          reportedAt: true,
+          taskUnitId: true,
+          staffMember: { select: { id: true, fullName: true } },
+        },
+        orderBy: { reportedAt: 'desc' },
+      },
+    },
   });
   if (existing) {
     logger.info('[TASK] Idempotent request — returning existing assignment', {
@@ -238,6 +262,50 @@ export async function createAssignment(input: CreateAssignmentInput) {
 
     await tx.taskUnit.createMany({ data: units });
 
+    // Upfront pre-existing damage recording at assignment creation
+    if (input.initialDamage && input.initialDamage.hasDamage) {
+      let targetUnitId: string | null = null;
+      if (input.initialDamage.pieceNumber) {
+        const matchedUnit = await tx.taskUnit.findFirst({
+          where: {
+            taskAssignmentId: assignment.id,
+            pieceNumber: input.initialDamage.pieceNumber,
+          },
+          select: { id: true },
+        });
+        if (matchedUnit) {
+          targetUnitId = matchedUnit.id;
+        }
+      }
+
+      const storedPhotoPath = await uploadToSupabaseStorageIfConfigured(
+        input.initialDamage.photoPath,
+        'damage',
+        `task_damage_${input.shopId}`
+      );
+
+      await tx.damageIncident.create({
+        data: {
+          shopId: input.shopId,
+          staffMemberId: input.staffMemberId,
+          taskAssignmentId: assignment.id,
+          taskUnitId: targetUnitId,
+          pieceNumber: input.initialDamage.pieceNumber ?? (input.pieceCount ? 1 : null),
+          reportedByAccountId: input.createdByAccountId,
+          notes: input.initialDamage.notes?.trim() || 'Pre-existing damage noted at task creation / assignment',
+          photoPath: storedPhotoPath || null,
+          status: 'OPEN',
+        },
+      });
+
+      logger.info('[TASK] Pre-existing damage recorded with new assignment', {
+        assignmentId: assignment.id,
+        orderId: input.orderId,
+        pieceNumber: input.initialDamage.pieceNumber,
+        hasPhoto: !!input.initialDamage.photoPath,
+      });
+    }
+
     logger.info('[TASK] Assignment created', {
       assignmentId: assignment.id,
       shopId: input.shopId,
@@ -248,7 +316,22 @@ export async function createAssignment(input: CreateAssignmentInput) {
 
     return tx.taskAssignment.findUniqueOrThrow({
       where: { id: assignment.id },
-      include: { taskUnits: true },
+      include: {
+        taskUnits: true,
+        damageIncidents: {
+          select: {
+            id: true,
+            pieceNumber: true,
+            status: true,
+            notes: true,
+            photoPath: true,
+            reportedAt: true,
+            taskUnitId: true,
+            staffMember: { select: { id: true, fullName: true } },
+          },
+          orderBy: { reportedAt: 'desc' },
+        },
+      },
     });
   });
 

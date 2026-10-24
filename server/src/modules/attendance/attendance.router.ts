@@ -12,6 +12,7 @@ import {
   timeStringToMinutes,
   formatTime12h,
 } from '../../lib/attendanceEvaluation';
+import { uploadToSupabaseStorageIfConfigured } from '../../lib/storage';
 
 /** Session columns WITHOUT the heavy photo blobs (photos are served via signed media URLs). */
 const SESSION_LIGHT_SELECT = {
@@ -112,12 +113,18 @@ attendanceRouter.post(
       membership
     );
 
+    const storedPhotoPath = await uploadToSupabaseStorageIfConfigured(
+      photoPath,
+      'attendance',
+      `checkin_${membership.staffMemberId}`
+    );
+
     const session = await prisma.attendanceSession.create({
       data: {
         shopId,
         staffMemberId: membership.staffMemberId,
         checkInAt,
-        checkInPhotoPath: photoPath,
+        checkInPhotoPath: storedPhotoPath,
         status: 'OPEN',
         attendanceType: evaluation.attendanceType,
         notes: evaluation.statusReason,
@@ -230,11 +237,17 @@ attendanceRouter.post(
       membership
     );
 
+    const storedPhotoPath = await uploadToSupabaseStorageIfConfigured(
+      photoPath,
+      'attendance',
+      `checkout_${membership.staffMemberId}`
+    );
+
     const updated = await prisma.attendanceSession.update({
       where: { id: openSession.id },
       data: {
         checkOutAt,
-        checkOutPhotoPath: photoPath,
+        checkOutPhotoPath: storedPhotoPath,
         durationMinutes,
         status: 'CLOSED',
         attendanceType: evaluation.attendanceType,

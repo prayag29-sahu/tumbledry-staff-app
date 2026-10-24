@@ -11,6 +11,7 @@ const envSchema = z.object({
   JWT_ACCESS_EXPIRY: z.string().default('30d'),
   JWT_REFRESH_EXPIRY_DAYS: z.string().default('60').transform(Number),
   CORS_ORIGIN: z.string(), // comma-separated allowed origins
+  SUPABASE_URL: z.string().url().optional(),
   SUPABASE_STORAGE_URL: z.string().url().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
   SUPABASE_BUCKET_PROFILES: z.string().default('profiles'),

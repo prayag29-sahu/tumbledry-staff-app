@@ -171,6 +171,14 @@ taskRouter.post(
       selectedActivities: z.array(z.string().min(1)).default([]),
       notes: z.string().max(2000).optional(),
       idempotencyKey: z.string().min(1).max(200),
+      initialDamage: z
+        .object({
+          hasDamage: z.boolean(),
+          notes: z.string().max(2000).optional(),
+          photoPath: z.string().optional(),
+          pieceNumber: z.number().int().positive().optional(),
+        })
+        .optional(),
     });
 
     const body = schema.parse(req.body);
@@ -190,6 +198,7 @@ taskRouter.post(
       selectedActivities: body.selectedActivities,
       notes: body.notes,
       idempotencyKey: body.idempotencyKey,
+      initialDamage: body.initialDamage,
     });
 
     res.status(201).json(assignment);
