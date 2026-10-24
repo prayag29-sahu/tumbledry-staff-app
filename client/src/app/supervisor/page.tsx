@@ -2885,11 +2885,11 @@ export default function SupervisorPage() {
                           <div className="flex items-center gap-1.5">
                             <AlertTriangle className="w-4 h-4 text-status-danger" />
                             <span className="text-xs font-bold text-red-950">
-                              Order me pre-existing damage hai? (Report Damage)
+                              Pre-existing Garment Damage? (Report Damage)
                             </span>
                           </div>
                           <p className="text-[10px] text-content-muted mt-0.5">
-                            Tick karein agar kapde me pehle se daag, cut ya defect hai. Photo &amp; note record DB me save hoga aur sabko show hoga.
+                            Check if the garment already has stains, cuts, tears, or defects. The photo and note record will be saved to the database and visible to Owner, Supervisor, and Staff.
                           </p>
                         </div>
                       </label>

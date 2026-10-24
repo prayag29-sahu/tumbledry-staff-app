@@ -37,6 +37,7 @@ import {
   AlertTriangle,
   X,
   Briefcase,
+  History,
 } from 'lucide-react';
 import {
   DamageIncidentViewerModal,
@@ -358,6 +359,79 @@ function ManagerPageInner() {
   const [editDetailsError, setEditDetailsError] = useState<string | null>(null);
   const [editDetailsSuccess, setEditDetailsSuccess] = useState<string | null>(null);
 
+  // ─── Monthly Attendance History States ────────────────────────────────────
+  const currentNow = new Date();
+  const [attendanceViewMode, setAttendanceViewMode] = useState<'daily' | 'monthly'>('daily');
+  const [selectedAttendanceMonth, setSelectedAttendanceMonth] = useState<number>(currentNow.getMonth() + 1);
+  const [selectedAttendanceYear, setSelectedAttendanceYear] = useState<number>(currentNow.getFullYear());
+  const [monthlyStaffId, setMonthlyStaffId] = useState<string>('manager');
+  const [monthlyAttendanceData, setMonthlyAttendanceData] = useState<{
+    sessions: Array<{
+      id: string;
+      checkInAt: string;
+      checkOutAt?: string | null;
+      durationMinutes?: number | null;
+      status: string;
+      attendanceType?: string | null;
+      notes?: string | null;
+      isLate?: boolean;
+      isHalfDay?: boolean;
+      delayMinutes?: number | null;
+      statusReason?: string | null;
+      checkInTimeIST?: string | null;
+      checkOutTimeIST?: string | null;
+      checkInPhotoPath?: string | null;
+      checkOutPhotoPath?: string | null;
+    }>;
+    summary: {
+      presentCount: number;
+      fullDayCount?: number;
+      lateCount?: number;
+      halfDayCount: number;
+      onFloorCount?: number;
+      totalPresentDays?: number;
+      absentCount: number;
+    };
+    year: number;
+    month: number;
+  } | null>(null);
+  const [isLoadingAttendanceHistory, setIsLoadingAttendanceHistory] = useState(false);
+
+  // Staff Details Profile Attendance History
+  const [staffDrilldownMonth, setStaffDrilldownMonth] = useState<number>(currentNow.getMonth() + 1);
+  const [staffDrilldownYear, setStaffDrilldownYear] = useState<number>(currentNow.getFullYear());
+  const [staffDrilldownAttendance, setStaffDrilldownAttendance] = useState<{
+    sessions: Array<{
+      id: string;
+      checkInAt: string;
+      checkOutAt?: string | null;
+      durationMinutes?: number | null;
+      status: string;
+      attendanceType?: string | null;
+      notes?: string | null;
+      isLate?: boolean;
+      isHalfDay?: boolean;
+      delayMinutes?: number | null;
+      statusReason?: string | null;
+      checkInTimeIST?: string | null;
+      checkOutTimeIST?: string | null;
+      checkInPhotoPath?: string | null;
+      checkOutPhotoPath?: string | null;
+    }>;
+    summary: {
+      presentCount: number;
+      fullDayCount?: number;
+      lateCount?: number;
+      halfDayCount: number;
+      onFloorCount?: number;
+      totalPresentDays?: number;
+      absentCount: number;
+    };
+    year: number;
+    month: number;
+  } | null>(null);
+  const [isLoadingStaffDrilldownAttendance, setIsLoadingStaffDrilldownAttendance] = useState(false);
+
   const lastManagerFetchRef = useRef<number>(0);
 
   // Fetch Core Dashboard & Staff Data
@@ -517,6 +591,180 @@ function ManagerPageInner() {
       fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate);
     }
   }, [selectedStaff, staffTaskDate, fetchStaffDetails]);
+
+  // Fetch Attendance History for Floor Attendance Screen (Screen 3)
+  const fetchMonthlyAttendance = useCallback(async (targetStaffId: string, year: number, month: number) => {
+    if (!activeShopId) return;
+    setIsLoadingAttendanceHistory(true);
+    try {
+      if (targetStaffId === 'manager') {
+        const res = await apiRequest<{
+          year: number;
+          month: number;
+          summary: {
+            totalSessions: number;
+            presentDays: number;
+            lateDays: number;
+            halfDays: number;
+            absentDays: number;
+            totalHoursWorked: number;
+          };
+          records: Array<{
+            id: string;
+            date: string;
+            checkInAt: string;
+            checkOutAt?: string | null;
+            durationMinutes?: number | null;
+            status: string;
+            attendanceType?: string | null;
+            isLate?: boolean;
+            isHalfDay?: boolean;
+            delayMinutes?: number | null;
+            statusReason?: string | null;
+            checkInTimeIST?: string | null;
+            checkOutTimeIST?: string | null;
+            checkInPhotoPath?: string | null;
+            checkOutPhotoPath?: string | null;
+          }>;
+        }>(`/api/shops/${activeShopId}/attendance/my-history?year=${year}&month=${month}`);
+
+        const normalizedSessions = (res.records || []).map((r) => ({
+          id: r.id,
+          checkInAt: r.checkInAt,
+          checkOutAt: r.checkOutAt,
+          durationMinutes: r.durationMinutes,
+          status: r.status,
+          attendanceType: r.attendanceType,
+          isLate: r.isLate,
+          isHalfDay: r.isHalfDay,
+          delayMinutes: r.delayMinutes,
+          statusReason: r.statusReason,
+          checkInTimeIST: r.checkInTimeIST,
+          checkOutTimeIST: r.checkOutTimeIST,
+          checkInPhotoPath: r.checkInPhotoPath,
+          checkOutPhotoPath: r.checkOutPhotoPath,
+        }));
+
+        setMonthlyAttendanceData({
+          sessions: normalizedSessions,
+          summary: {
+            presentCount: res.summary?.presentDays ?? 0,
+            fullDayCount: res.summary?.presentDays ?? 0,
+            lateCount: res.summary?.lateDays ?? 0,
+            halfDayCount: res.summary?.halfDays ?? 0,
+            absentCount: res.summary?.absentDays ?? 0,
+          },
+          year: res.year,
+          month: res.month,
+        });
+      } else {
+        const res = await apiRequest<{
+          sessions: Array<{
+            id: string;
+            checkInAt: string;
+            checkOutAt?: string | null;
+            durationMinutes?: number | null;
+            status: string;
+            attendanceType?: string | null;
+            notes?: string | null;
+            isLate?: boolean;
+            isHalfDay?: boolean;
+            delayMinutes?: number | null;
+            statusReason?: string | null;
+            checkInTimeIST?: string | null;
+            checkOutTimeIST?: string | null;
+            checkInPhotoPath?: string | null;
+            checkOutPhotoPath?: string | null;
+          }>;
+          summary: {
+            presentCount: number;
+            fullDayCount?: number;
+            lateCount?: number;
+            halfDayCount: number;
+            onFloorCount?: number;
+            totalPresentDays?: number;
+            absentCount: number;
+          };
+          year: number;
+          month: number;
+        }>(`/api/shops/${activeShopId}/staff/${targetStaffId}/attendance?year=${year}&month=${month}`);
+
+        setMonthlyAttendanceData({
+          sessions: res.sessions || [],
+          summary: res.summary,
+          year: res.year,
+          month: res.month,
+        });
+      }
+    } catch {
+      setMonthlyAttendanceData(null);
+    } finally {
+      setIsLoadingAttendanceHistory(false);
+    }
+  }, [activeShopId]);
+
+  // Fetch Attendance History for Staff Profile Drilldown
+  const fetchStaffDrilldownAttendance = useCallback(async (staffMemberId: string, year: number, month: number) => {
+    if (!activeShopId) return;
+    setIsLoadingStaffDrilldownAttendance(true);
+    try {
+      const res = await apiRequest<{
+        sessions: Array<{
+          id: string;
+          checkInAt: string;
+          checkOutAt?: string | null;
+          durationMinutes?: number | null;
+          status: string;
+          attendanceType?: string | null;
+          notes?: string | null;
+          isLate?: boolean;
+          isHalfDay?: boolean;
+          delayMinutes?: number | null;
+          statusReason?: string | null;
+          checkInTimeIST?: string | null;
+          checkOutTimeIST?: string | null;
+          checkInPhotoPath?: string | null;
+          checkOutPhotoPath?: string | null;
+        }>;
+        summary: {
+          presentCount: number;
+          fullDayCount?: number;
+          lateCount?: number;
+          halfDayCount: number;
+          onFloorCount?: number;
+          totalPresentDays?: number;
+          absentCount: number;
+        };
+        year: number;
+        month: number;
+      }>(`/api/shops/${activeShopId}/staff/${staffMemberId}/attendance?year=${year}&month=${month}`);
+
+      setStaffDrilldownAttendance({
+        sessions: res.sessions || [],
+        summary: res.summary,
+        year: res.year,
+        month: res.month,
+      });
+    } catch {
+      setStaffDrilldownAttendance(null);
+    } finally {
+      setIsLoadingStaffDrilldownAttendance(false);
+    }
+  }, [activeShopId]);
+
+  // Auto-fetch Monthly History for Floor Attendance when switched or target changes
+  useEffect(() => {
+    if (currentNav === 'attendance' && attendanceViewMode === 'monthly') {
+      fetchMonthlyAttendance(monthlyStaffId, selectedAttendanceYear, selectedAttendanceMonth);
+    }
+  }, [currentNav, attendanceViewMode, monthlyStaffId, selectedAttendanceYear, selectedAttendanceMonth, fetchMonthlyAttendance]);
+
+  // Auto-fetch Staff Profile Attendance when drilldown tab opens
+  useEffect(() => {
+    if (activeDrilldown === 'staff_details' && selectedStaff && staffProfileTab === 'attendance') {
+      fetchStaffDrilldownAttendance(selectedStaff.staffMember.id, staffDrilldownYear, staffDrilldownMonth);
+    }
+  }, [activeDrilldown, selectedStaff, staffProfileTab, staffDrilldownYear, staffDrilldownMonth, fetchStaffDrilldownAttendance]);
 
   /**
    * Resolve how a staff member's work is counted — 100% from the database:
@@ -1347,11 +1595,11 @@ function ManagerPageInner() {
                     <div className="flex items-center gap-1.5">
                       <AlertTriangle className="w-4 h-4 text-status-danger" />
                       <span className="text-xs font-bold text-red-950">
-                        Order me pre-existing damage hai? (Report Damage)
+                        Pre-existing Garment Damage? (Report Damage)
                       </span>
                     </div>
                     <p className="text-[10px] text-content-muted mt-0.5">
-                      Tick karein agar kapde me pehle se daag, cut ya defect hai. Photo &amp; note record DB me save hoga aur Owner, Supervisor aur Staff sabko dikhega.
+                      Check if the garment already has stains, cuts, tears, or defects. The photo and note record will be saved to the database and visible to Owner, Supervisor, and Staff.
                     </p>
                   </div>
                 </label>
@@ -2064,13 +2312,16 @@ function ManagerPageInner() {
             </div>
           )}
 
-          {/* TAB 3: ATTENDANCE */}
+          {/* TAB 3: ATTENDANCE (FULL MONTHLY ATTENDANCE HISTORY) */}
           {staffProfileTab === 'attendance' && (
-            <div className="space-y-3">
-              <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
-                <h4 className="text-xs font-black text-brand-forest">Attendance Record</h4>
-                <div className="flex items-center justify-between text-xs py-2 border-b border-border-subtle">
-                  <span className="text-content-muted">Status Today:</span>
+            <div className="space-y-4 animate-fade-in">
+              {/* Today's Live Status Card */}
+              <div className="bg-white p-4 rounded-2xl border border-border-subtle shadow-clay-sm space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black text-brand-forest flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-brand-forest" />
+                    <span>Today&apos;s Attendance Status</span>
+                  </h4>
                   {selectedStaff.attendanceEnabled === false ? (
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
                       Attendance Exempt
@@ -2090,23 +2341,183 @@ function ManagerPageInner() {
                     </span>
                   )}
                 </div>
-                {selectedStaff.attendanceToday.checkInAt && (
-                  <div className="flex items-center justify-between text-xs py-2 border-b border-border-subtle">
-                    <span className="text-content-muted">Check In Time:</span>
+
+                <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-border-subtle/50">
+                  <div className="p-2 rounded-xl bg-surface-cream/50 border border-border-subtle/50">
+                    <span className="text-[10px] text-content-muted block">Check In</span>
                     <span className="font-bold text-brand-forest font-mono">
-                      {new Date(selectedStaff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                      {selectedStaff.attendanceToday.checkInAt
+                        ? new Date(selectedStaff.attendanceToday.checkInAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                        : '—'}
                     </span>
                   </div>
-                )}
-                {selectedStaff.attendanceToday.checkOutAt && (
-                  <div className="flex items-center justify-between text-xs py-2 border-b border-border-subtle">
-                    <span className="text-content-muted">Check Out Time:</span>
+                  <div className="p-2 rounded-xl bg-surface-cream/50 border border-border-subtle/50">
+                    <span className="text-[10px] text-content-muted block">Check Out</span>
                     <span className="font-bold text-brand-forest font-mono">
-                      {new Date(selectedStaff.attendanceToday.checkOutAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                      {selectedStaff.attendanceToday.checkOutAt
+                        ? new Date(selectedStaff.attendanceToday.checkOutAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                        : selectedStaff.attendanceToday.status === 'OPEN' ? 'In Progress' : '—'}
                     </span>
                   </div>
+                </div>
+
+                {selectedStaff.attendanceToday.checkInPhotoPath && (
+                  <button
+                    type="button"
+                    onClick={() => setViewingAttendancePhoto({
+                      staffName: selectedStaff.staffMember.fullName,
+                      role: selectedStaff.positionCategory?.name || selectedStaff.role,
+                      photoUrl: selectedStaff.attendanceToday.checkInPhotoPath!,
+                      checkOutPhotoUrl: selectedStaff.attendanceToday.checkOutPhotoPath || undefined,
+                      timestamp: selectedStaff.attendanceToday.checkInAt || undefined,
+                      checkOutTimestamp: selectedStaff.attendanceToday.checkOutAt || undefined,
+                      status: selectedStaff.attendanceToday.status,
+                    })}
+                    className="w-full py-1.5 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold shadow-sm flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>View Today&apos;s Verification Selfie</span>
+                  </button>
                 )}
               </div>
+
+              {/* Month Navigator */}
+              <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-border-subtle shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const newM = staffDrilldownMonth === 1 ? 12 : staffDrilldownMonth - 1;
+                    const newY = staffDrilldownMonth === 1 ? staffDrilldownYear - 1 : staffDrilldownYear;
+                    setStaffDrilldownMonth(newM);
+                    setStaffDrilldownYear(newY);
+                    fetchStaffDrilldownAttendance(selectedStaff.staffMember.id, newY, newM);
+                  }}
+                  className="p-1.5 rounded-lg hover:bg-surface-cream text-brand-forest transition-colors"
+                  aria-label="Previous Month"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <div className="font-bold text-xs text-brand-forest flex items-center gap-1.5">
+                  <History className="w-3.5 h-3.5 text-brand-forest" />
+                  <span>
+                    {new Date(staffDrilldownYear, staffDrilldownMonth - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const newM = staffDrilldownMonth === 12 ? 1 : staffDrilldownMonth + 1;
+                    const newY = staffDrilldownMonth === 12 ? staffDrilldownYear + 1 : staffDrilldownYear;
+                    setStaffDrilldownMonth(newM);
+                    setStaffDrilldownYear(newY);
+                    fetchStaffDrilldownAttendance(selectedStaff.staffMember.id, newY, newM);
+                  }}
+                  className="p-1.5 rounded-lg hover:bg-surface-cream text-brand-forest transition-colors"
+                  aria-label="Next Month"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Summary Badges */}
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                  <span className="text-base font-black text-emerald-900 block">
+                    {staffDrilldownAttendance?.summary.presentCount ?? 0}
+                  </span>
+                  <span className="text-[10px] font-bold text-emerald-700">Full Day</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-red-50 border border-red-200">
+                  <span className="text-base font-black text-red-700 block">
+                    {staffDrilldownAttendance?.summary.absentCount ?? 0}
+                  </span>
+                  <span className="text-[10px] font-bold text-red-600">Absent</span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200">
+                  <span className="text-base font-black text-amber-800 block">
+                    {staffDrilldownAttendance?.summary.halfDayCount ?? 0}
+                  </span>
+                  <span className="text-[10px] font-bold text-amber-700">Half Day</span>
+                </div>
+              </div>
+
+              {/* Attendance Daily List */}
+              {isLoadingStaffDrilldownAttendance ? (
+                <div className="py-8 text-center text-xs font-bold text-content-muted flex items-center justify-center gap-2">
+                  <span className="w-3.5 h-3.5 rounded-full border-2 border-brand-forest border-t-transparent animate-spin" />
+                  <span>Loading attendance history...</span>
+                </div>
+              ) : staffDrilldownAttendance?.sessions && staffDrilldownAttendance.sessions.length > 0 ? (
+                <div className="bg-white rounded-2xl border border-border-subtle shadow-clay-sm p-4 space-y-2">
+                  {staffDrilldownAttendance.sessions.map((item) => {
+                    const checkIn = item.checkInAt ? new Date(item.checkInAt) : null;
+                    const checkOut = item.checkOutAt ? new Date(item.checkOutAt) : null;
+                    const dateStr = checkIn ? checkIn.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—';
+                    const dayStr = checkIn ? checkIn.toLocaleDateString('en-IN', { weekday: 'short' }) : '—';
+                    const timeStr = checkIn
+                      ? `${checkIn.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} - ${checkOut ? checkOut.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'In Progress'}`
+                      : 'Absent';
+                    const durStr = item.durationMinutes
+                      ? `${Math.floor(item.durationMinutes / 60)}h ${item.durationMinutes % 60}m`
+                      : (item.status === 'OPEN' ? 'Active' : 'Absent');
+                    const isHalfDay = item.isHalfDay ?? ((item.durationMinutes || 0) > 0 && (item.durationMinutes || 0) < 240 && item.status !== 'OPEN');
+                    const isOpen = item.status === 'OPEN';
+
+                    return (
+                      <div key={item.id} className="flex items-center justify-between py-2 border-b border-border-subtle/40 text-xs last:border-b-0">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-extrabold text-brand-forest">{dateStr}</span>
+                            <span className="text-content-muted text-[11px]">({dayStr})</span>
+                          </div>
+                          <span className="text-[11px] font-medium text-content-muted block">{timeStr}</span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {(item.checkInPhotoPath || item.checkOutPhotoPath) && (
+                            <button
+                              type="button"
+                              onClick={() => setViewingAttendancePhoto({
+                                staffName: selectedStaff.staffMember.fullName,
+                                role: selectedStaff.positionCategory?.name || selectedStaff.role,
+                                photoUrl: item.checkInPhotoPath || undefined,
+                                checkOutPhotoUrl: item.checkOutPhotoPath || undefined,
+                                timestamp: item.checkInAt,
+                                checkOutTimestamp: item.checkOutAt || undefined,
+                                status: item.status,
+                              })}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-[10px] font-bold shadow-sm transition-colors"
+                              title="View Attendance Selfie"
+                            >
+                              <Camera className="w-3.5 h-3.5 text-emerald-700" />
+                              <span>Selfie</span>
+                            </button>
+                          )}
+
+                          {isHalfDay ? (
+                            <span className="px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">
+                              Half Day ({durStr})
+                            </span>
+                          ) : isOpen ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                              Active
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              {durStr}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="bg-white p-8 rounded-2xl border border-border-subtle shadow-sm text-center">
+                  <p className="text-xs font-bold text-content-muted">No attendance sessions recorded for this month.</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -2700,25 +3111,62 @@ function ManagerPageInner() {
               Floor Attendance
               {isRefreshing && <span className="w-3.5 h-3.5 rounded-full border-2 border-brand-forest border-t-transparent animate-spin" aria-label="Loading" />}
             </h1>
-            <div className="flex items-center gap-1.5">
-              {!isViewingToday && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedDate(todayKey)}
-                  className="text-[10px] font-black px-2 py-1 rounded-lg bg-brand-forest text-white"
-                >
-                  Today
-                </button>
-              )}
-              <input
-                type="date"
-                value={selectedDate}
-                max={todayKey}
-                onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-                className="text-xs font-bold text-brand-forest border rounded-lg px-2 py-1 bg-white"
-              />
-            </div>
+            {attendanceViewMode === 'daily' ? (
+              <div className="flex items-center gap-1.5">
+                {!isViewingToday && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDate(todayKey)}
+                    className="text-[10px] font-black px-2 py-1 rounded-lg bg-brand-forest text-white"
+                  >
+                    Today
+                  </button>
+                )}
+                <input
+                  type="date"
+                  value={selectedDate}
+                  max={todayKey}
+                  onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                  className="text-xs font-bold text-brand-forest border rounded-lg px-2 py-1 bg-white"
+                />
+              </div>
+            ) : (
+              <span className="text-xs font-bold text-content-muted">Monthly History</span>
+            )}
           </div>
+
+          {/* Sub-Tab Navigation: Daily Floor Attendance vs Monthly History */}
+          <div className="flex items-center gap-1 p-1 bg-surface-cream rounded-xl border border-border-subtle shadow-2xs">
+            <button
+              type="button"
+              onClick={() => setAttendanceViewMode('daily')}
+              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
+                attendanceViewMode === 'daily'
+                  ? 'bg-brand-forest text-white shadow-sm'
+                  : 'text-content-muted hover:text-brand-forest'
+              }`}
+            >
+              Daily Floor Attendance
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAttendanceViewMode('monthly');
+                fetchMonthlyAttendance(monthlyStaffId, selectedAttendanceYear, selectedAttendanceMonth);
+              }}
+              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                attendanceViewMode === 'monthly'
+                  ? 'bg-brand-forest text-white shadow-sm'
+                  : 'text-content-muted hover:text-brand-forest'
+              }`}
+            >
+              <History className="w-3.5 h-3.5" />
+              <span>Monthly History</span>
+            </button>
+          </div>
+
+          {attendanceViewMode === 'daily' ? (
+            <div className="space-y-4">
 
           {!isViewingToday && (
             <div className="px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-800 text-center">
@@ -2942,7 +3390,202 @@ function ManagerPageInner() {
             </div>
           </div>
         </div>
+      ) : (
+        <div className="space-y-4 animate-fade-in">
+          {/* Staff Member Selector Bar */}
+          <div className="space-y-1.5">
+            <span className="text-[11px] font-bold text-content-muted block">Select Staff Member:</span>
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+              <button
+                type="button"
+                onClick={() => {
+                  setMonthlyStaffId('manager');
+                  fetchMonthlyAttendance('manager', selectedAttendanceYear, selectedAttendanceMonth);
+                }}
+                className={`shrink-0 py-1.5 px-3 rounded-xl text-xs font-bold transition-all border ${
+                  monthlyStaffId === 'manager'
+                    ? 'bg-brand-forest text-white border-brand-forest shadow-sm'
+                    : 'bg-white text-content-body border-border-subtle hover:border-brand-forest/40'
+                }`}
+              >
+                👑 My Own Attendance
+              </button>
+              {staffList.map((staff) => (
+                <button
+                  key={staff.staffMember.id}
+                  type="button"
+                  onClick={() => {
+                    setMonthlyStaffId(staff.staffMember.id);
+                    fetchMonthlyAttendance(staff.staffMember.id, selectedAttendanceYear, selectedAttendanceMonth);
+                  }}
+                  className={`shrink-0 py-1.5 px-3 rounded-xl text-xs font-bold transition-all border ${
+                    monthlyStaffId === staff.staffMember.id
+                      ? 'bg-brand-forest text-white border-brand-forest shadow-sm'
+                      : 'bg-white text-content-body border-border-subtle hover:border-brand-forest/40'
+                  }`}
+                >
+                  {staff.staffMember.fullName} ({staff.positionCategory?.name || staff.role})
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Month Navigator */}
+          <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-border-subtle shadow-sm">
+            <button
+              type="button"
+              onClick={() => {
+                const newM = selectedAttendanceMonth === 1 ? 12 : selectedAttendanceMonth - 1;
+                const newY = selectedAttendanceMonth === 1 ? selectedAttendanceYear - 1 : selectedAttendanceYear;
+                setSelectedAttendanceMonth(newM);
+                setSelectedAttendanceYear(newY);
+                fetchMonthlyAttendance(monthlyStaffId, newY, newM);
+              }}
+              className="p-1.5 rounded-lg hover:bg-surface-cream text-brand-forest transition-colors"
+              aria-label="Previous Month"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <div className="font-bold text-xs text-brand-forest flex items-center gap-1.5">
+              <History className="w-3.5 h-3.5 text-brand-forest" />
+              <span>
+                {new Date(selectedAttendanceYear, selectedAttendanceMonth - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const newM = selectedAttendanceMonth === 12 ? 1 : selectedAttendanceMonth + 1;
+                const newY = selectedAttendanceMonth === 12 ? selectedAttendanceYear + 1 : selectedAttendanceYear;
+                setSelectedAttendanceMonth(newM);
+                setSelectedAttendanceYear(newY);
+                fetchMonthlyAttendance(monthlyStaffId, newY, newM);
+              }}
+              className="p-1.5 rounded-lg hover:bg-surface-cream text-brand-forest transition-colors"
+              aria-label="Next Month"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Summary Badges */}
+          <div className="grid grid-cols-4 gap-2 text-center">
+            <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200">
+              <span className="text-base font-black text-emerald-900 block">
+                {monthlyAttendanceData?.summary.presentCount ?? 0}
+              </span>
+              <span className="text-[10px] font-bold text-emerald-700">Full Day</span>
+            </div>
+            <div className="p-2 rounded-xl bg-red-50 border border-red-200">
+              <span className="text-base font-black text-red-700 block">
+                {monthlyAttendanceData?.summary.absentCount ?? 0}
+              </span>
+              <span className="text-[10px] font-bold text-red-600">Absent</span>
+            </div>
+            <div className="p-2 rounded-xl bg-amber-50 border border-amber-200">
+              <span className="text-base font-black text-amber-800 block">
+                {monthlyAttendanceData?.summary.halfDayCount ?? 0}
+              </span>
+              <span className="text-[10px] font-bold text-amber-700">Half Day</span>
+            </div>
+            <div className="p-2 rounded-xl bg-blue-50 border border-blue-200">
+              <span className="text-base font-black text-blue-800 block">
+                {monthlyAttendanceData?.summary.lateCount ?? 0}
+              </span>
+              <span className="text-[10px] font-bold text-blue-700">Late</span>
+            </div>
+          </div>
+
+          {/* Attendance Daily List */}
+          {isLoadingAttendanceHistory ? (
+            <div className="py-12 text-center text-xs font-bold text-content-muted flex items-center justify-center gap-2">
+              <span className="w-4 h-4 rounded-full border-2 border-brand-forest border-t-transparent animate-spin" />
+              <span>Loading attendance records...</span>
+            </div>
+          ) : monthlyAttendanceData?.sessions && monthlyAttendanceData.sessions.length > 0 ? (
+            <div className="bg-white rounded-2xl border border-border-subtle shadow-clay-sm p-4 space-y-2">
+              {monthlyAttendanceData.sessions.map((item) => {
+                const checkIn = item.checkInAt ? new Date(item.checkInAt) : null;
+                const checkOut = item.checkOutAt ? new Date(item.checkOutAt) : null;
+                const dateStr = checkIn ? checkIn.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—';
+                const dayStr = checkIn ? checkIn.toLocaleDateString('en-IN', { weekday: 'short' }) : '—';
+                const timeStr = checkIn
+                  ? `${checkIn.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} - ${checkOut ? checkOut.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'In Progress'}`
+                  : 'Absent';
+                const durStr = item.durationMinutes
+                  ? `${Math.floor(item.durationMinutes / 60)}h ${item.durationMinutes % 60}m`
+                  : (item.status === 'OPEN' ? 'Active' : 'Absent');
+                const isHalfDay = item.isHalfDay ?? ((item.durationMinutes || 0) > 0 && (item.durationMinutes || 0) < 240 && item.status !== 'OPEN');
+                const isOpen = item.status === 'OPEN';
+
+                const staffInfo = monthlyStaffId === 'manager'
+                  ? { name: managerDisplayName, role: managerRoleLabel }
+                  : staffList.find((s) => s.staffMember.id === monthlyStaffId)
+                    ? {
+                        name: staffList.find((s) => s.staffMember.id === monthlyStaffId)!.staffMember.fullName,
+                        role: staffList.find((s) => s.staffMember.id === monthlyStaffId)!.positionCategory?.name || staffList.find((s) => s.staffMember.id === monthlyStaffId)!.role,
+                      }
+                    : { name: 'Staff Member', role: 'Staff' };
+
+                return (
+                  <div key={item.id} className="flex items-center justify-between py-2.5 border-b border-border-subtle/40 text-xs last:border-b-0">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-extrabold text-brand-forest">{dateStr}</span>
+                        <span className="text-content-muted text-[11px]">({dayStr})</span>
+                      </div>
+                      <span className="text-[11px] font-medium text-content-muted block">{timeStr}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {(item.checkInPhotoPath || item.checkOutPhotoPath) && (
+                        <button
+                          type="button"
+                          onClick={() => setViewingAttendancePhoto({
+                            staffName: staffInfo.name,
+                            role: staffInfo.role,
+                            photoUrl: item.checkInPhotoPath || undefined,
+                            checkOutPhotoUrl: item.checkOutPhotoPath || undefined,
+                            timestamp: item.checkInAt,
+                            checkOutTimestamp: item.checkOutAt || undefined,
+                            status: item.status,
+                          })}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-[10px] font-bold shadow-sm transition-colors"
+                          title="View Attendance Selfie"
+                        >
+                          <Camera className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>Selfie</span>
+                        </button>
+                      )}
+
+                      {isHalfDay ? (
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">
+                          Half Day ({durStr})
+                        </span>
+                      ) : isOpen ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                          Active
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          {durStr}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-white p-8 rounded-2xl border border-border-subtle shadow-sm text-center">
+              <p className="text-xs font-bold text-content-muted">No attendance sessions recorded for this month.</p>
+            </div>
+          )}
+        </div>
       )}
+    </div>
+  )}
 
       {/* ══════════════════════════════════════════════════════════════════════════
           MAIN SCREEN 4: REPORTS OVERVIEW (FROM BOTTOM NAV)

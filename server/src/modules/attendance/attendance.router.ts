@@ -582,7 +582,7 @@ attendanceRouter.get(
     const absentCount = Math.max(0, daysInMonth - totalPresentDays);
 
     res.json({
-      sessions: enrichedSessions,
+      sessions: await withPhotoUrls(enrichedSessions),
       shiftSchedule: staffMembership ? {
         shiftStartTime: staffMembership.shiftStartTime,
         shiftEndTime: staffMembership.shiftEndTime,
