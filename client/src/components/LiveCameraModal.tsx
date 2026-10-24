@@ -46,19 +46,28 @@ export function LiveCameraModal({
 
     try {
       if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: 'user', // Front camera for selfie
-            width: { ideal: 640 },
-            height: { ideal: 640 },
-          },
-          audio: false,
-        });
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: 'user', // Front camera for selfie
+              width: { ideal: 640 },
+              height: { ideal: 640 },
+            },
+            audio: false,
+          });
+        } catch {
+          // Fallback to basic user camera
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user' },
+            audio: false,
+          });
+        }
 
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          await videoRef.current.play();
+          videoRef.current.play().catch(() => {});
         }
         setHasCameraStream(true);
       } else {
@@ -189,10 +198,19 @@ export function LiveCameraModal({
           ) : (
             <>
               <video
-                ref={videoRef}
+                ref={(el) => {
+                  videoRef.current = el;
+                  if (el && streamRef.current && el.srcObject !== streamRef.current) {
+                    el.srcObject = streamRef.current;
+                    el.play().catch(() => {});
+                  }
+                }}
                 autoPlay
                 playsInline
                 muted
+                onLoadedMetadata={(e) => {
+                  e.currentTarget.play().catch(() => {});
+                }}
                 className={`w-full h-full object-cover transition-opacity ${
                   hasCameraStream ? 'opacity-100' : 'opacity-0'
                 }`}

@@ -233,7 +233,19 @@ export async function loginWithPassword(
   deviceInfo?: string,
   ipAddress?: string
 ): Promise<{ accessToken: string; refreshToken: string; account: AuthAccountResponse }> {
-  const normalizedUsername = username.toLowerCase().trim();
+  let normalizedUsername = username.toLowerCase().trim();
+
+  // If user entered or pasted display label format like "TD - Ironman - irn_td-az-2026a_04", extract username
+  if (normalizedUsername.includes(' - ')) {
+    const parts = normalizedUsername.split(' - ');
+    normalizedUsername = parts[parts.length - 1].trim();
+  } else if (normalizedUsername.includes('—')) {
+    const parts = normalizedUsername.split('—');
+    normalizedUsername = parts[parts.length - 1].trim();
+  }
+
+  // Also remove internal spaces if any
+  normalizedUsername = normalizedUsername.replace(/\s+/g, '');
 
   const account = await prisma.account.findUnique({
     where: { username: normalizedUsername },

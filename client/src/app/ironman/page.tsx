@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../lib/api';
 import { TaskAssignment, TaskSummary, TaskUnit } from '../../types';
@@ -22,7 +23,11 @@ import {
 } from 'lucide-react';
 
 export default function IronmanPage() {
-  const { user, activeShopId } = useAuth();
+  const router = useRouter();
+  const { user, activeShopId, isLoading: isAuthLoading } = useAuth();
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => { setIsMounted(true); }, []);
+
   const [selectedDate, setSelectedDate] = useState<string>(() => localDateKey());
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
   const [summary, setSummary] = useState<TaskSummary | null>(null);
@@ -41,6 +46,14 @@ export default function IronmanPage() {
 
   const staffMemberId = user?.staffMember?.id;
   const [todayAttendance, setTodayAttendance] = useState<{ id: string; checkInAt: string | null } | null>(null);
+
+  // Redirect to login if user session is expired
+  useEffect(() => {
+    if (isAuthLoading || !isMounted) return;
+    if (!user) {
+      router.replace('/login');
+    }
+  }, [isAuthLoading, isMounted, user, router]);
 
   const fetchAttendanceStatus = useCallback(async () => {
     if (!activeShopId) return;
@@ -65,7 +78,10 @@ export default function IronmanPage() {
   const membership = user?.shopMemberships?.find((m) => m.shopId === activeShopId);
 
   const fetchTasks = useCallback(async (showLoading = true) => {
-    if (!activeShopId || !staffMemberId) return;
+    if (!activeShopId || !staffMemberId) {
+      if (showLoading) setIsLoading(false);
+      return;
+    }
     if (showLoading) setIsLoading(true);
     try {
       const data = await apiRequest<{

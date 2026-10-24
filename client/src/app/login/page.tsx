@@ -23,7 +23,17 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const account = await login(username.trim().toLowerCase(), password);
+      let cleanUsername = username.trim().toLowerCase();
+      if (cleanUsername.includes(' - ')) {
+        const parts = cleanUsername.split(' - ');
+        cleanUsername = parts[parts.length - 1].trim();
+      } else if (cleanUsername.includes('—')) {
+        const parts = cleanUsername.split('—');
+        cleanUsername = parts[parts.length - 1].trim();
+      }
+      cleanUsername = cleanUsername.replace(/\s+/g, '');
+
+      const account = await login(cleanUsername, password);
 
       // Route based on role/permissions
       if (account.isOwner) {

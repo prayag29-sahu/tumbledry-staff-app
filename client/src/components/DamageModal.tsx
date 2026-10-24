@@ -91,33 +91,53 @@ export function DamageModal({
 
     try {
       if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: mode }, // Prioritize back camera for garment evidence
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-          audio: false,
-        });
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: mode },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          });
+        } catch {
+          // Fallback with looser constraints for mobile browsers
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: mode },
+            audio: false,
+          });
+        }
 
         streamRef.current = stream;
         setIsLiveCameraActive(true);
 
+        // If video element already mounted, attach immediately
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          await videoRef.current.play();
+          videoRef.current.play().catch(() => {});
         }
       } else {
         setCameraError('Live camera not supported on this browser. Please use native capture below.');
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unable to access back camera.';
-      setCameraError(`${msg}. Please allow camera access or use photo upload.`);
+      const msg = err instanceof Error ? err.message : 'Unable to access camera.';
+      setCameraError(`${msg}. Please allow camera permissions or use photo upload.`);
       setIsLiveCameraActive(false);
     } finally {
       setIsCameraStarting(false);
     }
   }, [facingMode, stopCameraStream]);
+
+  // Ensure video stream connects immediately whenever live camera viewfinder mounts
+  useEffect(() => {
+    if (isLiveCameraActive && videoRef.current && streamRef.current) {
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+        videoRef.current.play().catch(() => {});
+      }
+    }
+  }, [isLiveCameraActive]);
 
   // Flip between rear and front camera
   const handleToggleCamera = async () => {
@@ -331,10 +351,20 @@ export function DamageModal({
             {isLiveCameraActive ? (
               <div className="relative rounded-2xl overflow-hidden bg-black border border-brand-forest aspect-[4/3] flex flex-col items-center justify-center shadow-clay">
                 <video
-                  ref={videoRef}
+                  ref={(el) => {
+                    videoRef.current = el;
+                    if (el && streamRef.current && el.srcObject !== streamRef.current) {
+                      el.srcObject = streamRef.current;
+                      el.play().catch(() => {});
+                    }
+                  }}
                   playsInline
                   muted
                   autoPlay
+                  onLoadedMetadata={(e) => {
+                    const video = e.currentTarget;
+                    video.play().catch(() => {});
+                  }}
                   className="w-full h-full object-cover"
                 />
 
