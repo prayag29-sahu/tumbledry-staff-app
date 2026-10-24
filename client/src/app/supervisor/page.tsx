@@ -386,6 +386,7 @@ export default function SupervisorPage() {
   const [permissionProfiles, setPermissionProfiles] = useState<PermissionProfileItem[]>([]);
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const lastFetchTimeRef = useRef<number>(0);
 
   // Staff List Search & Category Filter (Screen 2)
@@ -635,6 +636,15 @@ export default function SupervisorPage() {
       setIsDateLoading(false);
     }
   }, [activeShopId, user, activeRole, isAuthLoading, selectedDate, positionCategories.length, permissionProfiles.length, customFields.length, services.length, workflowProfiles.length]);
+
+  const handleManualRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await fetchAllData(true);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  }, [fetchAllData]);
 
   // Refetch when nav tab or dates change (silent to avoid flickering)
   useEffect(() => {
@@ -3169,17 +3179,29 @@ export default function SupervisorPage() {
                 <p className="text-xs text-content-muted font-medium">Supervisor • {activeShopName || 'Branch'}</p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setIsNotificationsOpen(true)}
-              className="relative p-2 rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-cream transition-all"
-              title="Operational Alerts"
-            >
-              <Bell className="w-4 h-4 text-brand-forest" />
-              {(absentTrackedStaff.length > 0 || (dashboardData?.todayTasks?.pending ?? 0) > 0) && (
-                <span className="w-2 h-2 rounded-full bg-red-500 absolute top-1.5 right-1.5 animate-pulse" />
-              )}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                className="p-2 min-w-[38px] min-h-[38px] rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-cream active:scale-95 flex items-center justify-center transition-all touch-manipulation"
+                title="Refresh Shop Data"
+                aria-label="Refresh Shop Data"
+              >
+                <RefreshCw className={`w-4 h-4 text-brand-forest ${isRefreshing ? 'animate-spin' : ''}`} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsNotificationsOpen(true)}
+                className="relative p-2 min-w-[38px] min-h-[38px] rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-cream transition-all flex items-center justify-center"
+                title="Operational Alerts"
+              >
+                <Bell className="w-4 h-4 text-brand-forest" />
+                {(absentTrackedStaff.length > 0 || (dashboardData?.todayTasks?.pending ?? 0) > 0) && (
+                  <span className="w-2 h-2 rounded-full bg-red-500 absolute top-1.5 right-1.5 animate-pulse" />
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Search bar */}
@@ -3455,11 +3477,14 @@ export default function SupervisorPage() {
               </p>
             </div>
             <button
-              onClick={() => fetchAllData()}
-              className="p-2 rounded-xl bg-white border border-border-subtle text-brand-forest hover:bg-surface-cream shadow-sm"
+              type="button"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="p-2 min-w-[38px] min-h-[38px] rounded-xl bg-white border border-border-subtle text-brand-forest hover:bg-surface-cream active:scale-95 shadow-sm flex items-center justify-center transition-all touch-manipulation"
               title="Refresh Attendance"
+              aria-label="Refresh Attendance"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             </button>
           </div>
 

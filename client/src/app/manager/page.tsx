@@ -2230,8 +2230,19 @@ function ManagerPageInner() {
 
             <div className="flex items-center gap-2">
               <button
+                type="button"
+                onClick={() => fetchData(true)}
+                disabled={isRefreshing}
+                className="p-2 min-w-[38px] min-h-[38px] rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-cream active:scale-95 flex items-center justify-center transition-all touch-manipulation"
+                title="Refresh Dashboard"
+                aria-label="Refresh Dashboard"
+              >
+                <RefreshCw className={`w-4 h-4 text-brand-forest ${isRefreshing ? 'animate-spin' : ''}`} />
+              </button>
+              <button
+                type="button"
                 onClick={() => setIsAlertsOpen(true)}
-                className="relative p-2 rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-cream transition-all"
+                className="relative p-2 min-w-[38px] min-h-[38px] rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-cream transition-all flex items-center justify-center"
                 title="Shop Alerts"
               >
                 <Bell className="w-4 h-4 text-brand-forest" />
@@ -2574,11 +2585,14 @@ function ManagerPageInner() {
             </div>
 
             <button
-              onClick={() => fetchData()}
-              className="p-2 rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-hover"
+              type="button"
+              onClick={() => fetchData(true)}
+              disabled={isRefreshing}
+              className="p-2 min-w-[38px] min-h-[38px] rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-hover active:scale-95 flex items-center justify-center transition-all touch-manipulation"
               title="Refresh staff"
+              aria-label="Refresh staff"
             >
-              <RefreshCw className="w-4 h-4 text-brand-forest" />
+              <RefreshCw className={`w-4 h-4 text-brand-forest ${isRefreshing ? 'animate-spin' : ''}`} />
             </button>
           </div>
 

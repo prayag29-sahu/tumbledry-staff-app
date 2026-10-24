@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../lib/api';
 import { TaskAssignment, TaskSummary, TaskUnit } from '../../types';
@@ -25,12 +26,17 @@ import {
 } from 'lucide-react';
 
 export default function DeliveryPage() {
-  const { user, activeShopId } = useAuth();
+  const router = useRouter();
+  const { user, activeShopId, isLoading: isAuthLoading } = useAuth();
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => { setIsMounted(true); }, []);
+
   const [selectedDate, setSelectedDate] = useState<string>(() => localDateKey());
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
   const [summary, setSummary] = useState<TaskSummary | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'delivery' | 'pickup'>('all');
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [completingUnitId, setCompletingUnitId] = useState<string | null>(null);
 
   // Damage modal & viewer state
@@ -46,6 +52,14 @@ export default function DeliveryPage() {
   const staffMemberId = user?.staffMember?.id;
   const membership = user?.shopMemberships?.find((m) => m.shopId === activeShopId);
   const [todayAttendance, setTodayAttendance] = useState<{ id: string; checkInAt: string | null } | null>(null);
+
+  // Redirect to login if user session is expired
+  useEffect(() => {
+    if (isAuthLoading || !isMounted) return;
+    if (!user) {
+      router.replace('/login');
+    }
+  }, [isAuthLoading, isMounted, user, router]);
 
   const fetchAttendanceStatus = useCallback(async () => {
     if (!activeShopId) return;
@@ -67,9 +81,11 @@ export default function DeliveryPage() {
   const isViewingToday = selectedDate === todayKey;
   const hasCheckedInToday = Boolean(todayAttendance?.checkInAt);
 
-
   const fetchTasks = useCallback(async (showLoading = true) => {
-    if (!activeShopId || !staffMemberId) return;
+    if (!activeShopId || !staffMemberId) {
+      if (showLoading) setIsLoading(false);
+      return;
+    }
     if (showLoading) setIsLoading(true);
     try {
       const data = await apiRequest<{
@@ -87,6 +103,18 @@ export default function DeliveryPage() {
       if (showLoading) setIsLoading(false);
     }
   }, [activeShopId, staffMemberId, selectedDate]);
+
+  const handleManualRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        fetchTasks(false),
+        fetchAttendanceStatus(),
+      ]);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  }, [fetchTasks, fetchAttendanceStatus]);
 
   useEffect(() => {
     fetchTasks(true);
@@ -140,14 +168,26 @@ export default function DeliveryPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-1.5 bg-surface-card px-3 py-1.5 rounded-xl border border-border-subtle shadow-clay-sm">
-          <Calendar className="w-3.5 h-3.5 text-brand-forest" />
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="bg-transparent text-xs font-bold text-brand-forest focus:outline-none cursor-pointer"
-          />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            className="p-2 min-w-[38px] min-h-[38px] rounded-xl bg-surface-card border border-border-subtle shadow-clay-sm text-brand-forest hover:bg-surface-hover active:scale-95 flex items-center justify-center transition-all touch-manipulation"
+            title="Refresh Runs"
+            aria-label="Refresh Runs"
+          >
+            <RotateCcw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-brand-forest' : ''}`} />
+          </button>
+          <div className="flex items-center gap-1.5 bg-surface-card px-3 py-1.5 rounded-xl border border-border-subtle shadow-clay-sm">
+            <Calendar className="w-3.5 h-3.5 text-brand-forest" />
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="bg-transparent text-xs font-bold text-brand-forest focus:outline-none cursor-pointer"
+            />
+          </div>
         </div>
       </div>
 
@@ -227,11 +267,14 @@ export default function DeliveryPage() {
             Assigned Runs ({filteredAssignments.length})
           </h3>
           <button
-            onClick={() => fetchTasks(true)}
-            className="p-1 rounded-lg text-content-muted hover:text-brand-forest"
+            type="button"
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            className="p-2 min-w-[36px] min-h-[36px] rounded-xl bg-surface-card border border-border-subtle shadow-clay-sm text-content-muted hover:text-brand-forest active:scale-95 flex items-center justify-center transition-all touch-manipulation"
             title="Refresh Runs"
+            aria-label="Refresh Runs"
           >
-            <RotateCcw className="w-4 h-4" />
+            <RotateCcw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-brand-forest' : ''}`} />
           </button>
         </div>
 

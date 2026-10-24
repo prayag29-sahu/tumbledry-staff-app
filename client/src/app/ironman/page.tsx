@@ -32,6 +32,7 @@ export default function IronmanPage() {
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
   const [summary, setSummary] = useState<TaskSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [completingUnitId, setCompletingUnitId] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
@@ -99,6 +100,18 @@ export default function IronmanPage() {
       if (showLoading) setIsLoading(false);
     }
   }, [activeShopId, staffMemberId, selectedDate]);
+
+  const handleManualRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        fetchTasks(false),
+        fetchAttendanceStatus(),
+      ]);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  }, [fetchTasks, fetchAttendanceStatus]);
 
   useEffect(() => {
     fetchTasks(true);
@@ -183,14 +196,26 @@ export default function IronmanPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-1.5 bg-surface-card px-3 py-1.5 rounded-xl border border-border-subtle shadow-clay-sm">
-          <Calendar className="w-3.5 h-3.5 text-brand-forest" />
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="bg-transparent text-xs font-bold text-brand-forest focus:outline-none cursor-pointer"
-          />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            className="p-2 min-w-[38px] min-h-[38px] rounded-xl bg-surface-card border border-border-subtle shadow-clay-sm text-brand-forest hover:bg-surface-hover active:scale-95 flex items-center justify-center transition-all touch-manipulation"
+            title="Refresh Tasks"
+            aria-label="Refresh Tasks"
+          >
+            <RotateCcw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-brand-forest' : ''}`} />
+          </button>
+          <div className="flex items-center gap-1.5 bg-surface-card px-3 py-1.5 rounded-xl border border-border-subtle shadow-clay-sm">
+            <Calendar className="w-3.5 h-3.5 text-brand-forest" />
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="bg-transparent text-xs font-bold text-brand-forest focus:outline-none cursor-pointer"
+            />
+          </div>
         </div>
       </div>
 
@@ -212,11 +237,14 @@ export default function IronmanPage() {
                 Ironing Orders ({assignments.length})
               </h3>
               <button
-                onClick={() => fetchTasks(true)}
-                className="p-1 rounded-lg text-content-muted hover:text-brand-forest"
+                type="button"
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                className="p-2 min-w-[36px] min-h-[36px] rounded-xl bg-surface-card border border-border-subtle shadow-clay-sm text-content-muted hover:text-brand-forest active:scale-95 flex items-center justify-center transition-all touch-manipulation"
                 title="Refresh Tasks"
+                aria-label="Refresh Tasks"
               >
-                <RotateCcw className="w-4 h-4" />
+                <RotateCcw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-brand-forest' : ''}`} />
               </button>
             </div>
 

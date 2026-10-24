@@ -57,6 +57,7 @@ export default function WashermanPage() {
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
   const [summary, setSummary] = useState<TaskSummary | null>(null);
   const [isTasksLoading, setIsTasksLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [completingUnitId, setCompletingUnitId] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const lastFetchRef = useRef<number>(0);
@@ -93,7 +94,10 @@ export default function WashermanPage() {
 
 
   const fetchTasks = useCallback(async (showLoading = true) => {
-    if (!activeShopId || !staffMemberId) return;
+    if (!activeShopId || !staffMemberId) {
+      if (showLoading) setIsTasksLoading(false);
+      return;
+    }
     if (showLoading && assignments.length === 0) setIsTasksLoading(true);
     lastFetchRef.current = Date.now();
     try {
@@ -105,6 +109,34 @@ export default function WashermanPage() {
     } catch { setAssignments([]); setSummary(null); }
     finally { setIsTasksLoading(false); }
   }, [activeShopId, staffMemberId, selectedDate, assignments.length]);
+
+  const fetchMonthlyStats = useCallback(async () => {
+    if (!activeShopId || !staffMemberId) return;
+    setIsStatsLoading(true);
+    try {
+      const data = await apiRequest<MonthlyStats>(
+        `/api/shops/${activeShopId}/staff/${staffMemberId}/task-summary/monthly?year=${statsMonth.year}&month=${statsMonth.month}`
+      );
+      setMonthlySummary(data);
+    } catch { setMonthlySummary(null); }
+    finally { setIsStatsLoading(false); }
+  }, [activeShopId, staffMemberId, statsMonth]);
+
+  const handleManualRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      if (activeTab === 'tasks') {
+        await Promise.all([
+          fetchTasks(false),
+          fetchAttendanceStatus(),
+        ]);
+      } else {
+        await fetchMonthlyStats();
+      }
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  }, [activeTab, fetchTasks, fetchAttendanceStatus, fetchMonthlyStats]);
 
   useEffect(() => {
     if (!isWashermanAllowed || isAuthLoading) return;
@@ -118,18 +150,6 @@ export default function WashermanPage() {
     document.addEventListener('visibilitychange', vis);
     return () => { window.removeEventListener('focus', handle); document.removeEventListener('visibilitychange', vis); };
   }, [fetchTasks]);
-
-  const fetchMonthlyStats = useCallback(async () => {
-    if (!activeShopId || !staffMemberId) return;
-    setIsStatsLoading(true);
-    try {
-      const data = await apiRequest<MonthlyStats>(
-        `/api/shops/${activeShopId}/staff/${staffMemberId}/task-summary/monthly?year=${statsMonth.year}&month=${statsMonth.month}`
-      );
-      setMonthlySummary(data);
-    } catch { setMonthlySummary(null); }
-    finally { setIsStatsLoading(false); }
-  }, [activeShopId, staffMemberId, statsMonth]);
 
   useEffect(() => {
     if (activeTab === 'stats' && isWashermanAllowed && !isAuthLoading) fetchMonthlyStats();
@@ -214,13 +234,14 @@ export default function WashermanPage() {
           </p>
         </div>
         <button
-          onClick={() => {
-            if (activeTab === 'tasks') fetchTasks(true);
-            else if (activeTab === 'stats') fetchMonthlyStats();
-          }}
-          className="p-2 rounded-xl bg-surface-card border border-border-subtle shadow-clay-sm text-content-muted hover:text-brand-forest transition-colors"
+          type="button"
+          onClick={handleManualRefresh}
+          disabled={isRefreshing}
+          className="p-2 min-w-[38px] min-h-[38px] rounded-xl bg-surface-card border border-border-subtle shadow-clay-sm text-brand-forest hover:bg-surface-hover active:scale-95 flex items-center justify-center transition-all touch-manipulation"
+          title="Refresh Station"
+          aria-label="Refresh Station"
         >
-          <RotateCcw className="w-4 h-4" />
+          <RotateCcw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-brand-forest' : ''}`} />
         </button>
       </div>
 
@@ -239,11 +260,23 @@ export default function WashermanPage() {
             <h3 className="text-sm font-bold text-brand-forest">
               Assigned Orders <span className="font-normal text-content-muted">({assignments.length})</span>
             </h3>
-            <div className="flex items-center gap-1.5 bg-surface-card px-3 py-1.5 rounded-xl border border-border-subtle shadow-clay-sm">
-              <Calendar className="w-3.5 h-3.5 text-brand-forest" />
-              <input type="date" value={selectedDate} max={localDateKey()}
-                onChange={e => setSelectedDate(e.target.value)}
-                className="bg-transparent text-xs font-bold text-brand-forest focus:outline-none cursor-pointer" />
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                className="p-2 min-w-[36px] min-h-[36px] rounded-xl bg-surface-card border border-border-subtle shadow-clay-sm text-content-muted hover:text-brand-forest active:scale-95 flex items-center justify-center transition-all touch-manipulation"
+                title="Refresh Orders"
+                aria-label="Refresh Orders"
+              >
+                <RotateCcw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-brand-forest' : ''}`} />
+              </button>
+              <div className="flex items-center gap-1.5 bg-surface-card px-3 py-1.5 rounded-xl border border-border-subtle shadow-clay-sm">
+                <Calendar className="w-3.5 h-3.5 text-brand-forest" />
+                <input type="date" value={selectedDate} max={localDateKey()}
+                  onChange={e => setSelectedDate(e.target.value)}
+                  className="bg-transparent text-xs font-bold text-brand-forest focus:outline-none cursor-pointer" />
+              </div>
             </div>
           </div>
 

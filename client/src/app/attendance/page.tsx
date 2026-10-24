@@ -20,11 +20,13 @@ import {
   History,
   Timer,
   Info,
+  RotateCcw,
 } from 'lucide-react';
 
 export default function AttendancePage() {
   const { user, activeShopId } = useAuth();
   const [activeTab, setActiveTab] = useState<'today' | 'history'>('today');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Today session & shift schedule states
   const [currentSession, setCurrentSession] = useState<AttendanceSession | null>(null);
@@ -95,6 +97,18 @@ export default function AttendancePage() {
   useEffect(() => {
     fetchCurrentSession();
   }, [fetchCurrentSession]);
+
+  const handleManualRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        fetchCurrentSession(),
+        activeTab === 'history' ? fetchHistory(historyYear, historyMonth) : Promise.resolve(),
+      ]);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  }, [fetchCurrentSession, activeTab, fetchHistory, historyYear, historyMonth]);
 
   useEffect(() => {
     if (activeTab === 'history') {
@@ -263,8 +277,20 @@ export default function AttendancePage() {
               Live biometric facial verification & monthly logs
             </p>
           </div>
-          <div className="w-10 h-10 rounded-2xl bg-brand-forest text-white font-black flex items-center justify-center text-sm shadow-clay-sm">
-            {staffDisplayName.charAt(0).toUpperCase()}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="p-2 min-w-[38px] min-h-[38px] rounded-xl bg-surface-card border border-border-subtle shadow-clay-sm text-brand-forest hover:bg-surface-hover active:scale-95 flex items-center justify-center transition-all touch-manipulation"
+              title="Refresh Attendance"
+              aria-label="Refresh Attendance"
+            >
+              <RotateCcw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-brand-forest' : ''}`} />
+            </button>
+            <div className="w-10 h-10 rounded-2xl bg-brand-forest text-white font-black flex items-center justify-center text-sm shadow-clay-sm">
+              {staffDisplayName.charAt(0).toUpperCase()}
+            </div>
           </div>
         </div>
 
