@@ -33,7 +33,7 @@ export default function LoginPage() {
       }
       cleanUsername = cleanUsername.replace(/\s+/g, '');
 
-      const account = await login(cleanUsername, password);
+      const account = await login(cleanUsername, password.trim());
 
       // Route based on role/permissions
       if (account.isOwner) {
