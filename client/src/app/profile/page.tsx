@@ -55,7 +55,14 @@ export default function ProfilePage() {
       const ep = action === 'check-in'
         ? `/api/shops/${activeShopId}/attendance/check-in`
         : `/api/shops/${activeShopId}/attendance/check-out`;
-      await apiRequest(ep, { method: 'POST', body: JSON.stringify({ staffMemberId, photoData }) });
+      await apiRequest(ep, {
+        method: 'POST',
+        body: JSON.stringify({
+          staffMemberId,
+          photoPath: photoData,
+          photoData,
+        }),
+      });
       await fetchAttendanceSession();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Attendance update failed.');

@@ -375,7 +375,14 @@ export default function SupervisorPage() {
       const ep = action === 'check-in'
         ? `/api/shops/${activeShopId}/attendance/check-in`
         : `/api/shops/${activeShopId}/attendance/check-out`;
-      await apiRequest(ep, { method: 'POST', body: JSON.stringify({ staffMemberId: supervisorStaffId, photoData }) });
+      await apiRequest(ep, {
+        method: 'POST',
+        body: JSON.stringify({
+          staffMemberId: supervisorStaffId,
+          photoPath: photoData,
+          photoData,
+        }),
+      });
       await fetchSupervisorSession();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Attendance capture failed.');

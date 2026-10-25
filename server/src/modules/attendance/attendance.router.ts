@@ -82,10 +82,11 @@ attendanceRouter.post(
       return next(new AppError(409, 'CONFLICT', 'You already have an open check-in session for today.'));
     }
 
-    // Photo path from upload middleware or JSON payload
+    // Photo path from upload middleware or JSON payload (accepts photoPath, photoData, or uploadedPhotoPath)
     const photoPath =
       (req as Request & { uploadedPhotoPath?: string }).uploadedPhotoPath ||
-      (req.body as { photoPath?: string })?.photoPath;
+      (req.body as { photoPath?: string; photoData?: string })?.photoPath ||
+      (req.body as { photoPath?: string; photoData?: string })?.photoData;
     if (!photoPath) {
       return next(new AppError(422, 'VALIDATION_ERROR', 'A photo is required for check-in.'));
     }
@@ -185,7 +186,8 @@ attendanceRouter.post(
 
     const photoPath =
       (req as Request & { uploadedPhotoPath?: string }).uploadedPhotoPath ||
-      (req.body as { photoPath?: string })?.photoPath;
+      (req.body as { photoPath?: string; photoData?: string })?.photoPath ||
+      (req.body as { photoPath?: string; photoData?: string })?.photoData;
     if (!photoPath) {
       return next(new AppError(422, 'VALIDATION_ERROR', 'A photo is required for check-out.'));
     }
