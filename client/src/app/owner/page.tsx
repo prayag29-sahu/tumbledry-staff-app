@@ -46,6 +46,9 @@ import {
   AlertTriangle,
   Camera,
   Power,
+  MapPin,
+  PhoneCall,
+  MessageSquare,
 } from 'lucide-react';
 import {
   DamageIncidentViewerModal,
@@ -56,6 +59,28 @@ import { CatalogueRolesPanel, workflowLabel } from '../../components/owner/Catal
 import { CustomFieldsPanel } from '../../components/owner/CustomFieldsPanel';
 import { AuditLogPanel } from '../../components/owner/AuditLogPanel';
 import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
+
+/** Helper to extract address / location and remaining clean notes from assignment notes */
+function parseAssignmentNotes(notes?: string | null) {
+  if (!notes) return { location: null, cleanNotes: null };
+  const parts = notes.split(' | ');
+  let location: string | null = null;
+  const remainingParts: string[] = [];
+
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (trimmed.toLowerCase().startsWith('location:')) {
+      location = trimmed.replace(/^location:\s*/i, '').trim();
+    } else if (trimmed) {
+      remainingParts.push(trimmed);
+    }
+  }
+
+  return {
+    location: location || null,
+    cleanNotes: remainingParts.length > 0 ? remainingParts.join(' | ') : null,
+  };
+}
 
 function formatTime12h(timeStr: string | null | undefined): string {
   if (!timeStr) return '';
@@ -146,6 +171,7 @@ interface BranchTaskAssignment {
   orderId?: string | null;
   pieceCount?: number | null;
   pickupCount?: number | null;
+  customerMobile?: string | null;
   status: string;
   assignmentDate: string;
   assignedAt: string;
@@ -263,6 +289,7 @@ interface StaffTaskDaySummary {
     orderId?: string | null;
     pieceCount?: number | null;
     pickupCount?: number | null;
+    customerMobile?: string | null;
     notes?: string | null;
     workflowProfileId?: string | null;
     serviceTypeId?: string | null;
@@ -1941,6 +1968,9 @@ function OwnerPageInner() {
                         const pct = totalUnits > 0 ? Math.round((completedUnits / totalUnits) * 100) : 0;
                         const isExpanded = !!expandedTaskIds[task.id];
 
+                        const parsed = parseAssignmentNotes(task.notes);
+                        const cleanMobile = task.customerMobile ? task.customerMobile.replace(/\D/g, '') : null;
+
                         return (
                           <div
                             key={task.id}
@@ -1952,9 +1982,14 @@ function OwnerPageInner() {
                                   <Layers className="w-4 h-4" />
                                 </div>
                                 <div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-sm font-black text-brand-forest">
-                                      {task.orderId ? `Order #${task.orderId}` : 'Batch Assignment'}
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className={`text-xs font-black font-mono px-2 py-0.5 rounded-lg ${
+                                      task.orderId ? 'bg-blue-100 text-blue-900 border border-blue-200' : 'bg-amber-100 text-amber-900 border border-amber-200'
+                                    }`}>
+                                      {task.orderId ? `Order #${task.orderId}` : 'Pickup / Batch Task'}
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-white border border-border-subtle text-brand-forest">
+                                      {task.pieceCount ? `${task.pieceCount} pcs` : task.pickupCount ? `${task.pickupCount} pickups` : `${totalUnits} pcs`}
                                     </span>
                                     <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white border border-border-subtle text-content-muted">
                                       {task.serviceType?.name || 'Standard Service'}
@@ -1963,7 +1998,7 @@ function OwnerPageInner() {
                                       {task.workflowProfile?.name || task.workflowProfile?.workflowType || 'Workflow'}
                                     </span>
                                   </div>
-                                  <p className="text-xs text-content-muted mt-0.5 flex items-center gap-1.5">
+                                  <p className="text-xs text-content-muted mt-1 flex items-center gap-1.5 flex-wrap">
                                     <span>Assigned to: <strong className="text-brand-forest">{task.staffMember.fullName}</strong></span>
                                     {task.staffMember.mobile && <span>({task.staffMember.mobile})</span>}
                                   </p>
@@ -1986,6 +2021,65 @@ function OwnerPageInner() {
                                 </button>
                               </div>
                             </div>
+
+                            {/* Customer Contact & Direct Call / WhatsApp Actions */}
+                            {cleanMobile && (
+                              <div className="p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-6 h-6 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-800">
+                                    <Phone className="w-3.5 h-3.5" />
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block">
+                                      Customer Contact
+                                    </span>
+                                    <strong className="text-xs font-black text-brand-forest font-mono tracking-wide">
+                                      {task.customerMobile}
+                                    </strong>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <a
+                                    href={`tel:${cleanMobile}`}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-brand-forest text-brand-lime font-bold text-xs shadow-sm hover:opacity-95 transition-all"
+                                  >
+                                    <PhoneCall className="w-3.5 h-3.5" />
+                                    <span>Call</span>
+                                  </a>
+                                  <a
+                                    href={`https://wa.me/91${cleanMobile}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow-sm hover:opacity-95 transition-all"
+                                  >
+                                    <MessageSquare className="w-3.5 h-3.5" />
+                                    <span>WhatsApp</span>
+                                  </a>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Location / Address Tag */}
+                            {parsed.location && (
+                              <div className="p-2 rounded-xl bg-amber-50/80 border border-amber-200 flex items-start gap-2 text-xs text-amber-950">
+                                <MapPin className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                                <div>
+                                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-800 block">
+                                    Location / Address
+                                  </span>
+                                  <span className="font-semibold text-xs text-amber-950">
+                                    {parsed.location}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Clean notes if any */}
+                            {parsed.cleanNotes && (
+                              <p className="text-[11px] text-content-muted">
+                                <strong className="text-content-default">Note:</strong> {parsed.cleanNotes}
+                              </p>
+                            )}
 
                             {/* Damage Alert Banner if incident reported */}
                             {task.damageIncidents && task.damageIncidents.length > 0 && (
@@ -2648,26 +2742,31 @@ function OwnerPageInner() {
                               pieceMap.get(pNum)!.push(unit);
                             });
 
+                            const parsed = parseAssignmentNotes(asg.notes);
+                            const cleanMobile = asg.customerMobile ? asg.customerMobile.replace(/\D/g, '') : null;
+
                             return (
                               <div
                                 key={asg.id}
-                                className="p-3 rounded-xl bg-white border border-border-subtle shadow-sm space-y-2 text-xs"
+                                className="p-3.5 rounded-xl bg-white border border-border-subtle shadow-sm space-y-2.5 text-xs"
                               >
-                                <div className="flex items-center justify-between">
-                                  <div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-extrabold text-brand-forest">
-                                        {asg.orderId ? `Order #${asg.orderId}` : 'Daily Batch'}
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className={`px-2 py-0.5 rounded-md font-mono text-xs font-black ${
+                                        asg.orderId ? 'bg-blue-100 text-blue-900 border border-blue-200' : 'bg-amber-100 text-amber-900 border border-amber-200'
+                                      }`}>
+                                        {asg.orderId ? `Order #${asg.orderId}` : 'Pickup Request'}
+                                      </span>
+                                      <span className="text-[11px] font-bold text-brand-forest bg-surface-cream px-2 py-0.5 rounded border border-border-subtle">
+                                        {asg.pieceCount ? `${asg.pieceCount} pcs` : asg.pickupCount ? `${asg.pickupCount} pickups` : `${asg.taskUnits?.length} pcs`}
                                       </span>
                                       <span className="text-[10px] text-content-muted font-bold">
-                                        • {asg.pieceCount ?? asg.pickupCount ?? asg.taskUnits?.length} pieces
+                                        {asg.serviceType?.name || asg.workflowProfile?.name || 'Task Batch'}
                                       </span>
                                     </div>
-                                    <p className="text-[11px] text-content-muted">
-                                      {asg.workflowProfile?.name || 'Task Batch'}
-                                    </p>
                                   </div>
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 shrink-0">
                                     <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800">
                                       {asgDone} / {asgTotal} done
                                     </span>
@@ -2680,6 +2779,53 @@ function OwnerPageInner() {
                                     </button>
                                   </div>
                                 </div>
+
+                                {/* Customer Contact with 1-Tap Call & WhatsApp */}
+                                {cleanMobile && (
+                                  <div className="p-2 rounded-lg bg-emerald-50/80 border border-emerald-200 flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <Phone className="w-3 h-3 text-emerald-700 shrink-0" />
+                                      <span className="font-mono text-[11px] font-bold text-emerald-950">
+                                        {asg.customerMobile}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <a
+                                        href={`tel:${cleanMobile}`}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-brand-forest text-brand-lime font-bold text-[10px] hover:opacity-90"
+                                        title="Call Customer"
+                                      >
+                                        <PhoneCall className="w-2.5 h-2.5" />
+                                        <span>Call</span>
+                                      </a>
+                                      <a
+                                        href={`https://wa.me/91${cleanMobile}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 text-white font-bold text-[10px] hover:opacity-90"
+                                        title="WhatsApp Customer"
+                                      >
+                                        <MessageSquare className="w-2.5 h-2.5" />
+                                        <span>WhatsApp</span>
+                                      </a>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Location Tag */}
+                                {parsed.location && (
+                                  <div className="flex items-start gap-1.5 p-1.5 rounded-lg bg-amber-50/80 border border-amber-200/70 text-[11px] text-amber-950">
+                                    <MapPin className="w-3 h-3 text-amber-700 shrink-0 mt-0.5" />
+                                    <span className="font-medium break-words leading-tight">{parsed.location}</span>
+                                  </div>
+                                )}
+
+                                {/* Clean notes */}
+                                {parsed.cleanNotes && (
+                                  <p className="text-[11px] text-content-muted leading-tight">
+                                    <strong className="text-content-default">Note:</strong> {parsed.cleanNotes}
+                                  </p>
+                                )}
 
                                 {isAsgExpanded && (
                                   <div className="pt-2 border-t border-border-subtle/50 space-y-1.5">

@@ -38,6 +38,8 @@ import {
   X,
   Briefcase,
   History,
+  PhoneCall,
+  MessageSquare,
 } from 'lucide-react';
 import {
   DamageIncidentViewerModal,
@@ -67,6 +69,27 @@ const HUMAN_CAPABILITIES: Record<string, { label: string; desc: string; icon: st
   '*': { label: 'Full Store Administration', desc: 'Complete access to all store operations and settings', icon: '👑' },
 };
 
+/** Helper to extract address / location and remaining clean notes from assignment notes */
+function parseAssignmentNotes(notes?: string | null) {
+  if (!notes) return { location: null, cleanNotes: null };
+  const parts = notes.split(' | ');
+  let location: string | null = null;
+  const remainingParts: string[] = [];
+
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (trimmed.toLowerCase().startsWith('location:')) {
+      location = trimmed.replace(/^location:\s*/i, '').trim();
+    } else if (trimmed) {
+      remainingParts.push(trimmed);
+    }
+  }
+
+  return {
+    location: location || null,
+    cleanNotes: remainingParts.length > 0 ? remainingParts.join(' | ') : null,
+  };
+}
 
 interface StaffTaskMonthlySummary {
   total: number;
@@ -908,7 +931,13 @@ function ManagerPageInner() {
             if (!taskOrderId.trim()) throw new Error('Order ID is required for delivery.');
             payload.orderId = taskOrderId.trim();
             if (taskPieces) payload.pieceCount = Number(taskPieces);
-            if (taskNotes.trim()) payload.notes = taskNotes.trim();
+            const cleanMobile = taskCustomerMobile.replace(/\D/g, '');
+            if (cleanMobile) payload.customerMobile = cleanMobile;
+            const combinedNotes = [
+              taskPickupLocation.trim() ? `Location: ${taskPickupLocation.trim()}` : '',
+              taskNotes.trim(),
+            ].filter(Boolean).join(' | ');
+            if (combinedNotes) payload.notes = combinedNotes;
           } else {
             const cleanMobile = taskCustomerMobile.replace(/\D/g, '');
             if (!cleanMobile || cleanMobile.length < 10) throw new Error('Valid 10-digit Guest Mobile Number is required for pickup.');
@@ -1419,27 +1448,55 @@ function ManagerPageInner() {
 
                 {deliveryType === 'DELIVERY' ? (
                   /* Screen 7: Delivery Sub-form */
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-brand-forest mb-1">Order ID *</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. TD1280"
+                          value={taskOrderId}
+                          onChange={(e) => setTaskOrderId(e.target.value)}
+                          required
+                          className="w-full px-3 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-brand-forest mb-1">No. of Pieces *</label>
+                        <input
+                          type="number"
+                          min="1"
+                          placeholder="10"
+                          value={taskPieces}
+                          onChange={(e) => setTaskPieces(e.target.value ? parseInt(e.target.value) : '')}
+                          required
+                          className="w-full px-3 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
+                        />
+                      </div>
+                    </div>
+
                     <div>
-                      <label className="block text-xs font-bold text-brand-forest mb-1">Order ID *</label>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">Customer Mobile Number (Optional)</label>
+                      <input
+                        type="tel"
+                        maxLength={10}
+                        placeholder="e.g. 9876543210 (For 1-Tap Call & WhatsApp)"
+                        value={taskCustomerMobile}
+                        onChange={(e) => setTaskCustomerMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                        className="w-full px-3 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest tracking-wider"
+                      />
+                      <p className="text-[10px] text-content-muted mt-1">
+                        Delivery boy and managers can call or WhatsApp customer directly from the app.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-brand-forest mb-1">Delivery Address / Location (Optional)</label>
                       <input
                         type="text"
-                        placeholder="e.g. TD1280"
-                        value={taskOrderId}
-                        onChange={(e) => setTaskOrderId(e.target.value)}
-                        required
-                        className="w-full px-3 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-brand-forest mb-1">No. of Pieces *</label>
-                      <input
-                        type="number"
-                        min="1"
-                        placeholder="10"
-                        value={taskPieces}
-                        onChange={(e) => setTaskPieces(e.target.value ? parseInt(e.target.value) : '')}
-                        required
+                        placeholder="e.g. Flat 402, Sunshine Apts, MG Road"
+                        value={taskPickupLocation}
+                        onChange={(e) => setTaskPickupLocation(e.target.value)}
                         className="w-full px-3 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-semibold text-brand-forest focus:ring-2 focus:ring-brand-forest"
                       />
                     </div>
@@ -1702,25 +1759,31 @@ function ManagerPageInner() {
             {isLoadingStaffData ? (
               <p className="text-xs text-content-muted text-center py-4">Loading assigned tasks...</p>
             ) : staffDayAssignments.length > 0 ? (
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 {staffDayAssignments.map((a) => {
                   const activities = a.taskUnits.map((u) => u.activityCode).filter(Boolean);
                   const uniqueActs = Array.from(new Set(activities)).join(', ') || a.workflowProfile.name;
                   const completedCount = a.taskUnits.filter((u) => u.status === 'COMPLETED').length;
                   const isAllDone = a.taskUnits.length > 0 && completedCount === a.taskUnits.length;
+                  const parsed = parseAssignmentNotes(a.notes);
+                  const cleanMobile = a.customerMobile ? a.customerMobile.replace(/\D/g, '') : null;
 
                   return (
                     <div
                       key={a.id}
-                      className="p-3 rounded-xl bg-surface-cream/50 border border-border-subtle flex items-center justify-between text-xs"
+                      className="p-3 rounded-xl bg-surface-cream/50 border border-border-subtle space-y-2 text-xs"
                     >
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-brand-forest">
-                            {a.orderId ? a.orderId : 'Pickup'}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={`px-2 py-0.5 rounded-md font-mono text-xs font-black ${
+                              a.orderId ? 'bg-blue-100 text-blue-900 border border-blue-200' : 'bg-amber-100 text-amber-900 border border-amber-200'
+                            }`}
+                          >
+                            {a.orderId ? `Order #${a.orderId}` : 'Pickup Request'}
                           </span>
-                          <span className="text-content-muted font-medium">
-                            {a.customerMobile ? `Guest: ${a.customerMobile}` : a.pieceCount ? `${a.pieceCount} pcs` : a.pickupCount ? `${a.pickupCount} pcs` : ''}
+                          <span className="text-[11px] font-bold text-brand-forest bg-white px-2 py-0.5 rounded border border-border-subtle">
+                            {a.pieceCount ? `${a.pieceCount} pcs` : a.pickupCount ? `${a.pickupCount} pickups` : `${a.taskUnits.length} pcs`}
                           </span>
                           {a.damageIncidents && a.damageIncidents.length > 0 && (
                             <button
@@ -1734,21 +1797,64 @@ function ManagerPageInner() {
                             </button>
                           )}
                         </div>
-                        <p className="text-[11px] text-content-muted truncate max-w-[200px]">
-                          {a.notes ? a.notes : uniqueActs}
-                        </p>
-                      </div>
 
-                      <div className="text-right">
                         <span
-                          className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black ${isAllDone
+                          className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black shrink-0 ${
+                            isAllDone
                               ? 'bg-emerald-100 text-emerald-800'
                               : 'bg-amber-100 text-amber-800'
-                            }`}
+                          }`}
                         >
                           {isAllDone ? 'Done' : `${completedCount}/${a.taskUnits.length}`}
                         </span>
                       </div>
+
+                      {/* Guest Contact & Call/WhatsApp Actions */}
+                      {cleanMobile && (
+                        <div className="p-2 rounded-lg bg-emerald-50/70 border border-emerald-200/80 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Phone className="w-3 h-3 text-emerald-700 shrink-0" />
+                            <span className="font-mono text-[11px] font-bold text-emerald-950 truncate">
+                              {a.customerMobile}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <a
+                              href={`tel:${cleanMobile}`}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-brand-forest text-brand-lime font-bold text-[10px] hover:opacity-90 transition-opacity"
+                              title="Call Guest"
+                            >
+                              <PhoneCall className="w-2.5 h-2.5" />
+                              <span>Call</span>
+                            </a>
+                            <a
+                              href={`https://wa.me/91${cleanMobile}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-600 text-white font-bold text-[10px] hover:opacity-90 transition-opacity"
+                              title="WhatsApp Guest"
+                            >
+                              <MessageSquare className="w-2.5 h-2.5" />
+                              <span>WhatsApp</span>
+                            </a>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Location Badge */}
+                      {parsed.location && (
+                        <div className="flex items-start gap-1.5 p-1.5 rounded-lg bg-amber-50/80 border border-amber-200/70 text-[11px] text-amber-950">
+                          <MapPin className="w-3 h-3 text-amber-700 shrink-0 mt-0.5" />
+                          <span className="font-medium break-words leading-tight">{parsed.location}</span>
+                        </div>
+                      )}
+
+                      {/* Clean Notes or Activity breakdown */}
+                      {(parsed.cleanNotes || uniqueActs) && (
+                        <p className="text-[11px] text-content-muted leading-tight">
+                          {parsed.cleanNotes || uniqueActs}
+                        </p>
+                      )}
                     </div>
                   );
                 })}
@@ -2140,56 +2246,127 @@ function ManagerPageInner() {
                       pieceMap.get(pNum)!.push(unit);
                     });
 
+                    const parsedNotes = parseAssignmentNotes(assignment.notes);
+                    const cleanMobile = assignment.customerMobile ? assignment.customerMobile.replace(/\D/g, '') : null;
+
                     return (
                       <div
                         key={assignment.id}
-                        className="bg-white p-3.5 rounded-2xl border border-border-subtle shadow-sm space-y-2.5 text-xs"
+                        className="bg-white p-4 rounded-2xl border border-border-subtle shadow-sm space-y-3 text-xs"
                       >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3">
                             <div
-                              className={`w-7 h-7 rounded-full flex items-center justify-center ${isAllCompleted ? 'bg-emerald-100 text-emerald-800' : 'bg-surface-cream text-content-muted'
-                                }`}
+                              className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                                isAllCompleted ? 'bg-emerald-100 text-emerald-800' : 'bg-surface-cream text-content-muted border border-border-subtle'
+                              }`}
                             >
                               <CheckCircle2 className="w-4 h-4" />
                             </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="font-black text-brand-forest">
-                                  {assignment.orderId ? assignment.orderId : 'Pickup'}
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`px-2.5 py-0.5 rounded-lg font-mono text-xs font-black ${
+                                  assignment.orderId ? 'bg-blue-100 text-blue-900 border border-blue-200' : 'bg-amber-100 text-amber-900 border border-amber-200'
+                                }`}>
+                                  {assignment.orderId ? `Order #${assignment.orderId}` : 'Pickup Request'}
                                 </span>
-                                <span className="text-[11px] text-content-muted font-bold">
-                                  {assignment.customerMobile ? `Guest: ${assignment.customerMobile}` : assignment.pieceCount ? `${assignment.pieceCount} pcs` : assignment.pickupCount ? `${assignment.pickupCount} pcs` : ''}
+                                <span className="px-2 py-0.5 rounded-md text-[11px] font-extrabold bg-surface-cream text-brand-forest border border-border-subtle">
+                                  {assignment.pieceCount ? `${assignment.pieceCount} pcs` : assignment.pickupCount ? `${assignment.pickupCount} pickups` : `${assignment.taskUnits.length} pcs`}
+                                </span>
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white text-content-muted border border-border-subtle">
+                                  {assignment.serviceType?.name || assignment.workflowProfile?.name || 'Garment Task'}
                                 </span>
                               </div>
-                              <p className="text-[11px] text-content-muted font-medium truncate max-w-[180px]">
-                                {assignment.notes || label}
+
+                              {/* Target / Completed timing */}
+                              <p className="text-[11px] text-content-muted">
+                                {isAllCompleted && lastCompletedAt
+                                  ? `Completed at ${new Date(lastCompletedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+                                  : `Assigned: ${new Date(assignment.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`}
                               </p>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 shrink-0">
                             <span
-                              className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black ${isAllCompleted ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                                }`}
+                              className={`inline-block px-2.5 py-1 rounded-lg text-[10px] font-black ${
+                                isAllCompleted ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-amber-100 text-amber-800 border border-amber-200'
+                              }`}
                             >
                               {isAllCompleted
-                                ? lastCompletedAt
-                                  ? `Completed ${new Date(lastCompletedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
-                                  : 'Completed'
+                                ? 'Completed'
                                 : `${completedCount}/${assignment.taskUnits.length} Done`}
                             </span>
                             {assignment.taskUnits.length > 0 && (
                               <button
                                 type="button"
                                 onClick={() => setExpandedAssignmentIds((prev) => ({ ...prev, [assignment.id]: !prev[assignment.id] }))}
-                                className="px-2 py-0.5 rounded-lg bg-surface-cream text-brand-forest font-bold text-[10px] border border-border-subtle hover:bg-surface-hover"
+                                className="px-2.5 py-1 rounded-lg bg-surface-cream text-brand-forest font-bold text-[10px] border border-border-subtle hover:bg-surface-hover transition-colors"
                               >
                                 {isExpanded ? 'Hide' : 'Pieces'}
                               </button>
                             )}
                           </div>
                         </div>
+
+                        {/* Customer Mobile & 1-Tap Call & WhatsApp Direct Actions */}
+                        {cleanMobile && (
+                          <div className="p-3 rounded-xl bg-emerald-50/80 border border-emerald-200 flex flex-wrap items-center justify-between gap-2.5">
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-800">
+                                <Phone className="w-3.5 h-3.5" />
+                              </div>
+                              <div>
+                                <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block">
+                                  Customer Contact
+                                </span>
+                                <span className="font-mono text-xs font-black text-emerald-950 tracking-wide">
+                                  {assignment.customerMobile}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <a
+                                href={`tel:${cleanMobile}`}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-brand-forest text-brand-lime font-bold text-xs shadow-sm hover:opacity-90 active:scale-95 transition-all"
+                              >
+                                <PhoneCall className="w-3.5 h-3.5" />
+                                <span>Call</span>
+                              </a>
+                              <a
+                                href={`https://wa.me/91${cleanMobile}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow-sm hover:opacity-90 active:scale-95 transition-all"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                <span>WhatsApp</span>
+                              </a>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Location / Address Tag */}
+                        {parsedNotes.location && (
+                          <div className="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200 flex items-start gap-2 text-amber-950">
+                            <MapPin className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                            <div className="space-y-0.5 min-w-0">
+                              <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-800 block">
+                                Delivery / Pickup Address
+                              </span>
+                              <p className="font-semibold text-xs text-amber-950 leading-snug break-words">
+                                {parsedNotes.location}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Remaining Notes */}
+                        {parsedNotes.cleanNotes && (
+                          <div className="text-[11px] text-content-muted bg-surface-cream/50 p-2 rounded-lg border border-border-subtle">
+                            <strong className="text-content-default">Note:</strong> {parsedNotes.cleanNotes}
+                          </div>
+                        )}
 
                         {/* Damage Alert Section with All Incident Evidence Cards */}
                         {assignment.damageIncidents && assignment.damageIncidents.length > 0 && (
@@ -2781,6 +2958,8 @@ function ManagerPageInner() {
                   {myDirectives.map((directive) => {
                     const unit = directive.taskUnits[0];
                     const isDone = unit?.status === 'COMPLETED';
+                    const parsed = parseAssignmentNotes(directive.notes);
+                    const cleanMobile = directive.customerMobile ? directive.customerMobile.replace(/\D/g, '') : null;
 
                     return (
                       <div
@@ -2801,9 +2980,45 @@ function ManagerPageInner() {
                                 {directive.orderId || 'Operational Task'}
                               </h4>
                             </div>
-                            {directive.notes && (
+
+                            {/* Customer Mobile & Call/WhatsApp if attached */}
+                            {cleanMobile && (
+                              <div className="p-2 rounded-lg bg-emerald-50/80 border border-emerald-200 flex items-center justify-between gap-2 mt-1">
+                                <span className="font-mono text-[11px] font-bold text-emerald-950">
+                                  📞 {directive.customerMobile}
+                                </span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <a
+                                    href={`tel:${cleanMobile}`}
+                                    className="px-2 py-0.5 rounded bg-brand-forest text-brand-lime font-bold text-[10px]"
+                                    title="Call"
+                                  >
+                                    Call
+                                  </a>
+                                  <a
+                                    href={`https://wa.me/91${cleanMobile}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-2 py-0.5 rounded bg-emerald-600 text-white font-bold text-[10px]"
+                                    title="WhatsApp"
+                                  >
+                                    WhatsApp
+                                  </a>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Location tag if attached */}
+                            {parsed.location && (
+                              <div className="flex items-start gap-1 p-1.5 rounded-lg bg-amber-50/80 border border-amber-200/70 text-[11px] text-amber-950 mt-1">
+                                <MapPin className="w-3 h-3 text-amber-700 shrink-0 mt-0.5" />
+                                <span>{parsed.location}</span>
+                              </div>
+                            )}
+
+                            {parsed.cleanNotes && (
                               <p className="text-[11px] text-content-muted font-medium leading-relaxed whitespace-pre-wrap">
-                                {directive.notes}
+                                {parsed.cleanNotes}
                               </p>
                             )}
                             <div className="flex items-center gap-3 pt-1 text-[10px] text-content-muted">

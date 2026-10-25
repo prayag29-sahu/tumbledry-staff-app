@@ -47,6 +47,8 @@ import {
   X,
   Send,
   AlertTriangle,
+  PhoneCall,
+  MessageSquare,
 } from 'lucide-react';
 import {
   DamageIncidentViewerModal,
@@ -194,12 +196,35 @@ interface SupervisorDashboardData {
   };
 }
 
+/** Helper to extract address / location and remaining clean notes from assignment notes */
+function parseAssignmentNotes(notes?: string | null) {
+  if (!notes) return { location: null, cleanNotes: null };
+  const parts = notes.split(' | ');
+  let location: string | null = null;
+  const remainingParts: string[] = [];
+
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (trimmed.toLowerCase().startsWith('location:')) {
+      location = trimmed.replace(/^location:\s*/i, '').trim();
+    } else if (trimmed) {
+      remainingParts.push(trimmed);
+    }
+  }
+
+  return {
+    location: location || null,
+    cleanNotes: remainingParts.length > 0 ? remainingParts.join(' | ') : null,
+  };
+}
+
 interface StaffTaskDayResponse {
   assignments: Array<{
     id: string;
     orderId?: string | null;
     pieceCount?: number | null;
     pickupCount?: number | null;
+    customerMobile?: string | null;
     notes?: string | null;
     workflowProfileId?: string | null;
     serviceTypeId?: string | null;
@@ -2003,23 +2028,85 @@ export default function SupervisorPage() {
                         pieceMap.get(pNum)!.push(unit);
                       });
 
+                      const parsed = parseAssignmentNotes(assignment.notes);
+                      const cleanMobile = assignment.customerMobile ? assignment.customerMobile.replace(/\D/g, '') : null;
+
                       return (
                         <div key={assignment.id} className="bg-white rounded-2xl border border-border-subtle shadow-clay-sm p-4 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              {assignment.orderId && (
-                                <span className="px-2 py-1 rounded-lg bg-blue-100 text-blue-900 font-black text-xs font-mono">
-                                  {assignment.orderId}
-                                </span>
-                              )}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`px-2 py-0.5 rounded-lg font-black text-xs font-mono ${
+                                assignment.orderId ? 'bg-blue-100 text-blue-900 border border-blue-200' : 'bg-amber-100 text-amber-900 border border-amber-200'
+                              }`}>
+                                {assignment.orderId ? `Order #${assignment.orderId}` : 'Pickup Request'}
+                              </span>
                               <span className="text-xs font-bold text-brand-forest">
                                 {assignment.pieceCount || totalCount} pieces • {assignment.serviceType?.name || assignment.workflowProfile?.name || 'Task Batch'}
                               </span>
                             </div>
-                            <span className="text-xs font-bold text-red-600">
+                            <span className="text-xs font-bold text-red-600 shrink-0">
                               {completedCount}/{totalCount} Completed
                             </span>
                           </div>
+
+                          {/* Customer Contact & Call/WhatsApp Actions */}
+                          {cleanMobile && (
+                            <div className="p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                              <div className="flex items-center gap-2">
+                                <div className="w-6 h-6 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-800">
+                                  <Phone className="w-3.5 h-3.5" />
+                                </div>
+                                <div>
+                                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block">
+                                    Customer Contact
+                                  </span>
+                                  <span className="font-mono text-xs font-black text-emerald-950 tracking-wide">
+                                    {assignment.customerMobile}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <a
+                                  href={`tel:${cleanMobile}`}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-brand-forest text-brand-lime font-bold text-xs shadow-sm hover:opacity-90"
+                                >
+                                  <PhoneCall className="w-3.5 h-3.5" />
+                                  <span>Call</span>
+                                </a>
+                                <a
+                                  href={`https://wa.me/91${cleanMobile}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold text-xs shadow-sm hover:opacity-90"
+                                >
+                                  <MessageSquare className="w-3.5 h-3.5" />
+                                  <span>WhatsApp</span>
+                                </a>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Location / Address Tag */}
+                          {parsed.location && (
+                            <div className="p-2 rounded-xl bg-amber-50/80 border border-amber-200 flex items-start gap-2 text-xs text-amber-950">
+                              <MapPin className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                              <div>
+                                <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-800 block">
+                                  Delivery / Pickup Location
+                                </span>
+                                <span className="font-semibold text-xs text-amber-950">
+                                  {parsed.location}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Clean Notes if any */}
+                          {parsed.cleanNotes && (
+                            <p className="text-[11px] text-content-muted">
+                              <strong className="text-content-default">Note:</strong> {parsed.cleanNotes}
+                            </p>
+                          )}
 
                           {/* Damage Alert Section with All Incident Evidence Cards */}
                           {assignment.damageIncidents && assignment.damageIncidents.length > 0 && (
