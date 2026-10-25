@@ -2196,7 +2196,27 @@ function ManagerPageInner() {
                                   type="button"
                                   disabled={completingDirectiveId === unit.id}
                                   onClick={async () => {
+                                    if (completingDirectiveId === unit.id) return;
                                     setCompletingDirectiveId(unit.id);
+                                    // Instant optimistic update (<10ms)
+                                    setStaffDayAssignments((prev) =>
+                                      prev.map((a) =>
+                                        a.id !== assignment.id
+                                          ? a
+                                          : {
+                                              ...a,
+                                              taskUnits: a.taskUnits.map((u) =>
+                                                u.id === unit.id
+                                                  ? {
+                                                      ...u,
+                                                      status: isDone ? 'PENDING' : 'COMPLETED',
+                                                      completedAt: isDone ? null : new Date().toISOString(),
+                                                    }
+                                                  : u
+                                              ),
+                                            }
+                                      )
+                                    );
                                     try {
                                       await apiRequest(`/api/shops/${activeShopId}/task-units/${unit.id}/toggle`, {
                                         method: 'PATCH',
@@ -2205,11 +2225,12 @@ function ManagerPageInner() {
                                       fetchData(true);
                                     } catch (err) {
                                       alert(err instanceof Error ? err.message : 'Failed to update task.');
+                                      if (selectedStaff) fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate);
                                     } finally {
                                       setCompletingDirectiveId(null);
                                     }
                                   }}
-                                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                  className={`touch-manipulation active:scale-95 px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
                                     isDone
                                       ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
                                       : 'clay-btn-lime'
@@ -3037,7 +3058,27 @@ function ManagerPageInner() {
                               type="button"
                               disabled={completingMyDirectiveId === unit.id}
                               onClick={async () => {
+                                if (completingMyDirectiveId === unit.id) return;
                                 setCompletingMyDirectiveId(unit.id);
+                                // Instant optimistic update (<10ms)
+                                setMyDirectives((prev) =>
+                                  prev.map((d) =>
+                                    d.id !== directive.id
+                                      ? d
+                                      : {
+                                          ...d,
+                                          taskUnits: d.taskUnits.map((u) =>
+                                            u.id === unit.id
+                                              ? {
+                                                  ...u,
+                                                  status: isDone ? 'PENDING' : 'COMPLETED',
+                                                  completedAt: isDone ? null : new Date().toISOString(),
+                                                }
+                                              : u
+                                          ),
+                                        }
+                                  )
+                                );
                                 try {
                                   await apiRequest(`/api/shops/${activeShopId}/task-units/${unit.id}/toggle`, {
                                     method: 'PATCH',
@@ -3046,11 +3087,12 @@ function ManagerPageInner() {
                                   fetchData(true);
                                 } catch (err) {
                                   alert(err instanceof Error ? err.message : 'Failed to update directive status.');
+                                  await fetchMyDirectives();
                                 } finally {
                                   setCompletingMyDirectiveId(null);
                                 }
                               }}
-                              className={`shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                              className={`touch-manipulation active:scale-95 shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
                                 isDone
                                   ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
                                   : 'bg-[#245431] text-white hover:bg-[#1E4327] shadow-sm'

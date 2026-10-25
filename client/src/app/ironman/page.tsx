@@ -33,7 +33,7 @@ export default function IronmanPage() {
   const [summary, setSummary] = useState<TaskSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [completingUnitId, setCompletingUnitId] = useState<string | null>(null);
+  const [completingUnitIds, setCompletingUnitIds] = useState<Record<string, boolean>>({});
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
   // Damage modal state
@@ -118,18 +118,18 @@ export default function IronmanPage() {
   }, [fetchTasks]);
 
   const handleCompleteUnit = async (unit: TaskUnit) => {
-    if (!activeShopId || unit.status === 'COMPLETED' || completingUnitId) return;
+    if (!activeShopId || unit.status === 'COMPLETED' || completingUnitIds[unit.id]) return;
     if (!isViewingToday) {
       alert('Tasks can only be marked as completed on their assigned date (today).');
       return;
     }
-    if (!hasCheckedInToday) {
+    if (todayAttendance !== null && !todayAttendance?.checkInAt) {
       alert('Attendance check-in is required before you can complete tasks today. Please clock in under Attendance first.');
       return;
     }
-    setCompletingUnitId(unit.id);
+    setCompletingUnitIds((prev) => ({ ...prev, [unit.id]: true }));
 
-    // 1. Optimistic Update in UI
+    // 1. Optimistic Update in UI (<10ms)
     setAssignments((prev) =>
       prev.map((asg) => {
         if (asg.id !== unit.taskAssignmentId) return asg;
@@ -169,12 +169,22 @@ export default function IronmanPage() {
         `/api/shops/${activeShopId}/task-units/${unit.id}/complete`,
         { method: 'PATCH' }
       );
+      setSuccessToast('Piece activity completed!');
+      setTimeout(() => setSuccessToast(null), 2500);
+    } catch (err: unknown) {
       fetchTasks(false);
-    } catch (err) {
-      fetchTasks(false);
-      alert(err instanceof Error ? err.message : 'Failed to complete unit.');
+      const errMsg = err instanceof Error ? err.message : 'Failed to complete unit.';
+      if (errMsg.includes('ATTENDANCE_REQUIRED') || errMsg.toLowerCase().includes('attendance')) {
+        alert('Attendance check-in is required before you can complete tasks today. Please clock in under Attendance first.');
+      } else {
+        alert(errMsg);
+      }
     } finally {
-      setCompletingUnitId(null);
+      setCompletingUnitIds((prev) => {
+        const next = { ...prev };
+        delete next[unit.id];
+        return next;
+      });
     }
   };
 
@@ -394,18 +404,19 @@ export default function IronmanPage() {
                         <div className="flex items-center gap-2">
                           {pieceUnits.map((unit) => {
                             const isDone = unit.status === 'COMPLETED';
-                            const isPending = completingUnitId === unit.id;
+                            const isPending = Boolean(completingUnitIds[unit.id]);
 
                             return (
                               <button
                                 key={unit.id}
+                                type="button"
                                 onClick={() => handleCompleteUnit(unit)}
-                                disabled={isDone || isPending || !hasCheckedInToday || !isViewingToday}
+                                disabled={isDone || isPending || !isViewingToday}
                                 title={isDone ? 'Already done' : !isViewingToday ? 'Cannot complete past/future tasks' : !hasCheckedInToday ? 'Attendance check-in required to complete tasks' : `Mark ${unit.activityCode || 'Done'}`}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                className={`touch-manipulation flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
                                   isDone
                                     ? 'bg-status-success/15 text-status-success border border-status-success/30 cursor-default'
-                                    : 'clay-btn-secondary text-brand-forest hover:border-brand-gold'
+                                    : 'clay-btn-secondary text-brand-forest hover:border-brand-gold shadow-sm'
                                 }`}
                               >
                                 {isDone ? (

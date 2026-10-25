@@ -58,7 +58,7 @@ export default function WashermanPage() {
   const [summary, setSummary] = useState<TaskSummary | null>(null);
   const [isTasksLoading, setIsTasksLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [completingUnitId, setCompletingUnitId] = useState<string | null>(null);
+  const [completingUnitIds, setCompletingUnitIds] = useState<Record<string, boolean>>({});
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const lastFetchRef = useRef<number>(0);
   const [monthlySummary, setMonthlySummary] = useState<MonthlyStats | null>(null);
@@ -158,16 +158,19 @@ export default function WashermanPage() {
 
 
   const handleCompleteUnit = async (unit: TaskUnit) => {
-    if (!activeShopId || unit.status === 'COMPLETED' || completingUnitId) return;
+    if (!activeShopId || unit.status === 'COMPLETED' || completingUnitIds[unit.id]) return;
     if (selectedDate !== localDateKey()) {
       alert('Tasks can only be marked as completed on their assigned date (today).');
       return;
     }
-    if (!hasCheckedInToday) {
+    if (todayAttendance !== null && !todayAttendance?.checkInAt) {
       alert('Attendance check-in is required before you can complete tasks today. Please clock in under Attendance first.');
       return;
     }
-    setCompletingUnitId(unit.id);
+
+    setCompletingUnitIds(prev => ({ ...prev, [unit.id]: true }));
+
+    // Instant Optimistic UI Update (<10ms)
     setAssignments(prev => prev.map(asg => asg.id !== unit.taskAssignmentId ? asg : {
       ...asg, taskUnits: asg.taskUnits.map(u => u.id === unit.id
         ? { ...u, status: 'COMPLETED' as const, completedAt: new Date().toISOString() } : u),
@@ -177,16 +180,31 @@ export default function WashermanPage() {
       const ap = prev as unknown as Record<string, number>;
       const cur = prev.completedUnits ?? ap.completed ?? 0;
       const tot = prev.totalUnits ?? ap.total ?? 1;
-      const nc = cur + 1; const np = Math.max(0, tot - nc); const pct = Math.min(100, Math.round(nc/tot*100));
+      const nc = cur + 1;
+      const np = Math.max(0, tot - nc);
+      const pct = Math.min(100, Math.round(nc / tot * 100));
       return { ...prev, completedUnits: nc, completed: nc, pendingUnits: np, pending: np, percentage: pct, percentageComplete: pct };
     });
+
     try {
       await apiRequest(`/api/shops/${activeShopId}/task-units/${unit.id}/complete`, { method: 'PATCH' });
       setSuccessToast('Unit marked complete!');
-      setTimeout(() => setSuccessToast(null), 3000);
+      setTimeout(() => setSuccessToast(null), 2500);
+    } catch (err: unknown) {
       fetchTasks(false);
-    } catch (err) { fetchTasks(false); alert(err instanceof Error ? err.message : 'Failed.'); }
-    finally { setCompletingUnitId(null); }
+      const errMsg = err instanceof Error ? err.message : 'Failed to complete unit.';
+      if (errMsg.includes('ATTENDANCE_REQUIRED') || errMsg.toLowerCase().includes('attendance')) {
+        alert('Attendance check-in is required before you can complete tasks today. Please clock in under Attendance first.');
+      } else {
+        alert(errMsg);
+      }
+    } finally {
+      setCompletingUnitIds(prev => {
+        const next = { ...prev };
+        delete next[unit.id];
+        return next;
+      });
+    }
   };
 
   const ap2 = summary as unknown as Record<string, number>;
@@ -378,13 +396,23 @@ export default function WashermanPage() {
                         <div className="flex items-center gap-2">
                           {pieceUnits.map(unit => {
                             const isDone = unit.status === 'COMPLETED';
-                            const isPending = completingUnitId === unit.id;
+                            const isPending = Boolean(completingUnitIds[unit.id]);
                             const isHistoric = selectedDate !== localDateKey();
                             return (
-                              <button key={unit.id} onClick={() => handleCompleteUnit(unit)}
-                                disabled={isDone || isPending || isHistoric || !hasCheckedInToday}
-                                title={isHistoric ? 'Cannot complete tasks for past dates' : !hasCheckedInToday ? 'Attendance check-in required to complete tasks' : isDone ? 'Already done' : `Mark ${unit.activityCode || 'Done'}`}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${isDone ? 'bg-status-success/15 text-status-success border border-status-success/30 cursor-default' : isHistoric ? 'bg-surface-cream text-content-muted border border-border-subtle cursor-not-allowed opacity-60' : 'clay-btn-secondary text-brand-forest hover:border-brand-lime'}`}>
+                              <button
+                                key={unit.id}
+                                type="button"
+                                onClick={() => handleCompleteUnit(unit)}
+                                disabled={isDone || isPending || isHistoric}
+                                title={isHistoric ? 'Cannot complete tasks for past dates' : isDone ? 'Already done' : !hasCheckedInToday ? 'Attendance check-in required to complete tasks' : `Mark ${unit.activityCode || 'Done'}`}
+                                className={`touch-manipulation flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
+                                  isDone
+                                    ? 'bg-status-success/15 text-status-success border border-status-success/30 cursor-default'
+                                    : isHistoric
+                                    ? 'bg-surface-cream text-content-muted border border-border-subtle cursor-not-allowed opacity-60'
+                                    : 'clay-btn-secondary text-brand-forest hover:border-brand-lime shadow-sm'
+                                }`}
+                              >
                                 {isDone ? <CheckCircle2 className="w-3.5 h-3.5" /> : isPending ? <Clock className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-brand-lime" />}
                                 <span>{unit.activityCode || 'Done'}</span>
                               </button>

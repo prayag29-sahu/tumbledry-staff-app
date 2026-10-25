@@ -37,7 +37,7 @@ export default function DeliveryPage() {
   const [activeTab, setActiveTab] = useState<'all' | 'delivery' | 'pickup'>('all');
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [completingUnitId, setCompletingUnitId] = useState<string | null>(null);
+  const [completingUnitIds, setCompletingUnitIds] = useState<Record<string, boolean>>({});
 
   // Damage modal & viewer state
   const [damageTarget, setDamageTarget] = useState<{
@@ -121,27 +121,72 @@ export default function DeliveryPage() {
   }, [fetchTasks]);
 
   const handleCompleteUnit = async (unit: TaskUnit) => {
-    if (!activeShopId || unit.status === 'COMPLETED' || completingUnitId) return;
+    if (!activeShopId || unit.status === 'COMPLETED' || completingUnitIds[unit.id]) return;
     if (!isViewingToday) {
       alert('Tasks can only be marked as completed on their assigned date (today).');
       return;
     }
-    if (!hasCheckedInToday) {
+    if (todayAttendance !== null && !todayAttendance?.checkInAt) {
       alert('Attendance check-in is required before completing tasks today. Please clock in under Attendance first.');
       return;
     }
-    setCompletingUnitId(unit.id);
+    setCompletingUnitIds((prev) => ({ ...prev, [unit.id]: true }));
+
+    // Instant Optimistic UI Update (<10ms)
+    setAssignments((prev) =>
+      prev.map((asg) =>
+        asg.id !== unit.taskAssignmentId
+          ? asg
+          : {
+              ...asg,
+              taskUnits: asg.taskUnits.map((u) =>
+                u.id === unit.id
+                  ? { ...u, status: 'COMPLETED' as const, completedAt: new Date().toISOString() }
+                  : u
+              ),
+            }
+      )
+    );
+    setSummary((prev) => {
+      if (!prev) return prev;
+      const ap = prev as unknown as Record<string, number>;
+      const cur = prev.completedUnits ?? ap.completed ?? 0;
+      const tot = prev.totalUnits ?? ap.total ?? 1;
+      const nc = cur + 1;
+      const np = Math.max(0, tot - nc);
+      const pct = Math.min(100, Math.round((nc / tot) * 100));
+      return {
+        ...prev,
+        completedUnits: nc,
+        pendingUnits: np,
+        completionRate: pct,
+      };
+    });
 
     try {
       await apiRequest(
         `/api/shops/${activeShopId}/task-units/${unit.id}/complete`,
         { method: 'PATCH' }
       );
-      await fetchTasks(false);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to complete task.');
+      setSuccessToast('Task marked as completed!');
+      setTimeout(() => setSuccessToast(null), 3000);
+      // Background re-fetch to ensure sync with server
+      fetchTasks(false);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to complete task.';
+      if (msg.includes('ATTENDANCE_REQUIRED') || msg.toLowerCase().includes('attendance')) {
+        alert('Attendance check-in is required before completing tasks. Please clock in first under Attendance.');
+      } else {
+        alert(msg);
+      }
+      // Revert optimistic update
+      fetchTasks(false);
     } finally {
-      setCompletingUnitId(null);
+      setCompletingUnitIds((prev) => {
+        const next = { ...prev };
+        delete next[unit.id];
+        return next;
+      });
     }
   };
 
@@ -300,7 +345,7 @@ export default function DeliveryPage() {
               // 1 unit per order
               const unit = assignment.taskUnits[0];
               const isDone = unit?.status === 'COMPLETED';
-              const isPending = completingUnitId === unit?.id;
+              const isPending = Boolean(unit && completingUnitIds[unit.id]);
               const hasDamage = !!(assignment.damageIncidents && assignment.damageIncidents.length > 0);
               const primaryDmg = assignment.damageIncidents?.[0];
 
@@ -380,9 +425,11 @@ export default function DeliveryPage() {
 
                       {unit && (
                         <button
+                          type="button"
                           onClick={() => handleCompleteUnit(unit)}
-                          disabled={isDone || isPending || !hasCheckedInToday || !isViewingToday} title={isDone ? 'Completed' : !isViewingToday ? 'Cannot complete past/future tasks' : !hasCheckedInToday ? 'Attendance check-in required to complete tasks' : 'Deliver Order'}
-                          className={`flex-1 sm:flex-initial px-5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                          disabled={isDone || isPending || !isViewingToday}
+                          title={isDone ? 'Completed' : !isViewingToday ? 'Cannot complete past/future tasks' : !hasCheckedInToday ? 'Attendance check-in required to complete tasks' : 'Deliver Order'}
+                          className={`touch-manipulation active:scale-95 flex-1 sm:flex-initial px-5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
                             isDone
                               ? 'bg-status-success/15 text-status-success border border-status-success/30 cursor-default'
                               : 'clay-btn-forest'
@@ -580,7 +627,7 @@ export default function DeliveryPage() {
                 <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {assignment.taskUnits.map((unit) => {
                     const isDone = unit.status === 'COMPLETED';
-                    const isPending = completingUnitId === unit.id;
+                    const isPending = Boolean(completingUnitIds[unit.id]);
                     const seqNum = unit.sequenceNumber || 1;
                     const unitDmg = assignment.damageIncidents?.find(
                       (d) => d.taskUnitId === unit.id || d.pieceNumber === seqNum
@@ -641,10 +688,11 @@ export default function DeliveryPage() {
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => handleCompleteUnit(unit)}
-                            disabled={isDone || isPending || !hasCheckedInToday || !isViewingToday}
+                            disabled={isDone || isPending || !isViewingToday}
                             title={isDone ? 'Completed' : !isViewingToday ? 'Cannot complete past/future tasks' : !hasCheckedInToday ? 'Attendance check-in required to complete tasks' : 'Pick Up'}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                            className={`touch-manipulation active:scale-95 px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
                               isDone
                                 ? 'bg-status-success/15 text-status-success border border-status-success/30 cursor-default'
                                 : 'clay-btn-lime'
@@ -654,6 +702,11 @@ export default function DeliveryPage() {
                               <>
                                 <CheckCircle2 className="w-3.5 h-3.5" />
                                 <span>Done</span>
+                              </>
+                            ) : isPending ? (
+                              <>
+                                <Clock className="w-3.5 h-3.5 animate-spin" />
+                                <span>Updating...</span>
                               </>
                             ) : (
                               <span>Pick Up</span>
