@@ -40,6 +40,7 @@ import {
   History,
   PhoneCall,
   MessageSquare,
+  RotateCcw,
 } from 'lucide-react';
 import {
   DamageIncidentViewerModal,
@@ -98,7 +99,7 @@ function parseAssignmentNotes(notes?: string | null) {
 function formatShiftDate(dateStr: string | null): string | null {
   if (!dateStr) return null;
   try {
-    const cleanStr = dateStr.trim();
+    const cleanStr = dateStr.trim().split(/[|\s]/)[0];
     const parts = cleanStr.split('-');
     if (parts.length === 3) {
       const year = Number(parts[0]);
@@ -451,6 +452,32 @@ function ManagerPageInner() {
       alert(err instanceof Error ? err.message : 'Failed to shift task date.');
     } finally {
       setIsRescheduling(false);
+    }
+  };
+
+  const [isUndoingShiftId, setIsUndoingShiftId] = useState<string | null>(null);
+
+  const handleUndoShift = async (assignment: StaffAssignment) => {
+    if (!activeShopId) return;
+    if (!confirm('Are you sure you want to undo this shift and restore the task?')) return;
+    setIsUndoingShiftId(assignment.id);
+    try {
+      const res = await apiRequest<{ message: string }>(
+        `/api/shops/${activeShopId}/task-assignments/${assignment.id}/undo-shift`,
+        { method: 'PATCH' }
+      );
+      setTaskFeedback({
+        type: 'success',
+        message: res.message || 'Task shift undone successfully.',
+      });
+      if (selectedStaff) {
+        fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate);
+      }
+      fetchData(true);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to undo shift.');
+    } finally {
+      setIsUndoingShiftId(null);
     }
   };
 
@@ -2275,10 +2302,22 @@ function ManagerPageInner() {
 
                             <div className="flex items-center gap-2 shrink-0">
                               {isAlreadyShifted ? (
-                                <span className="px-2.5 py-1.5 rounded-xl bg-purple-50 text-purple-700 font-bold text-xs border border-purple-200 flex items-center gap-1 shadow-sm">
-                                  <Calendar className="w-3.5 h-3.5 text-purple-600" />
-                                  <span>Shifted to {shiftedToDate || 'New Date'}</span>
-                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="px-2.5 py-1.5 rounded-xl bg-purple-50 text-purple-700 font-bold text-xs border border-purple-200 flex items-center gap-1 shadow-sm">
+                                    <Calendar className="w-3.5 h-3.5 text-purple-600" />
+                                    <span>Shifted to {shiftedToDate || 'New Date'}</span>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    disabled={isUndoingShiftId === assignment.id}
+                                    onClick={() => handleUndoShift(assignment)}
+                                    className="touch-manipulation active:scale-95 px-2 py-1.5 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold text-xs border border-rose-200 flex items-center gap-1 transition-all shadow-sm disabled:opacity-50"
+                                    title="Undo shift and restore this task"
+                                  >
+                                    <RotateCcw className={`w-3.5 h-3.5 text-rose-600 ${isUndoingShiftId === assignment.id ? 'animate-spin' : ''}`} />
+                                    <span>Undo</span>
+                                  </button>
+                                </div>
                               ) : !isDone ? (
                                 <button
                                   type="button"
@@ -2429,10 +2468,22 @@ function ManagerPageInner() {
                                 : `${completedCount}/${assignment.taskUnits.length} Done`}
                             </span>
                             {isAlreadyShifted ? (
-                              <span className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 font-bold text-[10px] border border-purple-200 flex items-center gap-1 shadow-sm">
-                                <Calendar className="w-3 h-3 text-purple-600" />
-                                <span>Shifted to {shiftedToDate || 'New Date'}</span>
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 font-bold text-[10px] border border-purple-200 flex items-center gap-1 shadow-sm">
+                                  <Calendar className="w-3 h-3 text-purple-600" />
+                                  <span>Shifted to {shiftedToDate || 'New Date'}</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={isUndoingShiftId === assignment.id}
+                                  onClick={() => handleUndoShift(assignment)}
+                                  className="touch-manipulation active:scale-95 px-2 py-1 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold text-[10px] border border-rose-200 flex items-center gap-1 transition-all shadow-sm disabled:opacity-50"
+                                  title="Undo shift and restore this task"
+                                >
+                                  <RotateCcw className={`w-3 h-3 text-rose-600 ${isUndoingShiftId === assignment.id ? 'animate-spin' : ''}`} />
+                                  <span>Undo</span>
+                                </button>
+                              </div>
                             ) : !isAllCompleted ? (
                               <button
                                 type="button"
@@ -4453,6 +4504,11 @@ function ManagerPageInner() {
               <div className="p-2.5 rounded-xl bg-blue-50/80 border border-blue-200 text-[11px] text-blue-900 leading-snug">
                 <span className="font-bold">Historical Trace:</span> Original record for {staffTaskDate} will stay intact with its pending status preserved. A duplicate task with pending units will be assigned on {rescheduleDate}.
               </div>
+              {rescheduleTarget?.notes?.includes('[Rolled over from') && (
+                <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-900 leading-snug">
+                  <span className="font-bold">Rollback Protection:</span> If you shift back to the origin date ({rescheduleTarget.notes.match(/\[Rolled over from ([0-9]{4}-[0-9]{2}-[0-9]{2})/)?.[1]}), this shift will be rolled back cleanly and the original task will be restored without creating any duplicate tasks.
+                </div>
+              )}
             </div>
 
             {/* Target Date Selector */}

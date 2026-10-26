@@ -680,32 +680,169 @@ export async function rescheduleAssignment(
     throw new AppError(400, 'ALL_COMPLETED', 'All task units in this assignment are already completed. Nothing to shift.');
   }
 
-  const rescheduleLog = `[Shifted to ${dateKey}]`;
-  let sourceUpdatedNotes = sourceAssignment.notes ? `${sourceAssignment.notes}\n${rescheduleLog}` : rescheduleLog;
-  if (notes && notes.trim()) {
-    sourceUpdatedNotes += ` - ${notes.trim()}`;
+  // ── CHECK IF THIS SHIFT IS A ROLLBACK / UNDO TO ORIGIN DATE ────────────────
+  // Check if sourceAssignment was rolled over from target dateKey OR points to origin assignment
+  let originAssignment = null;
+
+  const originIdMatch = sourceAssignment.notes?.match(/origin:([a-f0-9-]+)/i);
+  if (originIdMatch) {
+    originAssignment = await prisma.taskAssignment.findFirst({
+      where: { id: originIdMatch[1], shopId, assignmentDate: dbDate },
+      include: {
+        taskUnits: true,
+        damageIncidents: true,
+      },
+    });
   }
 
+  if (!originAssignment) {
+    // Check if sourceAssignment was rolled over from target dateKey
+    const isRolledFromTarget = sourceAssignment.notes?.includes(`[Rolled over from ${dateKey}`);
+    if (isRolledFromTarget) {
+      originAssignment = await prisma.taskAssignment.findFirst({
+        where: {
+          shopId,
+          staffMemberId: sourceAssignment.staffMemberId,
+          assignmentDate: dbDate,
+          orderId: sourceAssignment.orderId || undefined,
+          workflowProfileId: sourceAssignment.workflowProfileId,
+          serviceTypeId: sourceAssignment.serviceTypeId || undefined,
+          notes: { contains: `[Shifted to ${oldDateStr}` },
+        },
+        include: {
+          taskUnits: true,
+          damageIncidents: true,
+        },
+      });
+
+      if (!originAssignment) {
+        originAssignment = await prisma.taskAssignment.findFirst({
+          where: {
+            shopId,
+            staffMemberId: sourceAssignment.staffMemberId,
+            assignmentDate: dbDate,
+            orderId: sourceAssignment.orderId || undefined,
+            workflowProfileId: sourceAssignment.workflowProfileId,
+          },
+          include: {
+            taskUnits: true,
+            damageIncidents: true,
+          },
+        });
+      }
+    }
+  }
+
+  if (originAssignment) {
+    // ── EXECUTE ROLLBACK / UNDO (Restore origin, delete duplicate) ──────────
+    const restored = await prisma.$transaction(async (tx) => {
+      // 1. Sync any completed units from sourceAssignment back to originAssignment
+      for (const sUnit of sourceAssignment.taskUnits) {
+        if (sUnit.status === 'COMPLETED') {
+          const oUnit = originAssignment.taskUnits.find(
+            (u) => u.pieceNumber === sUnit.pieceNumber && u.activityCode === sUnit.activityCode
+          );
+          if (oUnit && oUnit.status !== 'COMPLETED') {
+            await tx.taskUnit.update({
+              where: { id: oUnit.id },
+              data: { status: 'COMPLETED', completedAt: sUnit.completedAt },
+            });
+          }
+        }
+      }
+
+      // 2. Clean originAssignment.notes: remove [Shifted to ...] line
+      const cleanedNotes = originAssignment.notes
+        ? originAssignment.notes
+            .split('\n')
+            .map((l) => l.trim())
+            .filter((l) => l && !l.includes('[Shifted to ') && !l.includes('[Rolled over from '))
+            .join('\n')
+            .trim() || null
+        : null;
+
+      await tx.taskAssignment.update({
+        where: { id: originAssignment.id },
+        data: {
+          notes: cleanedNotes,
+          status: 'ACTIVE',
+        },
+      });
+
+      // 3. Delete source duplicate assignment and its units/damage incidents
+      await tx.taskUnit.deleteMany({ where: { taskAssignmentId: sourceAssignment.id } });
+      await tx.damageIncident.deleteMany({ where: { taskAssignmentId: sourceAssignment.id } });
+      await tx.taskAssignment.delete({ where: { id: sourceAssignment.id } });
+
+      // 4. Delete any other orphaned duplicates for this order on target date
+      const orphanedDuplicates = await tx.taskAssignment.findMany({
+        where: {
+          id: { not: originAssignment.id },
+          shopId,
+          staffMemberId: sourceAssignment.staffMemberId,
+          assignmentDate: dbDate,
+          orderId: sourceAssignment.orderId || undefined,
+          workflowProfileId: sourceAssignment.workflowProfileId,
+          notes: { contains: '[Rolled over from ' },
+        },
+      });
+      for (const orphan of orphanedDuplicates) {
+        await tx.taskUnit.deleteMany({ where: { taskAssignmentId: orphan.id } });
+        await tx.damageIncident.deleteMany({ where: { taskAssignmentId: orphan.id } });
+        await tx.taskAssignment.delete({ where: { id: orphan.id } });
+      }
+
+      return originAssignment;
+    });
+
+    const fullRestoredAssignment = await prisma.taskAssignment.findUnique({
+      where: { id: restored.id },
+      include: {
+        staffMember: { select: { id: true, fullName: true, mobile: true } },
+        workflowProfile: { select: { workflowType: true, name: true } },
+        serviceType: { select: { name: true, code: true } },
+        taskUnits: {
+          where: { status: { not: 'CANCELLED' } },
+          orderBy: [{ pieceNumber: 'asc' }, { sequenceNumber: 'asc' }],
+        },
+        damageIncidents: true,
+      },
+    });
+
+    logger.info('[TASK] Assignment shift rolled back to original date', {
+      sourceAssignmentId: sourceAssignment.id,
+      restoredAssignmentId: originAssignment.id,
+      shopId,
+      targetDate: dateKey,
+    });
+
+    return {
+      assignment: fullRestoredAssignment,
+      isRollback: true,
+      message: `Shift undone! Task has been restored on ${dateKey} without duplicates.`,
+    };
+  }
+
+  // ── NORMAL FORWARD SHIFT / ROLLOVER ───────────────────────────────────────
   // Calculate unique pending pieces or pickup count
   const pendingPieceNumbers = Array.from(new Set(pendingUnits.map((u) => u.pieceNumber).filter(Boolean))) as number[];
   const newPieceCount = pendingPieceNumbers.length > 0 ? pendingPieceNumbers.length : sourceAssignment.pieceCount;
   const newPickupCount = sourceAssignment.workflowProfile?.workflowType === 'COUNT_BASED' ? pendingUnits.length : sourceAssignment.pickupCount;
 
-  const newAssignmentNotes = `[Rolled over from ${oldDateStr}]${notes && notes.trim() ? ` - ${notes.trim()}` : (sourceAssignment.notes ? ` • ${sourceAssignment.notes.replace(/\[Shifted to [^\]]+\]/g, '').trim()}` : '')}`;
+  const baseNotes = sourceAssignment.notes
+    ? sourceAssignment.notes
+        .replace(/\[Shifted to [^\]]+\]/g, '')
+        .replace(/\[Rolled over from [^\]]+\]/g, '')
+        .trim()
+    : '';
+
+  const newAssignmentNotes = `[Rolled over from ${oldDateStr} | origin:${sourceAssignment.id}]${notes && notes.trim() ? ` - ${notes.trim()}` : (baseNotes ? ` • ${baseNotes}` : '')}`.trim();
 
   const idempotencyKey = `rollover_${sourceAssignment.id}_${dateKey}_${Date.now()}`;
 
   // Execute in transaction
   const result = await prisma.$transaction(async (tx) => {
-    // 1. Update source assignment notes to record shift (source date & status preserved)
-    await tx.taskAssignment.update({
-      where: { id: sourceAssignment.id },
-      data: {
-        notes: sourceUpdatedNotes,
-      },
-    });
-
-    // 2. Create new duplicated assignment on target date
+    // 1. Create new duplicated assignment on target date
     const newAssignment = await tx.taskAssignment.create({
       data: {
         shopId: sourceAssignment.shopId,
@@ -722,6 +859,17 @@ export async function rescheduleAssignment(
         notes: newAssignmentNotes,
         idempotencyKey,
         configVersion: sourceAssignment.configVersion,
+      },
+    });
+
+    // 2. Update source assignment notes with target ID
+    const rescheduleLog = `[Shifted to ${dateKey} | target:${newAssignment.id}]${notes && notes.trim() ? ` - ${notes.trim()}` : ''}`;
+    const sourceUpdatedNotes = sourceAssignment.notes ? `${sourceAssignment.notes}\n${rescheduleLog}` : rescheduleLog;
+
+    await tx.taskAssignment.update({
+      where: { id: sourceAssignment.id },
+      data: {
+        notes: sourceUpdatedNotes,
       },
     });
 
@@ -794,11 +942,197 @@ export async function rescheduleAssignment(
   });
 
   return {
-    sourceAssignmentId: sourceAssignment.id,
-    newAssignment: fullNewAssignment,
-    oldDate: oldDateStr,
-    newDate: dateKey,
-    pendingUnitsCount: pendingUnits.length,
+    assignment: fullNewAssignment,
+    isRollback: false,
+    message: `Task successfully shifted to ${dateKey}.`,
   };
+}
+
+/**
+ * Undo / Rollback an assignment shift.
+ * If called on source assignment: deletes target duplicate and restores source to active.
+ * If called on target duplicate: deletes target duplicate and restores origin to active.
+ */
+export async function undoAssignmentShift(
+  assignmentId: string,
+  shopId: string,
+  updatedByAccountId: string
+) {
+  const assignment = await prisma.taskAssignment.findUnique({
+    where: { id: assignmentId },
+    include: {
+      taskUnits: true,
+      damageIncidents: true,
+    },
+  });
+
+  if (!assignment) {
+    throw new AppError(404, 'NOT_FOUND', 'Task assignment not found.');
+  }
+  if (assignment.shopId !== shopId) {
+    throw new AppError(403, 'FORBIDDEN', 'Access denied to this assignment.');
+  }
+
+  // Case 1: This assignment is the SOURCE that was shifted to another date
+  const shiftedMatch = assignment.notes?.match(/\[Shifted to ([0-9]{4}-[0-9]{2}-[0-9]{2})/);
+  if (shiftedMatch) {
+    const targetDateStr = shiftedMatch[1];
+    const { dbDate: targetDbDate } = dbDateForDay(targetDateStr);
+
+    let targetAssignment = null;
+    const targetIdMatch = assignment.notes?.match(/target:([a-f0-9-]+)/i);
+    if (targetIdMatch) {
+      targetAssignment = await prisma.taskAssignment.findFirst({
+        where: { id: targetIdMatch[1], shopId },
+        include: { taskUnits: true, damageIncidents: true },
+      });
+    }
+
+    if (!targetAssignment) {
+      targetAssignment = await prisma.taskAssignment.findFirst({
+        where: {
+          shopId,
+          staffMemberId: assignment.staffMemberId,
+          assignmentDate: targetDbDate,
+          orderId: assignment.orderId || undefined,
+          workflowProfileId: assignment.workflowProfileId,
+          notes: { contains: '[Rolled over from ' },
+        },
+        include: { taskUnits: true, damageIncidents: true },
+      });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (targetAssignment) {
+        // Sync any completed units
+        for (const tUnit of targetAssignment.taskUnits) {
+          if (tUnit.status === 'COMPLETED') {
+            const sUnit = assignment.taskUnits.find(
+              (u) => u.pieceNumber === tUnit.pieceNumber && u.activityCode === tUnit.activityCode
+            );
+            if (sUnit && sUnit.status !== 'COMPLETED') {
+              await tx.taskUnit.update({
+                where: { id: sUnit.id },
+                data: { status: 'COMPLETED', completedAt: tUnit.completedAt },
+              });
+            }
+          }
+        }
+
+        // Delete target duplicate assignment
+        await tx.taskUnit.deleteMany({ where: { taskAssignmentId: targetAssignment.id } });
+        await tx.damageIncident.deleteMany({ where: { taskAssignmentId: targetAssignment.id } });
+        await tx.taskAssignment.delete({ where: { id: targetAssignment.id } });
+      }
+
+      // Clean notes on source assignment
+      const cleanedNotes = assignment.notes
+        ? assignment.notes
+            .split('\n')
+            .map((l) => l.trim())
+            .filter((l) => l && !l.includes('[Shifted to '))
+            .join('\n')
+            .trim() || null
+        : null;
+
+      await tx.taskAssignment.update({
+        where: { id: assignment.id },
+        data: { notes: cleanedNotes, status: 'ACTIVE' },
+      });
+    });
+
+    logger.info('[TASK] Assignment shift undone', {
+      sourceAssignmentId: assignment.id,
+      shopId,
+      updatedByAccountId,
+    });
+
+    return {
+      message: `Shift undone successfully. Task restored on ${assignment.assignmentDate.toISOString().slice(0, 10)}.`,
+    };
+  }
+
+  // Case 2: This assignment is the TARGET duplicate that was rolled over from origin
+  const rolledMatch = assignment.notes?.match(/\[Rolled over from ([0-9]{4}-[0-9]{2}-[0-9]{2})/);
+  if (rolledMatch) {
+    const originDateStr = rolledMatch[1];
+    const { dbDate: originDbDate } = dbDateForDay(originDateStr);
+
+    let originAssignment = null;
+    const originIdMatch = assignment.notes?.match(/origin:([a-f0-9-]+)/i);
+    if (originIdMatch) {
+      originAssignment = await prisma.taskAssignment.findFirst({
+        where: { id: originIdMatch[1], shopId },
+        include: { taskUnits: true, damageIncidents: true },
+      });
+    }
+
+    if (!originAssignment) {
+      originAssignment = await prisma.taskAssignment.findFirst({
+        where: {
+          shopId,
+          staffMemberId: assignment.staffMemberId,
+          assignmentDate: originDbDate,
+          orderId: assignment.orderId || undefined,
+          workflowProfileId: assignment.workflowProfileId,
+        },
+        include: { taskUnits: true, damageIncidents: true },
+      });
+    }
+
+    if (!originAssignment) {
+      throw new AppError(404, 'NOT_FOUND', 'Original task assignment not found on origin date.');
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Sync completed units back to origin
+      for (const sUnit of assignment.taskUnits) {
+        if (sUnit.status === 'COMPLETED') {
+          const oUnit = originAssignment.taskUnits.find(
+            (u) => u.pieceNumber === sUnit.pieceNumber && u.activityCode === sUnit.activityCode
+          );
+          if (oUnit && oUnit.status !== 'COMPLETED') {
+            await tx.taskUnit.update({
+              where: { id: oUnit.id },
+              data: { status: 'COMPLETED', completedAt: sUnit.completedAt },
+            });
+          }
+        }
+      }
+
+      // Clean origin notes
+      const cleanedNotes = originAssignment.notes
+        ? originAssignment.notes
+            .split('\n')
+            .map((l) => l.trim())
+            .filter((l) => l && !l.includes('[Shifted to ') && !l.includes('[Rolled over from '))
+            .join('\n')
+            .trim() || null
+        : null;
+
+      await tx.taskAssignment.update({
+        where: { id: originAssignment.id },
+        data: { notes: cleanedNotes, status: 'ACTIVE' },
+      });
+
+      // Delete target duplicate
+      await tx.taskUnit.deleteMany({ where: { taskAssignmentId: assignment.id } });
+      await tx.damageIncident.deleteMany({ where: { taskAssignmentId: assignment.id } });
+      await tx.taskAssignment.delete({ where: { id: assignment.id } });
+    });
+
+    logger.info('[TASK] Assignment rollover undone from target duplicate', {
+      duplicateAssignmentId: assignment.id,
+      restoredOriginAssignmentId: originAssignment.id,
+      shopId,
+      updatedByAccountId,
+    });
+
+    return {
+      message: `Shift undone successfully. Task restored on ${originDateStr}.`,
+    };
+  }
+
+  throw new AppError(400, 'NOT_SHIFTED', 'This task assignment does not have an active shift to undo.');
 }
 

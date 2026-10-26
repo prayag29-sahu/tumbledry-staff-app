@@ -8,6 +8,7 @@ import {
   getTaskSummary,
   getMonthlyTaskSummary,
   rescheduleAssignment,
+  undoAssignmentShift,
 } from './task.service';
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
@@ -320,7 +321,7 @@ taskRouter.patch(
     }
 
     try {
-      const updated = await rescheduleAssignment(
+      const result = await rescheduleAssignment(
         assignmentId,
         parsed.data.newDate,
         shopId,
@@ -329,9 +330,34 @@ taskRouter.patch(
       );
 
       res.json({
-        message: `Task successfully shifted to ${parsed.data.newDate}.`,
-        assignment: updated,
+        message: result.message,
+        assignment: result.assignment,
+        isRollback: result.isRollback,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/shops/:shopId/task-assignments/:assignmentId/undo-shift — Undo task shift and restore to original date
+taskRouter.patch(
+  '/shops/:shopId/task-assignments/:assignmentId/undo-shift',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
+    const { shopId, assignmentId } = req.params as { shopId: string; assignmentId: string };
+
+    const isPrivileged = auth.isOwner || auth.shopMemberships.some(
+      (m) => m.shopId === shopId && (m.capabilities.includes('tasks.assign') || m.capabilities.includes('tasks.read_team'))
+    );
+
+    if (!isPrivileged) {
+      return next(new AppError(403, 'FORBIDDEN', 'Permission denied. Only managers or supervisors can undo task shifts.'));
+    }
+
+    try {
+      const result = await undoAssignmentShift(assignmentId, shopId, auth.accountId);
+      res.json(result);
     } catch (err) {
       next(err);
     }
