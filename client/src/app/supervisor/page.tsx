@@ -2007,6 +2007,12 @@ export default function SupervisorPage() {
                       if (isDirective) {
                         const unit = assignment.taskUnits[0];
                         const isDone = unit?.status === 'COMPLETED';
+                        const isAlreadyShifted = !!assignment.notes?.includes('[Shifted to');
+                        const shiftedToMatch = assignment.notes?.match(/\[Shifted to ([^\]\s-]+)/);
+                        const shiftedToDate = shiftedToMatch ? shiftedToMatch[1] : null;
+                        const isRolledOver = !!assignment.notes?.includes('[Rolled over from');
+                        const rolledOverMatch = assignment.notes?.match(/\[Rolled over from ([^\]\s-]+)/);
+                        const rolledOverDate = rolledOverMatch ? rolledOverMatch[1] : null;
 
                         return (
                           <div
@@ -2023,6 +2029,16 @@ export default function SupervisorPage() {
                                   <span className="px-2 py-0.5 rounded-lg bg-indigo-100 text-indigo-900 font-extrabold text-[10px] uppercase tracking-wider">
                                     Directive
                                   </span>
+                                  {isRolledOver && (
+                                    <span className="px-2 py-0.5 rounded-lg bg-blue-100 text-blue-900 font-extrabold text-[10px] tracking-wider border border-blue-200">
+                                      Rolled from {rolledOverDate}
+                                    </span>
+                                  )}
+                                  {isAlreadyShifted && (
+                                    <span className="px-2 py-0.5 rounded-lg bg-purple-100 text-purple-900 font-extrabold text-[10px] tracking-wider border border-purple-200">
+                                      Shifted to {shiftedToDate}
+                                    </span>
+                                  )}
                                   <h4 className="text-sm font-extrabold text-brand-forest">
                                     {assignment.orderId || 'Operational Directive'}
                                   </h4>
@@ -2035,17 +2051,22 @@ export default function SupervisorPage() {
                               </div>
 
                               <div className="flex items-center gap-2 shrink-0">
-                                {!isDone && (
+                                {isAlreadyShifted ? (
+                                  <span className="px-2.5 py-1.5 rounded-xl bg-purple-50 text-purple-700 font-bold text-xs border border-purple-200 flex items-center gap-1 shadow-sm">
+                                    <Calendar className="w-3.5 h-3.5 text-purple-600" />
+                                    <span>Shifted to {shiftedToDate || 'New Date'}</span>
+                                  </span>
+                                ) : !isDone ? (
                                   <button
                                     type="button"
                                     onClick={() => handleOpenReschedule(assignment)}
                                     className="touch-manipulation active:scale-95 px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-700 font-bold text-xs border border-blue-200 hover:bg-blue-100 flex items-center gap-1 transition-all shadow-sm"
-                                    title="Shift task to another date"
+                                    title="Shift task to another date (creates duplicate on target date & keeps history)"
                                   >
                                     <Calendar className="w-3.5 h-3.5 text-blue-600" />
                                     <span>Shift Date</span>
                                   </button>
-                                )}
+                                ) : null}
                                 {unit && (
                                   <span
                                     className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
@@ -2084,6 +2105,12 @@ export default function SupervisorPage() {
 
                       const completedCount = assignment.taskUnits.filter((u) => u.status === 'COMPLETED').length;
                       const totalCount = assignment.taskUnits.length;
+                      const isAlreadyShifted = !!assignment.notes?.includes('[Shifted to');
+                      const shiftedToMatch = assignment.notes?.match(/\[Shifted to ([^\]\s-]+)/);
+                      const shiftedToDate = shiftedToMatch ? shiftedToMatch[1] : null;
+                      const isRolledOver = !!assignment.notes?.includes('[Rolled over from');
+                      const rolledOverMatch = assignment.notes?.match(/\[Rolled over from ([^\]\s-]+)/);
+                      const rolledOverDate = rolledOverMatch ? rolledOverMatch[1] : null;
 
                       // Group task units by pieceNumber
                       const pieceMap = new Map<number, typeof assignment.taskUnits>();
@@ -2105,6 +2132,16 @@ export default function SupervisorPage() {
                               }`}>
                                 {assignment.orderId ? `Order #${assignment.orderId}` : 'Pickup Request'}
                               </span>
+                              {isRolledOver && (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                                  Rolled from {rolledOverDate}
+                                </span>
+                              )}
+                              {isAlreadyShifted && (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-800 border border-purple-200">
+                                  Shifted to {shiftedToDate}
+                                </span>
+                              )}
                               <span className="text-xs font-bold text-brand-forest">
                                 {assignment.pieceCount || totalCount} pieces • {assignment.serviceType?.name || assignment.workflowProfile?.name || 'Task Batch'}
                               </span>
@@ -2113,17 +2150,22 @@ export default function SupervisorPage() {
                               <span className="text-xs font-bold text-red-600">
                                 {completedCount}/{totalCount} Completed
                               </span>
-                              {completedCount < totalCount && (
+                              {isAlreadyShifted ? (
+                                <span className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 font-bold text-[10px] border border-purple-200 flex items-center gap-1 shadow-sm">
+                                  <Calendar className="w-3 h-3 text-purple-600" />
+                                  <span>Shifted to {shiftedToDate || 'New Date'}</span>
+                                </span>
+                              ) : completedCount < totalCount ? (
                                 <button
                                   type="button"
                                   onClick={() => handleOpenReschedule(assignment)}
                                   className="touch-manipulation active:scale-95 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 font-bold text-[10px] border border-blue-200 hover:bg-blue-100 flex items-center gap-1 transition-all shadow-sm"
-                                  title="Shift task to another date"
+                                  title="Shift task to another date (creates duplicate on target date & keeps history)"
                                 >
                                   <Calendar className="w-3 h-3 text-blue-600" />
                                   <span>Shift Date</span>
                                 </button>
-                              )}
+                              ) : null}
                             </div>
                           </div>
 
@@ -4424,6 +4466,9 @@ export default function SupervisorPage() {
                 <span className="font-mono font-bold">
                   {rescheduleTarget.taskUnits.filter((u) => u.status !== 'COMPLETED').length} / {rescheduleTarget.taskUnits.length}
                 </span>
+              </div>
+              <div className="text-[11px] text-indigo-900 bg-indigo-50/80 px-2.5 py-1.5 rounded-xl border border-indigo-200 leading-snug">
+                <span className="font-bold">Historical Trace:</span> Original record for {staffTaskDate} will stay intact with its pending status preserved. A duplicate task with pending units will be assigned on {rescheduleDate}.
               </div>
             </div>
 

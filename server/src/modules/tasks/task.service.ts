@@ -628,8 +628,12 @@ export async function getMonthlyTaskSummary(
 }
 
 /**
- * Reschedules a task assignment to a new target date.
- * Server-authoritative: updates assignmentDate and records audit trace in notes.
+ * Duplicates / rolls over pending units of a task assignment to a new target date.
+ * Server-authoritative:
+ * 1. Keeps original assignment on old date with its exact completion state preserved for history.
+ * 2. Marks original assignment note with `[Shifted to YYYY-MM-DD]`.
+ * 3. Creates a new active duplicate assignment on the target date with only the pending units.
+ * 4. Links evidence / damage incidents so they carry over.
  */
 export async function rescheduleAssignment(
   assignmentId: string,
@@ -638,92 +642,163 @@ export async function rescheduleAssignment(
   updatedByAccountId: string,
   notes?: string
 ) {
-  const assignment = await prisma.taskAssignment.findUnique({
+  const sourceAssignment = await prisma.taskAssignment.findUnique({
     where: { id: assignmentId },
     include: {
-      taskUnits: true,
-      staffMember: { select: { id: true, fullName: true } },
+      taskUnits: {
+        where: { status: { not: 'CANCELLED' } },
+        orderBy: [{ pieceNumber: 'asc' }, { sequenceNumber: 'asc' }],
+      },
+      damageIncidents: true,
+      staffMember: { select: { id: true, fullName: true, mobile: true } },
+      workflowProfile: { select: { workflowType: true, name: true } },
+      serviceType: { select: { name: true, code: true } },
     },
   });
 
-  if (!assignment) {
+  if (!sourceAssignment) {
     throw new AppError(404, 'NOT_FOUND', 'Task assignment not found.');
   }
 
-  if (assignment.shopId !== shopId) {
+  if (sourceAssignment.shopId !== shopId) {
     throw new AppError(403, 'FORBIDDEN', 'Access denied to this assignment.');
   }
 
-  if (assignment.status !== 'ACTIVE') {
+  if (sourceAssignment.status !== 'ACTIVE') {
     throw new AppError(409, 'CONFLICT', 'Only active task assignments can be shifted to a new date.');
   }
 
   const { dbDate, dateKey } = dbDateForDay(newDateStr);
-  const oldDateStr = assignment.assignmentDate.toISOString().slice(0, 10);
+  const oldDateStr = sourceAssignment.assignmentDate.toISOString().slice(0, 10);
 
   if (oldDateStr === dateKey) {
     throw new AppError(400, 'INVALID_DATE', 'The task is already assigned to this date.');
   }
 
-  // Record reschedule note for audit history
-  const rescheduleLog = `[Shifted from ${oldDateStr} to ${dateKey}]`;
-  let updatedNotes = assignment.notes ? `${assignment.notes}\n${rescheduleLog}` : rescheduleLog;
-  if (notes && notes.trim()) {
-    updatedNotes += ` - ${notes.trim()}`;
+  const pendingUnits = sourceAssignment.taskUnits.filter((u) => u.status !== 'COMPLETED');
+  if (pendingUnits.length === 0) {
+    throw new AppError(400, 'ALL_COMPLETED', 'All task units in this assignment are already completed. Nothing to shift.');
   }
 
-  const updated = await prisma.taskAssignment.update({
-    where: { id: assignmentId },
-    data: {
-      assignmentDate: dbDate,
-      notes: updatedNotes,
-    },
+  const rescheduleLog = `[Shifted to ${dateKey}]`;
+  let sourceUpdatedNotes = sourceAssignment.notes ? `${sourceAssignment.notes}\n${rescheduleLog}` : rescheduleLog;
+  if (notes && notes.trim()) {
+    sourceUpdatedNotes += ` - ${notes.trim()}`;
+  }
+
+  // Calculate unique pending pieces or pickup count
+  const pendingPieceNumbers = Array.from(new Set(pendingUnits.map((u) => u.pieceNumber).filter(Boolean))) as number[];
+  const newPieceCount = pendingPieceNumbers.length > 0 ? pendingPieceNumbers.length : sourceAssignment.pieceCount;
+  const newPickupCount = sourceAssignment.workflowProfile?.workflowType === 'COUNT_BASED' ? pendingUnits.length : sourceAssignment.pickupCount;
+
+  const newAssignmentNotes = `[Rolled over from ${oldDateStr}]${notes && notes.trim() ? ` - ${notes.trim()}` : (sourceAssignment.notes ? ` • ${sourceAssignment.notes.replace(/\[Shifted to [^\]]+\]/g, '').trim()}` : '')}`;
+
+  const idempotencyKey = `rollover_${sourceAssignment.id}_${dateKey}_${Date.now()}`;
+
+  // Execute in transaction
+  const result = await prisma.$transaction(async (tx) => {
+    // 1. Update source assignment notes to record shift (source date & status preserved)
+    await tx.taskAssignment.update({
+      where: { id: sourceAssignment.id },
+      data: {
+        notes: sourceUpdatedNotes,
+      },
+    });
+
+    // 2. Create new duplicated assignment on target date
+    const newAssignment = await tx.taskAssignment.create({
+      data: {
+        shopId: sourceAssignment.shopId,
+        staffMemberId: sourceAssignment.staffMemberId,
+        createdByAccountId: updatedByAccountId,
+        assignmentDate: dbDate,
+        workflowProfileId: sourceAssignment.workflowProfileId,
+        serviceTypeId: sourceAssignment.serviceTypeId,
+        orderId: sourceAssignment.orderId,
+        pieceCount: newPieceCount,
+        pickupCount: newPickupCount,
+        customerMobile: sourceAssignment.customerMobile,
+        selectedActivities: sourceAssignment.selectedActivities,
+        notes: newAssignmentNotes,
+        idempotencyKey,
+        configVersion: sourceAssignment.configVersion,
+      },
+    });
+
+    // 3. Create new task units for each pending unit
+    for (const pu of pendingUnits) {
+      await tx.taskUnit.create({
+        data: {
+          shopId: sourceAssignment.shopId,
+          staffMemberId: sourceAssignment.staffMemberId,
+          taskAssignmentId: newAssignment.id,
+          unitType: pu.unitType,
+          pieceNumber: pu.pieceNumber,
+          activityTypeId: pu.activityTypeId,
+          activityCode: pu.activityCode,
+          sequenceNumber: pu.sequenceNumber,
+          orderRef: pu.orderRef,
+          status: 'PENDING',
+        },
+      });
+    }
+
+    // 4. Carry over damage incidents to new assignment if applicable
+    if (sourceAssignment.damageIncidents && sourceAssignment.damageIncidents.length > 0) {
+      for (const dmg of sourceAssignment.damageIncidents) {
+        const isRelatedToPending = !dmg.pieceNumber || pendingPieceNumbers.includes(dmg.pieceNumber);
+        if (isRelatedToPending) {
+          await tx.damageIncident.create({
+            data: {
+              shopId: dmg.shopId,
+              staffMemberId: dmg.staffMemberId,
+              taskAssignmentId: newAssignment.id,
+              pieceNumber: dmg.pieceNumber,
+              reportedByAccountId: dmg.reportedByAccountId || updatedByAccountId,
+              photoPath: dmg.photoPath,
+              notes: dmg.notes ? `[Rolled over] ${dmg.notes}` : '[Rolled over]',
+              status: dmg.status,
+            },
+          });
+        }
+      }
+    }
+
+    return newAssignment;
+  });
+
+  const fullNewAssignment = await prisma.taskAssignment.findUnique({
+    where: { id: result.id },
     include: {
       staffMember: { select: { id: true, fullName: true, mobile: true } },
       workflowProfile: { select: { workflowType: true, name: true } },
       serviceType: { select: { name: true, code: true } },
-      damageIncidents: {
-        select: {
-          id: true,
-          pieceNumber: true,
-          status: true,
-          notes: true,
-          photoPath: true,
-          reportedAt: true,
-          taskUnitId: true,
-          staffMember: { select: { id: true, fullName: true } },
-        },
-        orderBy: { reportedAt: 'desc' },
-      },
       taskUnits: {
         where: { status: { not: 'CANCELLED' } },
-        include: {
-          damageIncidents: {
-            select: {
-              id: true,
-              pieceNumber: true,
-              status: true,
-              notes: true,
-              photoPath: true,
-              reportedAt: true,
-            },
-          },
-        },
         orderBy: [{ pieceNumber: 'asc' }, { sequenceNumber: 'asc' }],
       },
+      damageIncidents: true,
     },
   });
 
-  logger.info('[TASK] Assignment shifted to new date', {
-    assignmentId,
+  logger.info('[TASK] Assignment duplicated and rolled over to new date', {
+    sourceAssignmentId: sourceAssignment.id,
+    newAssignmentId: result.id,
     shopId,
-    staffMemberId: assignment.staffMemberId,
-    staffName: assignment.staffMember?.fullName,
+    staffMemberId: sourceAssignment.staffMemberId,
+    staffName: sourceAssignment.staffMember?.fullName,
     oldDate: oldDateStr,
     newDate: dateKey,
+    pendingUnitsCount: pendingUnits.length,
     updatedByAccountId,
   });
 
-  return updated;
+  return {
+    sourceAssignmentId: sourceAssignment.id,
+    newAssignment: fullNewAssignment,
+    oldDate: oldDateStr,
+    newDate: dateKey,
+    pendingUnitsCount: pendingUnits.length,
+  };
 }
 

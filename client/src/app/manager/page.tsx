@@ -2213,6 +2213,12 @@ function ManagerPageInner() {
                     if (isDirective) {
                       const unit = assignment.taskUnits[0];
                       const isDone = unit?.status === 'COMPLETED';
+                      const isAlreadyShifted = !!assignment.notes?.includes('[Shifted to');
+                      const shiftedToMatch = assignment.notes?.match(/\[Shifted to ([^\]\s-]+)/);
+                      const shiftedToDate = shiftedToMatch ? shiftedToMatch[1] : null;
+                      const isRolledOver = !!assignment.notes?.includes('[Rolled over from');
+                      const rolledOverMatch = assignment.notes?.match(/\[Rolled over from ([^\]\s-]+)/);
+                      const rolledOverDate = rolledOverMatch ? rolledOverMatch[1] : null;
 
                       return (
                         <div
@@ -2227,6 +2233,16 @@ function ManagerPageInner() {
                                 <span className="px-2 py-0.5 rounded-lg bg-indigo-100 text-indigo-900 font-extrabold text-[10px] uppercase tracking-wider">
                                   Directive
                                 </span>
+                                {isRolledOver && (
+                                  <span className="px-2 py-0.5 rounded-lg bg-blue-100 text-blue-900 font-extrabold text-[10px] tracking-wider border border-blue-200">
+                                    Rolled from {rolledOverDate}
+                                  </span>
+                                )}
+                                {isAlreadyShifted && (
+                                  <span className="px-2 py-0.5 rounded-lg bg-purple-100 text-purple-900 font-extrabold text-[10px] tracking-wider border border-purple-200">
+                                    Shifted to {shiftedToDate}
+                                  </span>
+                                )}
                                 <h4 className="text-sm font-extrabold text-brand-forest">
                                   {assignment.orderId || 'Operational Directive'}
                                 </h4>
@@ -2239,17 +2255,22 @@ function ManagerPageInner() {
                             </div>
 
                             <div className="flex items-center gap-2 shrink-0">
-                              {!isDone && (
+                              {isAlreadyShifted ? (
+                                <span className="px-2.5 py-1.5 rounded-xl bg-purple-50 text-purple-700 font-bold text-xs border border-purple-200 flex items-center gap-1 shadow-sm">
+                                  <Calendar className="w-3.5 h-3.5 text-purple-600" />
+                                  <span>Shifted to {shiftedToDate || 'New Date'}</span>
+                                </span>
+                              ) : !isDone ? (
                                 <button
                                   type="button"
                                   onClick={() => handleOpenReschedule(assignment)}
                                   className="touch-manipulation active:scale-95 px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-700 font-bold text-xs border border-blue-200 hover:bg-blue-100 flex items-center gap-1 transition-all shadow-sm"
-                                  title="Shift task to another date"
+                                  title="Shift task to another date (creates duplicate on target date & keeps history)"
                                 >
                                   <Calendar className="w-3.5 h-3.5 text-blue-600" />
                                   <span>Shift Date</span>
                                 </button>
-                              )}
+                              ) : null}
                               {unit && (
                                 <button
                                   type="button"
@@ -2317,6 +2338,12 @@ function ManagerPageInner() {
                     const isAllCompleted = assignment.taskUnits.length > 0 && completedCount === assignment.taskUnits.length;
                     const lastCompletedAt = assignment.taskUnits.find((u) => u.completedAt)?.completedAt;
                     const isExpanded = !!expandedAssignmentIds[assignment.id];
+                    const isAlreadyShifted = !!assignment.notes?.includes('[Shifted to');
+                    const shiftedToMatch = assignment.notes?.match(/\[Shifted to ([^\]\s-]+)/);
+                    const shiftedToDate = shiftedToMatch ? shiftedToMatch[1] : null;
+                    const isRolledOver = !!assignment.notes?.includes('[Rolled over from');
+                    const rolledOverMatch = assignment.notes?.match(/\[Rolled over from ([^\]\s-]+)/);
+                    const rolledOverDate = rolledOverMatch ? rolledOverMatch[1] : null;
 
                     // Group task units by pieceNumber
                     const pieceMap = new Map<number, typeof assignment.taskUnits>();
@@ -2350,6 +2377,16 @@ function ManagerPageInner() {
                                 }`}>
                                   {assignment.orderId ? `Order #${assignment.orderId}` : 'Pickup Request'}
                                 </span>
+                                {isRolledOver && (
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                                    Rolled from {rolledOverDate}
+                                  </span>
+                                )}
+                                {isAlreadyShifted && (
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-800 border border-purple-200">
+                                    Shifted to {shiftedToDate}
+                                  </span>
+                                )}
                                 <span className="px-2 py-0.5 rounded-md text-[11px] font-extrabold bg-surface-cream text-brand-forest border border-border-subtle">
                                   {assignment.pieceCount ? `${assignment.pieceCount} pcs` : assignment.pickupCount ? `${assignment.pickupCount} pickups` : `${assignment.taskUnits.length} pcs`}
                                 </span>
@@ -2377,17 +2414,22 @@ function ManagerPageInner() {
                                 ? 'Completed'
                                 : `${completedCount}/${assignment.taskUnits.length} Done`}
                             </span>
-                            {!isAllCompleted && (
+                            {isAlreadyShifted ? (
+                              <span className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 font-bold text-[10px] border border-purple-200 flex items-center gap-1 shadow-sm">
+                                <Calendar className="w-3 h-3 text-purple-600" />
+                                <span>Shifted to {shiftedToDate || 'New Date'}</span>
+                              </span>
+                            ) : !isAllCompleted ? (
                               <button
                                 type="button"
                                 onClick={() => handleOpenReschedule(assignment)}
                                 className="touch-manipulation active:scale-95 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 font-bold text-[10px] border border-blue-200 hover:bg-blue-100 flex items-center gap-1 transition-all shadow-sm"
-                                title="Shift task to another date"
+                                title="Shift task to another date (creates duplicate on target date & keeps history)"
                               >
                                 <Calendar className="w-3 h-3 text-blue-600" />
                                 <span>Shift Date</span>
                               </button>
-                            )}
+                            ) : null}
                             {assignment.taskUnits.length > 0 && (
                               <button
                                 type="button"
@@ -4393,6 +4435,9 @@ function ManagerPageInner() {
                 <span className="font-mono font-bold">
                   {rescheduleTarget.taskUnits.filter((u) => u.status !== 'COMPLETED').length} / {rescheduleTarget.taskUnits.length}
                 </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-blue-50/80 border border-blue-200 text-[11px] text-blue-900 leading-snug">
+                <span className="font-bold">Historical Trace:</span> Original record for {staffTaskDate} will stay intact with its pending status preserved. A duplicate task with pending units will be assigned on {rescheduleDate}.
               </div>
             </div>
 
