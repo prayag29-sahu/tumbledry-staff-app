@@ -63,16 +63,40 @@ import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
 /** Helper to extract address / location and remaining clean notes from assignment notes */
 function parseAssignmentNotes(notes?: string | null) {
   if (!notes) return { location: null, cleanNotes: null };
-  const parts = notes.split(' | ');
+
+  // 1. Strip bracketed system rollover/shift tags including internal metadata
+  let cleaned = notes
+    .replace(/\[Shifted to [^\]]*\]/gi, '')
+    .replace(/\[Rolled over from [^\]]*\]/gi, '')
+    .replace(/\s*•\s*/g, ' | ')
+    .trim();
+
+  // 2. Strip standalone internal tokens like origin:... or target:...
+  cleaned = cleaned.replace(/(origin|target):[a-f0-9-]+\]?/gi, '').trim();
+
+  if (!cleaned) return { location: null, cleanNotes: null };
+
+  const parts = cleaned.split(' | ');
   let location: string | null = null;
   const remainingParts: string[] = [];
 
   for (const part of parts) {
     const trimmed = part.trim();
+    if (!trimmed) continue;
     if (trimmed.toLowerCase().startsWith('location:')) {
       location = trimmed.replace(/^location:\s*/i, '').trim();
-    } else if (trimmed) {
-      remainingParts.push(trimmed);
+    } else if (
+      trimmed.toLowerCase().startsWith('origin:') ||
+      trimmed.toLowerCase().startsWith('target:') ||
+      trimmed.startsWith('[Shifted to') ||
+      trimmed.startsWith('[Rolled over from')
+    ) {
+      continue;
+    } else {
+      const sanitized = trimmed.replace(/^\[|\]$/g, '').trim();
+      if (sanitized && !sanitized.match(/^(origin|target):/i)) {
+        remainingParts.push(sanitized);
+      }
     }
   }
 

@@ -73,19 +73,40 @@ const HUMAN_CAPABILITIES: Record<string, { label: string; desc: string; icon: st
 /** Helper to extract address / location and remaining clean notes from assignment notes */
 function parseAssignmentNotes(notes?: string | null) {
   if (!notes) return { location: null, cleanNotes: null };
-  const parts = notes.split(' | ');
+
+  // 1. Strip bracketed system rollover/shift tags including internal metadata
+  let cleaned = notes
+    .replace(/\[Shifted to [^\]]*\]/gi, '')
+    .replace(/\[Rolled over from [^\]]*\]/gi, '')
+    .replace(/\s*•\s*/g, ' | ')
+    .trim();
+
+  // 2. Strip standalone internal tokens like origin:... or target:...
+  cleaned = cleaned.replace(/(origin|target):[a-f0-9-]+\]?/gi, '').trim();
+
+  if (!cleaned) return { location: null, cleanNotes: null };
+
+  const parts = cleaned.split(' | ');
   let location: string | null = null;
   const remainingParts: string[] = [];
 
   for (const part of parts) {
     const trimmed = part.trim();
+    if (!trimmed) continue;
     if (trimmed.toLowerCase().startsWith('location:')) {
       location = trimmed.replace(/^location:\s*/i, '').trim();
-    } else if (trimmed.startsWith('[Shifted to') || trimmed.startsWith('[Rolled over from')) {
-      // System rollover tags - handled via dedicated UI badges
+    } else if (
+      trimmed.toLowerCase().startsWith('origin:') ||
+      trimmed.toLowerCase().startsWith('target:') ||
+      trimmed.startsWith('[Shifted to') ||
+      trimmed.startsWith('[Rolled over from')
+    ) {
       continue;
-    } else if (trimmed) {
-      remainingParts.push(trimmed);
+    } else {
+      const sanitized = trimmed.replace(/^\[|\]$/g, '').trim();
+      if (sanitized && !sanitized.match(/^(origin|target):/i)) {
+        remainingParts.push(sanitized);
+      }
     }
   }
 
@@ -424,7 +445,7 @@ function ManagerPageInner() {
   const handleConfirmReschedule = async () => {
     if (!activeShopId || !rescheduleTarget || !rescheduleDate) return;
     if (rescheduleDate === staffTaskDate) {
-      alert('Please select a different target date to shift this task.');
+      showTaskToast('Please select a different target date to shift this task.', 'error');
       return;
     }
     setIsRescheduling(true);
@@ -439,17 +460,14 @@ function ManagerPageInner() {
           }),
         }
       );
-      setTaskFeedback({
-        type: 'success',
-        message: res.message || `Task shifted to ${rescheduleDate} successfully!`,
-      });
+      showTaskToast(res.message || `Task shifted to ${rescheduleDate} successfully!`, 'success');
       if (selectedStaff) {
         fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate);
       }
       fetchData(true);
       setRescheduleTarget(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to shift task date.');
+      showTaskToast(err instanceof Error ? err.message : 'Failed to shift task date.', 'error');
     } finally {
       setIsRescheduling(false);
     }
@@ -457,25 +475,26 @@ function ManagerPageInner() {
 
   const [isUndoingShiftId, setIsUndoingShiftId] = useState<string | null>(null);
 
+  const showTaskToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setTaskFeedback({ type, message });
+    setTimeout(() => setTaskFeedback(null), 3500);
+  };
+
   const handleUndoShift = async (assignment: StaffAssignment) => {
     if (!activeShopId) return;
-    if (!confirm('Are you sure you want to undo this shift and restore the task?')) return;
     setIsUndoingShiftId(assignment.id);
     try {
       const res = await apiRequest<{ message: string }>(
         `/api/shops/${activeShopId}/task-assignments/${assignment.id}/undo-shift`,
         { method: 'PATCH' }
       );
-      setTaskFeedback({
-        type: 'success',
-        message: res.message || 'Task shift undone successfully.',
-      });
+      showTaskToast(res.message || 'Task shift undone successfully.', 'success');
       if (selectedStaff) {
         fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate);
       }
       fetchData(true);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to undo shift.');
+      showTaskToast(err instanceof Error ? err.message : 'Failed to undo shift.', 'error');
     } finally {
       setIsUndoingShiftId(null);
     }
@@ -4261,6 +4280,22 @@ function ManagerPageInner() {
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-brand-forest text-white px-5 py-3 rounded-2xl shadow-clay flex items-center gap-3 animate-fade-in text-xs font-bold border border-brand-lime">
           <CheckCircle2 className="w-5 h-5 text-brand-lime shrink-0" />
           <span>{attendanceSuccessToast}</span>
+        </div>
+      )}
+
+      {/* Task Shift / Operation Feedback Toast */}
+      {taskFeedback && (
+        <div className={`fixed top-5 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl shadow-clay flex items-center gap-3 animate-fade-in text-xs font-bold border ${
+          taskFeedback.type === 'error'
+            ? 'bg-rose-950 text-white border-rose-500'
+            : 'bg-brand-forest text-white border-brand-lime'
+        }`}>
+          {taskFeedback.type === 'error' ? (
+            <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+          ) : (
+            <CheckCircle2 className="w-5 h-5 text-brand-lime shrink-0" />
+          )}
+          <span>{taskFeedback.message}</span>
         </div>
       )}
 
