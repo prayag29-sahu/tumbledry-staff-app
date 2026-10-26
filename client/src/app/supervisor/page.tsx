@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../lib/api';
-import { localDateKey, resolveDutyTiming } from '../../lib/dateUtils';
+import { localDateKey, resolveDutyTiming, addDaysToDateKey } from '../../lib/dateUtils';
 import { StaffProfileCard, ProfileAttendanceSession } from '../../components/StaffProfileCard';
 import {
   PositionCategory,
@@ -248,6 +248,8 @@ interface StaffTaskDayResponse {
     percentageComplete: number | null;
   };
 }
+
+type StaffAssignment = StaffTaskDayResponse['assignments'][number];
 
 interface AttendanceSessionItem {
   id: string;
@@ -524,6 +526,51 @@ export default function SupervisorPage() {
   const [directiveNotes, setDirectiveNotes] = useState('');
   const [directivePriority, setDirectivePriority] = useState<'NORMAL' | 'HIGH' | 'URGENT'>('NORMAL');
   const [completingDirectiveId, setCompletingDirectiveId] = useState<string | null>(null);
+
+  // ─── Task Reschedule / Shift Date Modal State ─────────────────────────────
+  const [rescheduleTarget, setRescheduleTarget] = useState<StaffAssignment | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState<string>('');
+  const [rescheduleNotes, setRescheduleNotes] = useState<string>('');
+  const [isRescheduling, setIsRescheduling] = useState<boolean>(false);
+
+  const handleOpenReschedule = (assignment: StaffAssignment) => {
+    setRescheduleTarget(assignment);
+    const today = localDateKey();
+    const defaultDate = staffTaskDate < today ? today : addDaysToDateKey(staffTaskDate, 1);
+    setRescheduleDate(defaultDate);
+    setRescheduleNotes('');
+  };
+
+  const handleConfirmReschedule = async () => {
+    if (!activeShopId || !rescheduleTarget || !rescheduleDate) return;
+    if (rescheduleDate === staffTaskDate) {
+      alert('Please select a different target date to shift this task.');
+      return;
+    }
+    setIsRescheduling(true);
+    try {
+      const res = await apiRequest<{ message: string }>(
+        `/api/shops/${activeShopId}/task-assignments/${rescheduleTarget.id}/reschedule`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({
+            newDate: rescheduleDate,
+            notes: rescheduleNotes.trim() || undefined,
+          }),
+        }
+      );
+      alert(res.message || `Task shifted to ${rescheduleDate} successfully!`);
+      if (selectedStaff) {
+        fetchStaffDayTasks(selectedStaff.staffMember.id, staffTaskDate);
+      }
+      fetchAllData(true);
+      setRescheduleTarget(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to shift task date.');
+    } finally {
+      setIsRescheduling(false);
+    }
+  };
 
   const isSelectedStaffFloor = useCallback(() => {
     if (!selectedStaff) return true;
@@ -1988,6 +2035,17 @@ export default function SupervisorPage() {
                               </div>
 
                               <div className="flex items-center gap-2 shrink-0">
+                                {!isDone && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenReschedule(assignment)}
+                                    className="touch-manipulation active:scale-95 px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-700 font-bold text-xs border border-blue-200 hover:bg-blue-100 flex items-center gap-1 transition-all shadow-sm"
+                                    title="Shift task to another date"
+                                  >
+                                    <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                                    <span>Shift Date</span>
+                                  </button>
+                                )}
                                 {unit && (
                                   <span
                                     className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
@@ -2051,9 +2109,22 @@ export default function SupervisorPage() {
                                 {assignment.pieceCount || totalCount} pieces • {assignment.serviceType?.name || assignment.workflowProfile?.name || 'Task Batch'}
                               </span>
                             </div>
-                            <span className="text-xs font-bold text-red-600 shrink-0">
-                              {completedCount}/{totalCount} Completed
-                            </span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-xs font-bold text-red-600">
+                                {completedCount}/{totalCount} Completed
+                              </span>
+                              {completedCount < totalCount && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenReschedule(assignment)}
+                                  className="touch-manipulation active:scale-95 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 font-bold text-[10px] border border-blue-200 hover:bg-blue-100 flex items-center gap-1 transition-all shadow-sm"
+                                  title="Shift task to another date"
+                                >
+                                  <Calendar className="w-3 h-3 text-blue-600" />
+                                  <span>Shift Date</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
 
                           {/* Customer Contact & Call/WhatsApp Actions */}
@@ -4306,6 +4377,141 @@ export default function SupervisorPage() {
             >
               Dismiss
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Shift / Reschedule Task Modal ─────────────────── */}
+      {rescheduleTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
+          <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl border border-border-subtle shadow-clay p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-border-subtle">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 rounded-2xl bg-blue-50 border border-blue-200 text-blue-700 shadow-clay-sm">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-brand-forest">Shift Task to Another Date</h3>
+                  <p className="text-[11px] text-content-muted">Reschedule pending task to a new target date</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRescheduleTarget(null)}
+                className="p-1.5 rounded-xl hover:bg-surface-cream text-content-muted hover:text-brand-forest"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Task Info Summary */}
+            <div className="p-3 rounded-2xl bg-surface-cream/70 border border-border-subtle space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-extrabold text-brand-forest">
+                  {rescheduleTarget.orderId ? `Order #${rescheduleTarget.orderId}` : 'Assigned Task'}
+                </span>
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white text-content-muted border border-border-subtle">
+                  {rescheduleTarget.serviceType?.name || rescheduleTarget.workflowProfile?.name || 'Garment Task'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-content-muted">
+                <span>Staff: <strong>{selectedStaff?.staffMember.fullName || 'Staff Member'}</strong></span>
+                <span>Current Date: <strong>{staffTaskDate}</strong></span>
+              </div>
+              <div className="text-[11px] text-amber-800 bg-amber-50 px-2.5 py-1.5 rounded-xl border border-amber-200 font-semibold flex items-center justify-between">
+                <span>Pending Units:</span>
+                <span className="font-mono font-bold">
+                  {rescheduleTarget.taskUnits.filter((u) => u.status !== 'COMPLETED').length} / {rescheduleTarget.taskUnits.length}
+                </span>
+              </div>
+            </div>
+
+            {/* Target Date Selector */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-brand-forest">
+                Select New Target Date *
+              </label>
+
+              {/* Quick Date Pills */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRescheduleDate(localDateKey())}
+                  className={`flex-1 py-1.5 px-2 rounded-xl text-xs font-bold border transition-all ${
+                    rescheduleDate === localDateKey()
+                      ? 'bg-brand-forest text-white border-brand-forest shadow-sm'
+                      : 'bg-surface-cream text-brand-forest border-border-subtle hover:bg-surface-hover'
+                  }`}
+                >
+                  Today
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRescheduleDate(addDaysToDateKey(localDateKey(), 1))}
+                  className={`flex-1 py-1.5 px-2 rounded-xl text-xs font-bold border transition-all ${
+                    rescheduleDate === addDaysToDateKey(localDateKey(), 1)
+                      ? 'bg-brand-forest text-white border-brand-forest shadow-sm'
+                      : 'bg-surface-cream text-brand-forest border-border-subtle hover:bg-surface-hover'
+                  }`}
+                >
+                  Tomorrow
+                </button>
+              </div>
+
+              {/* Date Input */}
+              <div>
+                <input
+                  type="date"
+                  value={rescheduleDate}
+                  onChange={(e) => setRescheduleDate(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl bg-surface-cream border border-border-subtle text-xs font-bold text-brand-forest focus:ring-1 focus:ring-brand-forest cursor-pointer"
+                />
+              </div>
+            </div>
+
+            {/* Optional Reschedule Reason / Notes */}
+            <div className="space-y-1">
+              <label className="block text-xs font-bold text-brand-forest">
+                Reason / Note (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Incomplete on previous date, shifted to tomorrow"
+                value={rescheduleNotes}
+                onChange={(e) => setRescheduleNotes(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-surface-cream border border-border-subtle text-xs text-brand-forest focus:ring-1 focus:ring-brand-forest"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setRescheduleTarget(null)}
+                className="flex-1 py-2.5 rounded-xl border border-border-subtle bg-surface-cream text-content-muted text-xs font-bold hover:text-brand-forest transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isRescheduling || !rescheduleDate}
+                onClick={handleConfirmReschedule}
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-[#245431] to-[#3B7A49] text-white text-xs font-black shadow-clay hover:opacity-95 transition-opacity disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {isRescheduling ? (
+                  <>
+                    <Clock className="w-3.5 h-3.5 animate-spin" />
+                    <span>Shifting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>Confirm Shift</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

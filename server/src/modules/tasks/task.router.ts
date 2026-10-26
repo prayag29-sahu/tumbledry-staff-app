@@ -1,7 +1,14 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { authenticate, AuthenticatedRequest, requireCapability } from '../../middleware/auth';
-import { createAssignment, completeTaskUnit, toggleTaskUnit, getTaskSummary, getMonthlyTaskSummary } from './task.service';
+import {
+  createAssignment,
+  completeTaskUnit,
+  toggleTaskUnit,
+  getTaskSummary,
+  getMonthlyTaskSummary,
+  rescheduleAssignment,
+} from './task.service';
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../middleware/errorHandler';
 import { dbDateForDay } from '../../lib/dateRange';
@@ -286,3 +293,48 @@ taskRouter.get(
     res.json(summary);
   }
 );
+
+// PATCH /api/shops/:shopId/task-assignments/:assignmentId/reschedule — Reschedule task to a different date
+taskRouter.patch(
+  '/shops/:shopId/task-assignments/:assignmentId/reschedule',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
+    const { shopId, assignmentId } = req.params as { shopId: string; assignmentId: string };
+
+    const isPrivileged = auth.isOwner || auth.shopMemberships.some(
+      (m) => m.shopId === shopId && (m.capabilities.includes('tasks.assign') || m.capabilities.includes('tasks.read_team'))
+    );
+
+    if (!isPrivileged) {
+      return next(new AppError(403, 'FORBIDDEN', 'Permission denied. Only managers or supervisors can shift task dates.'));
+    }
+
+    const schema = z.object({
+      newDate: z.string().min(1).transform((v) => v.split('T')[0]),
+      notes: z.string().max(1000).optional(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return next(new AppError(422, 'VALIDATION_ERROR', 'A valid target date (YYYY-MM-DD) is required.'));
+    }
+
+    try {
+      const updated = await rescheduleAssignment(
+        assignmentId,
+        parsed.data.newDate,
+        shopId,
+        auth.accountId,
+        parsed.data.notes
+      );
+
+      res.json({
+        message: `Task successfully shifted to ${parsed.data.newDate}.`,
+        assignment: updated,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+

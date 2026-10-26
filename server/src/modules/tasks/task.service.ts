@@ -626,3 +626,104 @@ export async function getMonthlyTaskSummary(
     dailyProgress,
   };
 }
+
+/**
+ * Reschedules a task assignment to a new target date.
+ * Server-authoritative: updates assignmentDate and records audit trace in notes.
+ */
+export async function rescheduleAssignment(
+  assignmentId: string,
+  newDateStr: string,
+  shopId: string,
+  updatedByAccountId: string,
+  notes?: string
+) {
+  const assignment = await prisma.taskAssignment.findUnique({
+    where: { id: assignmentId },
+    include: {
+      taskUnits: true,
+      staffMember: { select: { id: true, fullName: true } },
+    },
+  });
+
+  if (!assignment) {
+    throw new AppError(404, 'NOT_FOUND', 'Task assignment not found.');
+  }
+
+  if (assignment.shopId !== shopId) {
+    throw new AppError(403, 'FORBIDDEN', 'Access denied to this assignment.');
+  }
+
+  if (assignment.status !== 'ACTIVE') {
+    throw new AppError(409, 'CONFLICT', 'Only active task assignments can be shifted to a new date.');
+  }
+
+  const { dbDate, dateKey } = dbDateForDay(newDateStr);
+  const oldDateStr = assignment.assignmentDate.toISOString().slice(0, 10);
+
+  if (oldDateStr === dateKey) {
+    throw new AppError(400, 'INVALID_DATE', 'The task is already assigned to this date.');
+  }
+
+  // Record reschedule note for audit history
+  const rescheduleLog = `[Shifted from ${oldDateStr} to ${dateKey}]`;
+  let updatedNotes = assignment.notes ? `${assignment.notes}\n${rescheduleLog}` : rescheduleLog;
+  if (notes && notes.trim()) {
+    updatedNotes += ` - ${notes.trim()}`;
+  }
+
+  const updated = await prisma.taskAssignment.update({
+    where: { id: assignmentId },
+    data: {
+      assignmentDate: dbDate,
+      notes: updatedNotes,
+    },
+    include: {
+      staffMember: { select: { id: true, fullName: true, mobile: true } },
+      workflowProfile: { select: { workflowType: true, name: true } },
+      serviceType: { select: { name: true, code: true } },
+      damageIncidents: {
+        select: {
+          id: true,
+          pieceNumber: true,
+          status: true,
+          notes: true,
+          photoPath: true,
+          reportedAt: true,
+          taskUnitId: true,
+          staffMember: { select: { id: true, fullName: true } },
+        },
+        orderBy: { reportedAt: 'desc' },
+      },
+      taskUnits: {
+        where: { status: { not: 'CANCELLED' } },
+        include: {
+          damageIncidents: {
+            select: {
+              id: true,
+              pieceNumber: true,
+              status: true,
+              notes: true,
+              photoPath: true,
+              reportedAt: true,
+            },
+          },
+        },
+        orderBy: [{ pieceNumber: 'asc' }, { sequenceNumber: 'asc' }],
+      },
+    },
+  });
+
+  logger.info('[TASK] Assignment shifted to new date', {
+    assignmentId,
+    shopId,
+    staffMemberId: assignment.staffMemberId,
+    staffName: assignment.staffMember?.fullName,
+    oldDate: oldDateStr,
+    newDate: dateKey,
+    updatedByAccountId,
+  });
+
+  return updated;
+}
+
