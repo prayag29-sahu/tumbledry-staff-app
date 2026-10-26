@@ -80,6 +80,9 @@ function parseAssignmentNotes(notes?: string | null) {
     const trimmed = part.trim();
     if (trimmed.toLowerCase().startsWith('location:')) {
       location = trimmed.replace(/^location:\s*/i, '').trim();
+    } else if (trimmed.startsWith('[Shifted to') || trimmed.startsWith('[Rolled over from')) {
+      // System rollover tags - handled via dedicated UI badges
+      continue;
     } else if (trimmed) {
       remainingParts.push(trimmed);
     }
@@ -89,6 +92,27 @@ function parseAssignmentNotes(notes?: string | null) {
     location: location || null,
     cleanNotes: remainingParts.length > 0 ? remainingParts.join(' | ') : null,
   };
+}
+
+/** Formats YYYY-MM-DD string into readable date (e.g. "27 Oct 2026") */
+function formatShiftDate(dateStr: string | null): string | null {
+  if (!dateStr) return null;
+  try {
+    const cleanStr = dateStr.trim();
+    const parts = cleanStr.split('-');
+    if (parts.length === 3) {
+      const year = Number(parts[0]);
+      const month = Number(parts[1]) - 1;
+      const day = Number(parts[2]);
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+      }
+    }
+  } catch {
+    // fallback
+  }
+  return dateStr;
 }
 
 interface StaffTaskMonthlySummary {
@@ -2214,11 +2238,11 @@ function ManagerPageInner() {
                       const unit = assignment.taskUnits[0];
                       const isDone = unit?.status === 'COMPLETED';
                       const isAlreadyShifted = !!assignment.notes?.includes('[Shifted to');
-                      const shiftedToMatch = assignment.notes?.match(/\[Shifted to ([^\]\s-]+)/);
-                      const shiftedToDate = shiftedToMatch ? shiftedToMatch[1] : null;
+                      const shiftedToMatch = assignment.notes?.match(/\[Shifted to ([^\]]+)\]/);
+                      const shiftedToDate = shiftedToMatch ? formatShiftDate(shiftedToMatch[1]) : null;
                       const isRolledOver = !!assignment.notes?.includes('[Rolled over from');
-                      const rolledOverMatch = assignment.notes?.match(/\[Rolled over from ([^\]\s-]+)/);
-                      const rolledOverDate = rolledOverMatch ? rolledOverMatch[1] : null;
+                      const rolledOverMatch = assignment.notes?.match(/\[Rolled over from ([^\]]+)\]/);
+                      const rolledOverDate = rolledOverMatch ? formatShiftDate(rolledOverMatch[1]) : null;
 
                       return (
                         <div
@@ -2236,11 +2260,6 @@ function ManagerPageInner() {
                                 {isRolledOver && (
                                   <span className="px-2 py-0.5 rounded-lg bg-blue-100 text-blue-900 font-extrabold text-[10px] tracking-wider border border-blue-200">
                                     Rolled from {rolledOverDate}
-                                  </span>
-                                )}
-                                {isAlreadyShifted && (
-                                  <span className="px-2 py-0.5 rounded-lg bg-purple-100 text-purple-900 font-extrabold text-[10px] tracking-wider border border-purple-200">
-                                    Shifted to {shiftedToDate}
                                   </span>
                                 )}
                                 <h4 className="text-sm font-extrabold text-brand-forest">
@@ -2339,11 +2358,11 @@ function ManagerPageInner() {
                     const lastCompletedAt = assignment.taskUnits.find((u) => u.completedAt)?.completedAt;
                     const isExpanded = !!expandedAssignmentIds[assignment.id];
                     const isAlreadyShifted = !!assignment.notes?.includes('[Shifted to');
-                    const shiftedToMatch = assignment.notes?.match(/\[Shifted to ([^\]\s-]+)/);
-                    const shiftedToDate = shiftedToMatch ? shiftedToMatch[1] : null;
+                    const shiftedToMatch = assignment.notes?.match(/\[Shifted to ([^\]]+)\]/);
+                    const shiftedToDate = shiftedToMatch ? formatShiftDate(shiftedToMatch[1]) : null;
                     const isRolledOver = !!assignment.notes?.includes('[Rolled over from');
-                    const rolledOverMatch = assignment.notes?.match(/\[Rolled over from ([^\]\s-]+)/);
-                    const rolledOverDate = rolledOverMatch ? rolledOverMatch[1] : null;
+                    const rolledOverMatch = assignment.notes?.match(/\[Rolled over from ([^\]]+)\]/);
+                    const rolledOverDate = rolledOverMatch ? formatShiftDate(rolledOverMatch[1]) : null;
 
                     // Group task units by pieceNumber
                     const pieceMap = new Map<number, typeof assignment.taskUnits>();
@@ -2380,11 +2399,6 @@ function ManagerPageInner() {
                                 {isRolledOver && (
                                   <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
                                     Rolled from {rolledOverDate}
-                                  </span>
-                                )}
-                                {isAlreadyShifted && (
-                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-800 border border-purple-200">
-                                    Shifted to {shiftedToDate}
                                   </span>
                                 )}
                                 <span className="px-2 py-0.5 rounded-md text-[11px] font-extrabold bg-surface-cream text-brand-forest border border-border-subtle">
