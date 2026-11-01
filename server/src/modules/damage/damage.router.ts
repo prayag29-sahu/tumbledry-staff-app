@@ -180,6 +180,33 @@ damageRouter.patch(
 // SPECIAL DAMAGE ORDERS ENDPOINTS
 // ─────────────────────────────────────────────
 
+export function getDefaultDamageOrderFieldsConfig() {
+  return {
+    standardFields: [
+      { key: 'orderDate', label: 'Order Date', isVisible: true, isRequired: true, type: 'date', canHide: false },
+      { key: 'orderId', label: 'Order ID', isVisible: true, isRequired: true, type: 'text', canHide: false },
+      { key: 'serviceType', label: 'Service Type', isVisible: true, isRequired: true, type: 'select', canHide: true },
+      { key: 'piecesCount', label: 'Total Pieces in Order', isVisible: true, isRequired: true, type: 'number', canHide: true },
+      { key: 'totalAmount', label: 'Total Order Amount (₹)', isVisible: true, isRequired: false, type: 'number', canHide: true },
+      { key: 'returnPiecesCount', label: 'Return Pieces Count', isVisible: true, isRequired: false, type: 'number', canHide: true },
+      { key: 'returnAmount', label: 'Return Article Amount (₹)', isVisible: true, isRequired: false, type: 'number', canHide: true },
+      { key: 'finalBillingAmount', label: 'Final Billing Amount (₹)', isVisible: true, isRequired: false, type: 'number', canHide: true },
+      { key: 'returnReason', label: 'Return Article Reason (Why)', isVisible: true, isRequired: false, type: 'textarea', canHide: true },
+      { key: 'damageReason', label: 'Damage Reason (How)', isVisible: true, isRequired: false, type: 'textarea', canHide: true },
+      { key: 'photos', label: 'Proof & Photos of Damage', isVisible: true, isRequired: false, type: 'photos', canHide: true },
+    ],
+    customFields: [] as Array<{
+      id: string;
+      key: string;
+      label: string;
+      type: 'text' | 'textarea' | 'number' | 'select' | 'date' | 'boolean';
+      options?: string[];
+      isRequired: boolean;
+      isVisible: boolean;
+    }>,
+  };
+}
+
 function checkSpecialDamageAccess(auth: AuthenticatedRequest['auth'], shopId: string, isWrite = false): boolean {
   if (auth.isOwner) return true;
   return auth.shopMemberships.some((m) => {
@@ -228,6 +255,7 @@ damageRouter.post(
       finalBillingAmount: z.number().nonnegative('Final billing amount cannot be negative').default(0),
       photos: z.array(z.string()).max(10, 'Maximum 10 photos allowed').default([]),
       notes: z.string().max(2000).optional().nullable(),
+      customFields: z.record(z.any()).optional().nullable(),
       status: z.string().max(50).default('LOGGED'),
     });
 
@@ -274,6 +302,7 @@ damageRouter.post(
         reportedByAccountId: auth.accountId,
         status: body.status,
         notes: body.notes?.trim() || null,
+        customFields: body.customFields ?? {},
       },
       include: {
         reportedByAccount: {
@@ -378,6 +407,16 @@ damageRouter.get(
     const totalReturnAmountSum = orders.reduce((sum, o) => sum + (o.returnAmount || 0), 0);
     const totalFinalBillingSum = orders.reduce((sum, o) => sum + (o.finalBillingAmount || 0), 0);
 
+    const configSetting = await prisma.appSetting.findUnique({
+      where: {
+        shopId_key: {
+          shopId,
+          key: 'damage_order_fields_config',
+        },
+      },
+    });
+    const fieldConfig = configSetting?.value || getDefaultDamageOrderFieldsConfig();
+
     logger.info('[SPECIAL_DAMAGE_ORDERS] Listed special damage orders', {
       shopId,
       count: orders.length,
@@ -397,7 +436,81 @@ damageRouter.get(
         totalReturnAmountSum,
         totalFinalBillingSum,
       },
+      config: fieldConfig,
     });
+  }
+);
+
+// GET /api/shops/:shopId/special-damage-orders/config — Get field config
+damageRouter.get(
+  '/shops/:shopId/special-damage-orders/config',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
+    const { shopId } = req.params as { shopId: string };
+
+    if (!checkSpecialDamageAccess(auth, shopId, false)) {
+      return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
+    }
+
+    const configSetting = await prisma.appSetting.findUnique({
+      where: {
+        shopId_key: {
+          shopId,
+          key: 'damage_order_fields_config',
+        },
+      },
+    });
+
+    const config = configSetting?.value || getDefaultDamageOrderFieldsConfig();
+    res.json({ config });
+  }
+);
+
+// PUT /api/shops/:shopId/special-damage-orders/config — Update field config (Owner/Admin)
+damageRouter.put(
+  '/shops/:shopId/special-damage-orders/config',
+  async (req: Request, res: Response, next: NextFunction) => {
+    const auth = (req as AuthenticatedRequest).auth;
+    const { shopId } = req.params as { shopId: string };
+
+    const isAuthorized =
+      auth.isOwner ||
+      auth.shopMemberships.some(
+        (m) => m.shopId === shopId && (m.capabilities.includes('tasks.assign') || m.capabilities.includes('damage.manage'))
+      );
+
+    if (!isAuthorized) {
+      return next(new AppError(403, 'FORBIDDEN', 'Only store owners can update field configuration.'));
+    }
+
+    const body = req.body;
+    if (!body || typeof body !== 'object') {
+      return next(new AppError(400, 'BAD_REQUEST', 'Invalid configuration payload.'));
+    }
+
+    const updated = await prisma.appSetting.upsert({
+      where: {
+        shopId_key: {
+          shopId,
+          key: 'damage_order_fields_config',
+        },
+      },
+      create: {
+        shopId,
+        key: 'damage_order_fields_config',
+        value: body,
+      },
+      update: {
+        value: body,
+      },
+    });
+
+    logger.info('[SPECIAL_DAMAGE_ORDERS] Updated field configuration in DB', {
+      shopId,
+      accountId: auth.accountId,
+    });
+
+    res.json({ config: updated.value, message: 'Damage order field configuration saved successfully.' });
   }
 );
 

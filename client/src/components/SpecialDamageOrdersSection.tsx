@@ -14,10 +14,15 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
+  Settings,
 } from 'lucide-react';
 import { localDateKey, formatDisplayDate } from '../lib/dateUtils';
 import { SpecialDamageOrderModal } from './SpecialDamageOrderModal';
 import { SpecialDamagePhotoViewerModal } from './SpecialDamagePhotoViewerModal';
+import {
+  DamageOrderFieldConfigModal,
+  DamageOrderFieldsConfig,
+} from './DamageOrderFieldConfigModal';
 
 export interface SpecialDamageOrderItem {
   id: string;
@@ -35,6 +40,7 @@ export interface SpecialDamageOrderItem {
   photos: string[];
   status: string;
   notes: string | null;
+  customFields?: Record<string, string | number | boolean> | null;
   createdAt: string;
   reportedByAccount?: {
     id: string;
@@ -70,6 +76,8 @@ export function SpecialDamageOrdersSection({
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey);
   const [searchQuery, setSearchQuery] = useState('');
   const [orders, setOrders] = useState<SpecialDamageOrderItem[]>([]);
+  const [config, setConfig] = useState<DamageOrderFieldsConfig | null>(null);
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [summary, setSummary] = useState<SummaryData>({
     totalOrders: 0,
     totalPieces: 0,
@@ -105,6 +113,9 @@ export function SpecialDamageOrdersSection({
       if (data.summary) {
         setSummary(data.summary);
       }
+      if (data.config) {
+        setConfig(data.config);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error fetching orders';
       if (onShowToast) onShowToast(msg, 'error');
@@ -139,6 +150,11 @@ export function SpecialDamageOrdersSection({
     } catch {
       return monthStr;
     }
+  };
+
+  const getFieldLabel = (key: string, defaultLabel: string): string => {
+    const found = config?.standardFields?.find((f) => f.key === key);
+    return found?.label || defaultLabel;
   };
 
   const handleDeleteOrder = async (id: string, orderId: string) => {
@@ -191,6 +207,17 @@ export function SpecialDamageOrdersSection({
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
+          {mode === 'owner' && (
+            <button
+              onClick={() => setIsConfigModalOpen(true)}
+              className="px-3 py-2.5 rounded-xl border border-border-subtle bg-white hover:bg-surface-cream text-content-primary font-bold text-xs shadow-sm flex items-center justify-center gap-1.5 transition-colors"
+              title="Configure Field Labels, Visibility and Custom Fields"
+            >
+              <Settings className="w-4 h-4 text-brand-forest" />
+              <span className="hidden sm:inline">Configure Fields</span>
+            </button>
+          )}
+
           <button
             onClick={() => fetchOrders()}
             disabled={isLoading}
@@ -289,7 +316,7 @@ export function SpecialDamageOrdersSection({
         <div className="p-3 sm:p-4 rounded-2xl bg-red-50/50 border border-red-200 shadow-sm space-y-1">
           <p className="text-[10px] font-black uppercase text-red-700 tracking-wider flex items-center gap-1">
             <RotateCcw className="w-3 h-3" />
-            Return Amount
+            {getFieldLabel('returnAmount', 'Return Amount')}
           </p>
           <div className="flex items-baseline gap-1">
             <span className="text-lg sm:text-2xl font-black text-red-700">
@@ -301,7 +328,7 @@ export function SpecialDamageOrdersSection({
         <div className="p-3 sm:p-4 rounded-2xl bg-emerald-50/50 border border-emerald-200 shadow-sm space-y-1">
           <p className="text-[10px] font-black uppercase text-emerald-800 tracking-wider flex items-center gap-1">
             <IndianRupee className="w-3 h-3" />
-            Final Billing
+            {getFieldLabel('finalBillingAmount', 'Final Billing')}
           </p>
           <div className="flex items-baseline gap-1">
             <span className="text-lg sm:text-2xl font-black text-emerald-800">
@@ -380,7 +407,7 @@ export function SpecialDamageOrdersSection({
               <div className="grid grid-cols-3 gap-2 p-2.5 rounded-xl bg-[#F8FAF8] border border-border-subtle text-xs">
                 <div>
                   <span className="text-[10px] text-content-muted font-bold block">
-                    Total Amount
+                    {getFieldLabel('totalAmount', 'Total Amount')}
                   </span>
                   <span className="font-bold text-content-primary">
                     ₹{ord.totalAmount.toLocaleString('en-IN')}
@@ -388,7 +415,7 @@ export function SpecialDamageOrdersSection({
                 </div>
                 <div>
                   <span className="text-[10px] text-red-600 font-bold block">
-                    Return Loss
+                    {getFieldLabel('returnAmount', 'Return Loss')}
                   </span>
                   <span className="font-bold text-red-600">
                     ₹{ord.returnAmount.toLocaleString('en-IN')}
@@ -396,7 +423,7 @@ export function SpecialDamageOrdersSection({
                 </div>
                 <div>
                   <span className="text-[10px] text-emerald-700 font-bold block">
-                    Final Billing
+                    {getFieldLabel('finalBillingAmount', 'Final Billing')}
                   </span>
                   <span className="font-black text-emerald-800">
                     ₹{ord.finalBillingAmount.toLocaleString('en-IN')}
@@ -411,7 +438,7 @@ export function SpecialDamageOrdersSection({
                     <div className="p-2 rounded-xl bg-orange-50/60 border border-orange-200 text-orange-900">
                       <span className="font-black text-[11px] uppercase tracking-wider block text-orange-800 mb-0.5 flex items-center gap-1">
                         <RotateCcw className="w-3 h-3" />
-                        Return Reason (Why):
+                        {getFieldLabel('returnReason', 'Return Reason (Why)')}:
                       </span>
                       <p className="text-xs leading-relaxed">{ord.returnReason}</p>
                     </div>
@@ -421,11 +448,32 @@ export function SpecialDamageOrdersSection({
                     <div className="p-2 rounded-xl bg-red-50/60 border border-red-200 text-red-900">
                       <span className="font-black text-[11px] uppercase tracking-wider block text-red-800 mb-0.5 flex items-center gap-1">
                         <AlertTriangle className="w-3 h-3" />
-                        Damage Reason (How):
+                        {getFieldLabel('damageReason', 'Damage Reason (How)')}:
                       </span>
                       <p className="text-xs leading-relaxed">{ord.damageReason}</p>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Dynamic Custom Fields Badges */}
+              {ord.customFields && Object.keys(ord.customFields).length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {Object.entries(ord.customFields).map(([k, val]) => {
+                    if (val === undefined || val === null || val === '') return null;
+                    const fieldDef = config?.customFields?.find((cf) => cf.key === k);
+                    const label = fieldDef?.label || k;
+                    const displayVal = typeof val === 'boolean' ? (val ? 'Yes' : 'No') : String(val);
+                    return (
+                      <span
+                        key={k}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-surface-cream text-content-primary border border-border-subtle text-[11px]"
+                      >
+                        <strong className="text-content-muted font-bold">{label}:</strong>
+                        <span className="font-black text-brand-forest">{displayVal}</span>
+                      </span>
+                    );
+                  })}
                 </div>
               )}
 
@@ -435,7 +483,7 @@ export function SpecialDamageOrdersSection({
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-[11px] font-black text-content-muted flex items-center gap-1">
                       <ImageIcon className="w-3.5 h-3.5 text-brand-forest" />
-                      Damage Evidence Photos ({ord.photos.length})
+                      {getFieldLabel('photos', 'Damage Evidence Photos')} ({ord.photos.length})
                     </span>
                     <span className="text-[10px] text-content-muted">
                       Click to view full photo
@@ -495,6 +543,7 @@ export function SpecialDamageOrdersSection({
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         shopId={shopId}
+        config={config}
         onSuccess={() => {
           if (onShowToast) onShowToast('Special damage order recorded successfully!', 'success');
           fetchOrders();
@@ -512,7 +561,19 @@ export function SpecialDamageOrdersSection({
           orderDate={activePhotoViewer.orderDate}
         />
       )}
+
+      {/* Field Configuration Modal (Owner) */}
+      <DamageOrderFieldConfigModal
+        isOpen={isConfigModalOpen}
+        onClose={() => setIsConfigModalOpen(false)}
+        shopId={shopId}
+        initialConfig={config}
+        onSuccess={(updated) => {
+          setConfig(updated);
+          if (onShowToast) onShowToast('Field configuration updated successfully!', 'success');
+          fetchOrders();
+        }}
+      />
     </div>
   );
 }
-

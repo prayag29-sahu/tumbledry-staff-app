@@ -14,6 +14,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { localDateKey } from '../lib/dateUtils';
+import { DamageOrderFieldsConfig } from './DamageOrderFieldConfigModal';
 
 interface SpecialDamageOrderModalProps {
   isOpen: boolean;
@@ -21,6 +22,7 @@ interface SpecialDamageOrderModalProps {
   shopId: string;
   onSuccess: () => void;
   initialDate?: string;
+  config?: DamageOrderFieldsConfig | null;
 }
 
 const SERVICE_OPTIONS = [
@@ -43,6 +45,7 @@ export function SpecialDamageOrderModal({
   shopId,
   onSuccess,
   initialDate,
+  config,
 }: SpecialDamageOrderModalProps) {
   const [orderDate, setOrderDate] = useState(() => initialDate || localDateKey());
   const [orderId, setOrderId] = useState('');
@@ -57,6 +60,7 @@ export function SpecialDamageOrderModal({
   const [damageReason, setDamageReason] = useState('');
   const [notes, setNotes] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string | number | boolean>>({});
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCompressing, setIsCompressing] = useState(false);
@@ -73,6 +77,16 @@ export function SpecialDamageOrderModal({
   }, [isOpen, initialDate]);
 
   if (!isOpen) return null;
+
+  const getFieldLabel = (key: string, defaultLabel: string): string => {
+    const found = config?.standardFields?.find((f) => f.key === key);
+    return found?.label || defaultLabel;
+  };
+
+  const isFieldVisible = (key: string): boolean => {
+    const found = config?.standardFields?.find((f) => f.key === key);
+    return found?.isVisible ?? true;
+  };
 
   // Auto-calculate suggested final billing when total or return changes
   const handleTotalAmountChange = (val: string) => {
@@ -181,6 +195,19 @@ export function SpecialDamageOrderModal({
     const numReturnAmount = parseFloat(returnAmount) || 0;
     const numFinalBilling = parseFloat(finalBillingAmount) || 0;
 
+    // Validate any required custom fields
+    if (config?.customFields) {
+      for (const cf of config.customFields) {
+        if (cf.isRequired && cf.isVisible !== false) {
+          const val = customFieldValues[cf.key];
+          if (val === undefined || val === null || val === '') {
+            setError(`Please fill required custom field: ${cf.label}`);
+            return;
+          }
+        }
+      }
+    }
+
     setIsSubmitting(true);
     try {
       const res = await fetch(`/api/shops/${shopId}/special-damage-orders`, {
@@ -199,6 +226,7 @@ export function SpecialDamageOrderModal({
           damageReason: damageReason.trim() || null,
           notes: notes.trim() || null,
           photos,
+          customFields: customFieldValues,
         }),
       });
 
@@ -216,6 +244,7 @@ export function SpecialDamageOrderModal({
       setDamageReason('');
       setNotes('');
       setPhotos([]);
+      setCustomFieldValues({});
 
       onSuccess();
       onClose();
@@ -226,6 +255,12 @@ export function SpecialDamageOrderModal({
       setIsSubmitting(false);
     }
   };
+
+  const showFinancials =
+    isFieldVisible('returnPiecesCount') ||
+    isFieldVisible('totalAmount') ||
+    isFieldVisible('returnAmount') ||
+    isFieldVisible('finalBillingAmount');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-brand-forest/60 backdrop-blur-sm animate-fade-in overflow-y-auto">
@@ -271,7 +306,7 @@ export function SpecialDamageOrderModal({
             <div>
               <label className="block text-xs font-bold text-brand-forest mb-1 flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-brand-forest" />
-                Order Date <span className="text-red-500">*</span>
+                {getFieldLabel('orderDate', 'Order Date')} <span className="text-red-500">*</span>
               </label>
               <input
                 type="date"
@@ -285,7 +320,7 @@ export function SpecialDamageOrderModal({
             <div>
               <label className="block text-xs font-bold text-brand-forest mb-1 flex items-center gap-1.5">
                 <Receipt className="w-3.5 h-3.5 text-brand-forest" />
-                Order ID <span className="text-red-500">*</span>
+                {getFieldLabel('orderId', 'Order ID')} <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -299,239 +334,388 @@ export function SpecialDamageOrderModal({
           </div>
 
           {/* Row 2: Service Type & Total Pieces */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-brand-forest mb-1 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-brand-forest" />
-                Service Type <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={serviceType}
-                onChange={(e) => setServiceType(e.target.value)}
-                className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-border-subtle bg-white text-content-primary focus:ring-2 focus:ring-brand-forest focus:outline-none"
-              >
-                {SERVICE_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-              </select>
-              {serviceType === 'Other / Custom Service' && (
-                <input
-                  type="text"
-                  placeholder="Specify service name..."
-                  value={customService}
-                  onChange={(e) => setCustomService(e.target.value)}
-                  className="mt-2 w-full px-3 py-2 text-xs rounded-xl border border-border-subtle bg-white focus:ring-2 focus:ring-brand-forest focus:outline-none"
-                />
+          {(isFieldVisible('serviceType') || isFieldVisible('piecesCount')) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {isFieldVisible('serviceType') && (
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1 flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-brand-forest" />
+                    {getFieldLabel('serviceType', 'Service Type')} <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={serviceType}
+                    onChange={(e) => setServiceType(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-border-subtle bg-white text-content-primary focus:ring-2 focus:ring-brand-forest focus:outline-none"
+                  >
+                    {SERVICE_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                  {serviceType === 'Other / Custom Service' && (
+                    <input
+                      type="text"
+                      placeholder="Specify service name..."
+                      value={customService}
+                      onChange={(e) => setCustomService(e.target.value)}
+                      className="mt-2 w-full px-3 py-2 text-xs rounded-xl border border-border-subtle bg-white focus:ring-2 focus:ring-brand-forest focus:outline-none"
+                    />
+                  )}
+                </div>
+              )}
+
+              {isFieldVisible('piecesCount') && (
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1">
+                    {getFieldLabel('piecesCount', 'Total Pieces in Order')}{' '}
+                    <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={piecesCount}
+                    onChange={(e) => setPiecesCount(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-border-subtle bg-white text-content-primary focus:ring-2 focus:ring-brand-forest focus:outline-none"
+                  />
+                </div>
               )}
             </div>
-
-            <div>
-              <label className="block text-xs font-bold text-brand-forest mb-1">
-                Total Pieces in Order <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="number"
-                min="1"
-                required
-                value={piecesCount}
-                onChange={(e) => setPiecesCount(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-border-subtle bg-white text-content-primary focus:ring-2 focus:ring-brand-forest focus:outline-none"
-              />
-            </div>
-          </div>
+          )}
 
           {/* Row 3: Return Articles & Financials */}
-          <div className="p-3 rounded-2xl bg-[#F8FAF8] border border-border-subtle space-y-3">
-            <h3 className="text-xs font-black uppercase text-brand-forest tracking-wider flex items-center gap-1.5">
-              <RotateCcw className="w-3.5 h-3.5 text-brand-forest" />
-              Return & Financial Adjustments
-            </h3>
+          {showFinancials && (
+            <div className="p-3 rounded-2xl bg-[#F8FAF8] border border-border-subtle space-y-3">
+              <h3 className="text-xs font-black uppercase text-brand-forest tracking-wider flex items-center gap-1.5">
+                <RotateCcw className="w-3.5 h-3.5 text-brand-forest" />
+                Return & Financial Adjustments
+              </h3>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <div>
-                <label className="block text-[11px] font-bold text-content-muted mb-1">
-                  Return Pieces
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max={piecesCount}
-                  value={returnPiecesCount}
-                  onChange={(e) => setReturnPiecesCount(Math.max(0, parseInt(e.target.value) || 0))}
-                  className="w-full px-2.5 py-1.5 text-xs font-bold rounded-xl border border-border-subtle bg-white text-content-primary focus:ring-2 focus:ring-brand-forest focus:outline-none"
-                />
-              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                {isFieldVisible('returnPiecesCount') && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-content-muted mb-1">
+                      {getFieldLabel('returnPiecesCount', 'Return Pieces')}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max={piecesCount}
+                      value={returnPiecesCount}
+                      onChange={(e) =>
+                        setReturnPiecesCount(Math.max(0, parseInt(e.target.value) || 0))
+                      }
+                      className="w-full px-2.5 py-1.5 text-xs font-bold rounded-xl border border-border-subtle bg-white text-content-primary focus:ring-2 focus:ring-brand-forest focus:outline-none"
+                    />
+                  </div>
+                )}
 
-              <div>
-                <label className="block text-[11px] font-bold text-content-muted mb-1">
-                  Total Amount (₹)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  placeholder="₹ 0.00"
-                  value={totalAmount}
-                  onChange={(e) => handleTotalAmountChange(e.target.value)}
-                  className="w-full px-2.5 py-1.5 text-xs font-bold rounded-xl border border-border-subtle bg-white text-content-primary focus:ring-2 focus:ring-brand-forest focus:outline-none"
-                />
-              </div>
+                {isFieldVisible('totalAmount') && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-content-muted mb-1">
+                      {getFieldLabel('totalAmount', 'Total Amount (₹)')}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      placeholder="₹ 0.00"
+                      value={totalAmount}
+                      onChange={(e) => handleTotalAmountChange(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs font-bold rounded-xl border border-border-subtle bg-white text-content-primary focus:ring-2 focus:ring-brand-forest focus:outline-none"
+                    />
+                  </div>
+                )}
 
-              <div>
-                <label className="block text-[11px] font-bold text-red-600 mb-1">
-                  Return Amount (₹)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  placeholder="₹ 0.00"
-                  value={returnAmount}
-                  onChange={(e) => handleReturnAmountChange(e.target.value)}
-                  className="w-full px-2.5 py-1.5 text-xs font-bold rounded-xl border border-red-200 bg-red-50/50 text-red-700 focus:ring-2 focus:ring-red-400 focus:outline-none"
-                />
-              </div>
+                {isFieldVisible('returnAmount') && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-red-600 mb-1">
+                      {getFieldLabel('returnAmount', 'Return Amount (₹)')}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      placeholder="₹ 0.00"
+                      value={returnAmount}
+                      onChange={(e) => handleReturnAmountChange(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs font-bold rounded-xl border border-red-200 bg-red-50/50 text-red-700 focus:ring-2 focus:ring-red-400 focus:outline-none"
+                    />
+                  </div>
+                )}
 
-              <div>
-                <label className="block text-[11px] font-bold text-emerald-700 mb-1">
-                  Final Billing (₹)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  placeholder="₹ 0.00"
-                  value={finalBillingAmount}
-                  onChange={(e) => setFinalBillingAmount(e.target.value)}
-                  className="w-full px-2.5 py-1.5 text-xs font-bold rounded-xl border border-emerald-300 bg-emerald-50/50 text-emerald-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                />
+                {isFieldVisible('finalBillingAmount') && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-emerald-700 mb-1">
+                      {getFieldLabel('finalBillingAmount', 'Final Billing (₹)')}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      placeholder="₹ 0.00"
+                      value={finalBillingAmount}
+                      onChange={(e) => setFinalBillingAmount(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs font-bold rounded-xl border border-emerald-300 bg-emerald-50/50 text-emerald-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                )}
               </div>
             </div>
-          </div>
+          )}
 
           {/* Row 4: Reasons */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-brand-forest mb-1 flex items-center justify-between">
-                <span>Return Article Reason (Why)</span>
-                <span className="text-[10px] text-content-muted font-normal">Customer side</span>
-              </label>
-              <textarea
-                rows={2}
-                placeholder="Why is article returned? e.g. Customer reported torn hem / color bleed..."
-                value={returnReason}
-                onChange={(e) => setReturnReason(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl border border-border-subtle bg-white text-content-primary placeholder:text-content-muted/60 focus:ring-2 focus:ring-brand-forest focus:outline-none resize-none"
-              />
+          {(isFieldVisible('returnReason') || isFieldVisible('damageReason')) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {isFieldVisible('returnReason') && (
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1 flex items-center justify-between">
+                    <span>{getFieldLabel('returnReason', 'Return Article Reason (Why)')}</span>
+                    <span className="text-[10px] text-content-muted font-normal">Customer side</span>
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Why is article returned? e.g. Customer reported torn hem / color bleed..."
+                    value={returnReason}
+                    onChange={(e) => setReturnReason(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-border-subtle bg-white text-content-primary placeholder:text-content-muted/60 focus:ring-2 focus:ring-brand-forest focus:outline-none resize-none"
+                  />
+                </div>
+              )}
+
+              {isFieldVisible('damageReason') && (
+                <div>
+                  <label className="block text-xs font-bold text-brand-forest mb-1 flex items-center justify-between">
+                    <span>{getFieldLabel('damageReason', 'Damage Reason (How)')}</span>
+                    <span className="text-[10px] text-red-600 font-normal">Internal analysis</span>
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="How did damage happen? e.g. Iron burn during steam press / chemical spot..."
+                    value={damageReason}
+                    onChange={(e) => setDamageReason(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-border-subtle bg-white text-content-primary placeholder:text-content-muted/60 focus:ring-2 focus:ring-brand-forest focus:outline-none resize-none"
+                  />
+                </div>
+              )}
             </div>
+          )}
 
-            <div>
-              <label className="block text-xs font-bold text-brand-forest mb-1 flex items-center justify-between">
-                <span>Damage Reason (How)</span>
-                <span className="text-[10px] text-red-600 font-normal">Internal analysis</span>
-              </label>
-              <textarea
-                rows={2}
-                placeholder="How did damage happen? e.g. Iron burn during steam press / chemical spot..."
-                value={damageReason}
-                onChange={(e) => setDamageReason(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl border border-border-subtle bg-white text-content-primary placeholder:text-content-muted/60 focus:ring-2 focus:ring-brand-forest focus:outline-none resize-none"
-              />
-            </div>
-          </div>
+          {/* Row 5: Dynamic Custom Fields (Configured by Owner) */}
+          {config?.customFields &&
+            config.customFields.filter((cf) => cf.isVisible !== false).length > 0 && (
+              <div className="p-3.5 rounded-2xl bg-[#F8FAF8] border border-border-subtle space-y-3">
+                <h3 className="text-xs font-black uppercase text-brand-forest tracking-wider">
+                  Additional Store Custom Fields
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {config.customFields
+                    .filter((cf) => cf.isVisible !== false)
+                    .map((cf) => (
+                      <div key={cf.id || cf.key}>
+                        <label className="block text-xs font-bold text-brand-forest mb-1">
+                          {cf.label} {cf.isRequired && <span className="text-red-500">*</span>}
+                        </label>
 
-          {/* Row 5: Damage Photos (Max 10) */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-brand-forest flex items-center gap-1.5">
-                <Camera className="w-3.5 h-3.5 text-brand-forest" />
-                Proof & Damage Photos
-                <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-brand-forest/10 text-brand-forest">
-                  {photos.length}/10 photos
-                </span>
-              </label>
-              <span className="text-[10px] text-content-muted">Max 10 images</span>
-            </div>
+                        {cf.type === 'text' && (
+                          <input
+                            type="text"
+                            required={cf.isRequired}
+                            placeholder={`Enter ${cf.label}...`}
+                            value={String(customFieldValues[cf.key] ?? '')}
+                            onChange={(e) =>
+                              setCustomFieldValues((prev) => ({
+                                ...prev,
+                                [cf.key]: e.target.value,
+                              }))
+                            }
+                            className="w-full px-3 py-2 text-xs rounded-xl border border-border-subtle bg-white text-content-primary focus:ring-2 focus:ring-brand-forest focus:outline-none"
+                          />
+                        )}
 
-            {/* Photo Action Buttons */}
-            <div className="flex items-center gap-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={(e) => handleFileSelect(e.target.files)}
-              />
-              <input
-                ref={cameraInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={(e) => handleFileSelect(e.target.files)}
-              />
+                        {cf.type === 'textarea' && (
+                          <textarea
+                            rows={2}
+                            required={cf.isRequired}
+                            placeholder={`Enter ${cf.label}...`}
+                            value={String(customFieldValues[cf.key] ?? '')}
+                            onChange={(e) =>
+                              setCustomFieldValues((prev) => ({
+                                ...prev,
+                                [cf.key]: e.target.value,
+                              }))
+                            }
+                            className="w-full px-3 py-2 text-xs rounded-xl border border-border-subtle bg-white text-content-primary focus:ring-2 focus:ring-brand-forest focus:outline-none resize-none"
+                          />
+                        )}
 
-              <button
-                type="button"
-                disabled={photos.length >= 10 || isCompressing}
-                onClick={() => cameraInputRef.current?.click()}
-                className="flex-1 py-2 px-3 rounded-xl border border-brand-forest/30 bg-brand-forest/5 hover:bg-brand-forest/10 text-brand-forest text-xs font-bold flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
-              >
-                <Camera className="w-4 h-4" />
-                <span>Snap Camera</span>
-              </button>
+                        {cf.type === 'number' && (
+                          <input
+                            type="number"
+                            required={cf.isRequired}
+                            placeholder="0"
+                            value={String(customFieldValues[cf.key] ?? '')}
+                            onChange={(e) =>
+                              setCustomFieldValues((prev) => ({
+                                ...prev,
+                                [cf.key]: e.target.value,
+                              }))
+                            }
+                            className="w-full px-3 py-2 text-xs rounded-xl border border-border-subtle bg-white text-content-primary focus:ring-2 focus:ring-brand-forest focus:outline-none"
+                          />
+                        )}
 
-              <button
-                type="button"
-                disabled={photos.length >= 10 || isCompressing}
-                onClick={() => fileInputRef.current?.click()}
-                className="flex-1 py-2 px-3 rounded-xl border border-border-subtle bg-white hover:bg-surface-cream text-content-primary text-xs font-bold flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 shadow-sm"
-              >
-                <Upload className="w-4 h-4 text-brand-forest" />
-                <span>Upload Photos</span>
-              </button>
-            </div>
+                        {cf.type === 'select' && (
+                          <select
+                            required={cf.isRequired}
+                            value={String(customFieldValues[cf.key] ?? '')}
+                            onChange={(e) =>
+                              setCustomFieldValues((prev) => ({
+                                ...prev,
+                                [cf.key]: e.target.value,
+                              }))
+                            }
+                            className="w-full px-3 py-2 text-xs rounded-xl border border-border-subtle bg-white text-content-primary focus:ring-2 focus:ring-brand-forest focus:outline-none"
+                          >
+                            <option value="">-- Select {cf.label} --</option>
+                            {cf.options?.map((opt) => (
+                              <option key={opt} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                        )}
 
-            {isCompressing && (
-              <div className="flex items-center gap-2 text-xs text-brand-forest font-bold p-2 bg-brand-forest/5 rounded-xl">
-                <Loader2 className="w-4 h-4 animate-spin text-brand-forest" />
-                <span>Optimizing and compressing photos...</span>
+                        {cf.type === 'date' && (
+                          <input
+                            type="date"
+                            required={cf.isRequired}
+                            value={String(customFieldValues[cf.key] ?? '')}
+                            onChange={(e) =>
+                              setCustomFieldValues((prev) => ({
+                                ...prev,
+                                [cf.key]: e.target.value,
+                              }))
+                            }
+                            className="w-full px-3 py-2 text-xs rounded-xl border border-border-subtle bg-white text-content-primary focus:ring-2 focus:ring-brand-forest focus:outline-none"
+                          />
+                        )}
+
+                        {cf.type === 'boolean' && (
+                          <label className="flex items-center gap-2 mt-2 cursor-pointer text-xs font-bold text-content-primary">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(customFieldValues[cf.key])}
+                              onChange={(e) =>
+                                setCustomFieldValues((prev) => ({
+                                  ...prev,
+                                  [cf.key]: e.target.checked,
+                                }))
+                              }
+                              className="rounded text-brand-forest focus:ring-brand-forest w-4 h-4"
+                            />
+                            <span>Yes / Active</span>
+                          </label>
+                        )}
+                      </div>
+                    ))}
+                </div>
               </div>
             )}
 
-            {/* Thumbnail Gallery */}
-            {photos.length > 0 && (
-              <div className="grid grid-cols-5 sm:grid-cols-5 gap-2 pt-1">
-                {photos.map((photo, idx) => (
-                  <div
-                    key={idx}
-                    className="relative group rounded-xl overflow-hidden aspect-square border border-border-subtle bg-black/5"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={photo}
-                      alt={`Damage photo ${idx + 1}`}
-                      className="w-full h-full object-cover"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleRemovePhoto(idx)}
-                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center opacity-90 hover:opacity-100 shadow transition-transform active:scale-95"
-                      title="Remove image"
+          {/* Row 6: Damage Photos (Max 10) */}
+          {isFieldVisible('photos') && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-brand-forest flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5 text-brand-forest" />
+                  {getFieldLabel('photos', 'Proof & Damage Photos')}
+                  <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-brand-forest/10 text-brand-forest">
+                    {photos.length}/10 photos
+                  </span>
+                </label>
+                <span className="text-[10px] text-content-muted">Max 10 images</span>
+              </div>
+
+              {/* Photo Action Buttons */}
+              <div className="flex items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => handleFileSelect(e.target.files)}
+                />
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => handleFileSelect(e.target.files)}
+                />
+
+                <button
+                  type="button"
+                  disabled={photos.length >= 10 || isCompressing}
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="flex-1 py-2 px-3 rounded-xl border border-brand-forest/30 bg-brand-forest/5 hover:bg-brand-forest/10 text-brand-forest text-xs font-bold flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>Snap Camera</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={photos.length >= 10 || isCompressing}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex-1 py-2 px-3 rounded-xl border border-border-subtle bg-white hover:bg-surface-cream text-content-primary text-xs font-bold flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 shadow-sm"
+                >
+                  <Upload className="w-4 h-4 text-brand-forest" />
+                  <span>Upload Photos</span>
+                </button>
+              </div>
+
+              {isCompressing && (
+                <div className="flex items-center gap-2 text-xs text-brand-forest font-bold p-2 bg-brand-forest/5 rounded-xl">
+                  <Loader2 className="w-4 h-4 animate-spin text-brand-forest" />
+                  <span>Optimizing and compressing photos...</span>
+                </div>
+              )}
+
+              {/* Thumbnail Gallery */}
+              {photos.length > 0 && (
+                <div className="grid grid-cols-5 sm:grid-cols-5 gap-2 pt-1">
+                  {photos.map((photo, idx) => (
+                    <div
+                      key={idx}
+                      className="relative group rounded-xl overflow-hidden aspect-square border border-border-subtle bg-black/5"
                     >
-                      <X className="w-3 h-3 stroke-[3]" />
-                    </button>
-                    <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] font-bold px-1 rounded">
-                      #{idx + 1}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={photo}
+                        alt={`Damage photo ${idx + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePhoto(idx)}
+                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center opacity-90 hover:opacity-100 shadow transition-transform active:scale-95"
+                        title="Remove image"
+                      >
+                        <X className="w-3 h-3 stroke-[3]" />
+                      </button>
+                      <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] font-bold px-1 rounded">
+                        #{idx + 1}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border-subtle">
@@ -566,4 +750,3 @@ export function SpecialDamageOrderModal({
     </div>
   );
 }
-

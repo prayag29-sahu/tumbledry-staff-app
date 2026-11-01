@@ -493,6 +493,7 @@ model SpecialDamageOrder {
   reportedByAccountId String   @map("reported_by_account_id")
   status              String   @default("LOGGED") @map("status")
   notes               String?
+  customFields        Json?    @map("custom_fields")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
