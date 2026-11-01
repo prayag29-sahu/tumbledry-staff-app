@@ -4222,7 +4222,21 @@ function ManagerPageInner() {
             <span className="text-[10px]">Attendance</span>
           </button>
 
-          <button
+                    <button
+            onClick={() => {
+              setActiveDrilldown(null);
+              setCurrentNav('damage');
+            }}
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-2 transition-all ${currentNav === 'damage' && !activeDrilldown
+                ? 'text-red-700 font-bold scale-105'
+                : 'text-content-muted hover:text-red-600 font-medium'
+              }`}
+          >
+            <AlertTriangle className="w-5 h-5 stroke-[2.2]" />
+            <span className="text-[10px]">Damage</span>
+          </button>
+
+<button
             onClick={() => {
               setActiveDrilldown(null);
               setCurrentNav('reports');
