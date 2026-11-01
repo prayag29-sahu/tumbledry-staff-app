@@ -2439,47 +2439,31 @@ function ManagerPageInner() {
                         key={assignment.id}
                         className="bg-white p-4 rounded-2xl border border-border-subtle shadow-sm space-y-3 text-xs"
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-start gap-3">
+                        {/* Top Header Row: Status Icon + Order ID + Completion Badge + Pieces Toggle */}
+                        <div className="flex items-center justify-between gap-2 pb-2 border-b border-border-subtle/50">
+                          <div className="flex items-center gap-2 min-w-0">
                             <div
-                              className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
                                 isAllCompleted ? 'bg-emerald-100 text-emerald-800' : 'bg-surface-cream text-content-muted border border-border-subtle'
                               }`}
                             >
                               <CheckCircle2 className="w-4 h-4" />
                             </div>
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className={`px-2.5 py-0.5 rounded-lg font-mono text-xs font-black ${
-                                  assignment.orderId ? 'bg-blue-100 text-blue-900 border border-blue-200' : 'bg-amber-100 text-amber-900 border border-amber-200'
-                                }`}>
-                                  {assignment.orderId ? `Order #${assignment.orderId}` : 'Pickup Request'}
-                                </span>
-                                {isRolledOver && (
-                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                                    Rolled from {rolledOverDate}
-                                  </span>
-                                )}
-                                <span className="px-2 py-0.5 rounded-md text-[11px] font-extrabold bg-surface-cream text-brand-forest border border-border-subtle">
-                                  {assignment.pieceCount ? `${assignment.pieceCount} pcs` : assignment.pickupCount ? `${assignment.pickupCount} pickups` : `${assignment.taskUnits.length} pcs`}
-                                </span>
-                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white text-content-muted border border-border-subtle">
-                                  {assignment.serviceType?.name || assignment.workflowProfile?.name || 'Garment Task'}
-                                </span>
-                              </div>
-
-                              {/* Target / Completed timing */}
-                              <p className="text-[11px] text-content-muted">
-                                {isAllCompleted && lastCompletedAt
-                                  ? `Completed at ${new Date(lastCompletedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
-                                  : `Assigned: ${new Date(assignment.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`}
-                              </p>
-                            </div>
+                            <span className={`px-2.5 py-0.5 rounded-lg font-mono text-xs font-black truncate ${
+                              assignment.orderId ? 'bg-blue-100 text-blue-900 border border-blue-200' : 'bg-amber-100 text-amber-900 border border-amber-200'
+                            }`}>
+                              {assignment.orderId ? `Order #${assignment.orderId}` : 'Pickup Request'}
+                            </span>
+                            {isRolledOver && (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200 shrink-0">
+                                Rolled from {rolledOverDate || 'Prev Date'}
+                              </span>
+                            )}
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex items-center gap-1.5 shrink-0">
                             <span
-                              className={`inline-block px-2.5 py-1 rounded-lg text-[10px] font-black ${
+                              className={`inline-block px-2.5 py-0.5 rounded-lg text-[10px] font-black ${
                                 isAllCompleted ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-amber-100 text-amber-800 border border-amber-200'
                               }`}
                             >
@@ -2487,8 +2471,42 @@ function ManagerPageInner() {
                                 ? 'Completed'
                                 : `${completedCount}/${assignment.taskUnits.length} Done`}
                             </span>
+                            {assignment.taskUnits.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setExpandedAssignmentIds((prev) => ({ ...prev, [assignment.id]: !prev[assignment.id] }))}
+                                className="px-2.5 py-0.5 rounded-lg bg-surface-cream text-brand-forest font-bold text-[10px] border border-border-subtle hover:bg-surface-hover transition-colors flex items-center gap-1"
+                              >
+                                <span>{isExpanded ? 'Hide' : 'Pieces'}</span>
+                                <span className="text-[8px]">{isExpanded ? '▲' : '▼'}</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Middle Info Row: Pieces & Service Type Badges + Timestamp */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-md text-[11px] font-extrabold bg-surface-cream text-brand-forest border border-border-subtle">
+                              {assignment.pieceCount ? `${assignment.pieceCount} pcs` : assignment.pickupCount ? `${assignment.pickupCount} pickups` : `${assignment.taskUnits.length} pcs`}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white text-content-muted border border-border-subtle">
+                              {assignment.serviceType?.name || assignment.workflowProfile?.name || 'Garment Task'}
+                            </span>
+                          </div>
+
+                          <p className="text-[11px] text-content-muted shrink-0">
+                            {isAllCompleted && lastCompletedAt
+                              ? `Completed at ${new Date(lastCompletedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+                              : `Assigned: ${new Date(assignment.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`}
+                          </p>
+                        </div>
+
+                        {/* Shift / Action Status Row */}
+                        {(isAlreadyShifted || !isAllCompleted) && (
+                          <div className="pt-2 border-t border-border-subtle/50 flex items-center justify-between gap-2">
                             {isAlreadyShifted ? (
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center justify-between w-full gap-2">
                                 <span className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 font-bold text-[10px] border border-purple-200 flex items-center gap-1 shadow-sm">
                                   <Calendar className="w-3 h-3 text-purple-600" />
                                   <span>Shifted to {shiftedToDate || 'New Date'}</span>
@@ -2497,35 +2515,28 @@ function ManagerPageInner() {
                                   type="button"
                                   disabled={isUndoingShiftId === assignment.id}
                                   onClick={() => handleUndoShift(assignment)}
-                                  className="touch-manipulation active:scale-95 px-2 py-1 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold text-[10px] border border-rose-200 flex items-center gap-1 transition-all shadow-sm disabled:opacity-50"
+                                  className="touch-manipulation active:scale-95 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold text-[10px] border border-rose-200 flex items-center gap-1 transition-all shadow-sm disabled:opacity-50"
                                   title="Undo shift and restore this task"
                                 >
                                   <RotateCcw className={`w-3 h-3 text-rose-600 ${isUndoingShiftId === assignment.id ? 'animate-spin' : ''}`} />
-                                  <span>Undo</span>
+                                  <span>Undo Shift</span>
                                 </button>
                               </div>
-                            ) : !isAllCompleted ? (
-                              <button
-                                type="button"
-                                onClick={() => handleOpenReschedule(assignment)}
-                                className="touch-manipulation active:scale-95 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 font-bold text-[10px] border border-blue-200 hover:bg-blue-100 flex items-center gap-1 transition-all shadow-sm"
-                                title="Shift task to another date (creates duplicate on target date & keeps history)"
-                              >
-                                <Calendar className="w-3 h-3 text-blue-600" />
-                                <span>Shift Date</span>
-                              </button>
-                            ) : null}
-                            {assignment.taskUnits.length > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => setExpandedAssignmentIds((prev) => ({ ...prev, [assignment.id]: !prev[assignment.id] }))}
-                                className="px-2.5 py-1 rounded-lg bg-surface-cream text-brand-forest font-bold text-[10px] border border-border-subtle hover:bg-surface-hover transition-colors"
-                              >
-                                {isExpanded ? 'Hide' : 'Pieces'}
-                              </button>
+                            ) : (
+                              <div className="flex items-center justify-end w-full">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenReschedule(assignment)}
+                                  className="touch-manipulation active:scale-95 px-3 py-1 rounded-lg bg-blue-50 text-blue-700 font-bold text-[10px] border border-blue-200 hover:bg-blue-100 flex items-center gap-1.5 transition-all shadow-sm"
+                                  title="Shift task to another date (creates duplicate on target date & keeps history)"
+                                >
+                                  <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                                  <span>Shift Date</span>
+                                </button>
+                              </div>
                             )}
                           </div>
-                        </div>
+                        )}
 
                         {/* Customer Mobile & 1-Tap Call & WhatsApp Direct Actions */}
                         {cleanMobile && (

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { apiRequest } from '../lib/api';
 import {
   X,
   Eye,
@@ -178,16 +179,13 @@ export function DamageOrderFieldConfigModal({
     };
 
     try {
-      const res = await fetch(`/api/shops/${shopId}/special-damage-orders/config`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(configPayload),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.message || 'Failed to save field configuration');
-      }
+      await apiRequest<{ config: DamageOrderFieldsConfig; message: string }>(
+        `/api/shops/${shopId}/special-damage-orders/config`,
+        {
+          method: 'PUT',
+          body: JSON.stringify(configPayload),
+        }
+      );
 
       onSuccess(configPayload);
       onClose();

@@ -17,6 +17,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { localDateKey, formatDisplayDate } from '../lib/dateUtils';
+import { apiRequest } from '../lib/api';
 import { SpecialDamageOrderModal } from './SpecialDamageOrderModal';
 import { SpecialDamagePhotoViewerModal } from './SpecialDamagePhotoViewerModal';
 import {
@@ -104,11 +105,12 @@ export function SpecialDamageOrdersSection({
       if (selectedMonth) params.append('month', selectedMonth);
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
 
-      const res = await fetch(`/api/shops/${shopId}/special-damage-orders?${params.toString()}`);
-      if (!res.ok) {
-        throw new Error('Failed to load damage orders');
-      }
-      const data = await res.json();
+      const data = await apiRequest<{
+        orders: SpecialDamageOrderItem[];
+        summary: SummaryData;
+        config?: DamageOrderFieldsConfig;
+      }>(`/api/shops/${shopId}/special-damage-orders?${params.toString()}`);
+
       setOrders(data.orders || []);
       if (data.summary) {
         setSummary(data.summary);
@@ -164,13 +166,10 @@ export function SpecialDamageOrdersSection({
 
     setDeletingId(id);
     try {
-      const res = await fetch(`/api/shops/${shopId}/special-damage-orders/${id}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || 'Failed to delete damage order');
-      }
+      await apiRequest<{ success: boolean; message: string }>(
+        `/api/shops/${shopId}/special-damage-orders/${id}`,
+        { method: 'DELETE' }
+      );
       if (onShowToast) {
         onShowToast(`Order #${orderId} deleted successfully.`, 'success');
       }

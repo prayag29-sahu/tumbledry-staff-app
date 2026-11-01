@@ -14,6 +14,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { localDateKey } from '../lib/dateUtils';
+import { apiRequest } from '../lib/api';
 import { DamageOrderFieldsConfig } from './DamageOrderFieldConfigModal';
 
 interface SpecialDamageOrderModalProps {
@@ -210,30 +211,27 @@ export function SpecialDamageOrderModal({
 
     setIsSubmitting(true);
     try {
-      const res = await fetch(`/api/shops/${shopId}/special-damage-orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderDate,
-          orderId: trimmedOrderId,
-          serviceType: resolvedService,
-          piecesCount: Number(piecesCount) || 1,
-          totalAmount: numTotalAmount,
-          returnPiecesCount: Number(returnPiecesCount) || 0,
-          returnAmount: numReturnAmount,
-          finalBillingAmount: numFinalBilling,
-          returnReason: returnReason.trim() || null,
-          damageReason: damageReason.trim() || null,
-          notes: notes.trim() || null,
-          photos,
-          customFields: customFieldValues,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.message || 'Failed to save damage order.');
-      }
+      await apiRequest<{ order: unknown; message: string }>(
+        `/api/shops/${shopId}/special-damage-orders`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            orderDate,
+            orderId: trimmedOrderId,
+            serviceType: resolvedService,
+            piecesCount: Number(piecesCount) || 1,
+            totalAmount: numTotalAmount,
+            returnPiecesCount: Number(returnPiecesCount) || 0,
+            returnAmount: numReturnAmount,
+            finalBillingAmount: numFinalBilling,
+            returnReason: returnReason.trim() || null,
+            damageReason: damageReason.trim() || null,
+            notes: notes.trim() || null,
+            photos,
+            customFields: customFieldValues,
+          }),
+        }
+      );
 
       // Reset form
       setOrderId('');

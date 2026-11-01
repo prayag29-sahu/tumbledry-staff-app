@@ -2206,28 +2206,37 @@ export default function SupervisorPage() {
 
                       return (
                         <div key={assignment.id} className="bg-white rounded-2xl border border-border-subtle shadow-clay-sm p-4 space-y-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className={`px-2 py-0.5 rounded-lg font-black text-xs font-mono ${
+                          {/* Top Row: Order ID + Status Badge */}
+                          <div className="flex items-center justify-between gap-2 pb-2 border-b border-border-subtle/50">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`px-2.5 py-0.5 rounded-lg font-black text-xs font-mono truncate ${
                                 assignment.orderId ? 'bg-blue-100 text-blue-900 border border-blue-200' : 'bg-amber-100 text-amber-900 border border-amber-200'
                               }`}>
                                 {assignment.orderId ? `Order #${assignment.orderId}` : 'Pickup Request'}
                               </span>
                               {isRolledOver && (
-                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                                  Rolled from {rolledOverDate}
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200 shrink-0">
+                                  Rolled from {rolledOverDate || 'Prev Date'}
                                 </span>
                               )}
-                              <span className="text-xs font-bold text-brand-forest">
-                                {assignment.pieceCount || totalCount} pieces • {assignment.serviceType?.name || assignment.workflowProfile?.name || 'Task Batch'}
-                              </span>
                             </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-xs font-bold text-red-600">
-                                {completedCount}/{totalCount} Completed
-                              </span>
+                            <span className="text-xs font-bold text-red-600 shrink-0">
+                              {completedCount}/{totalCount} Completed
+                            </span>
+                          </div>
+
+                          {/* Middle Info Row */}
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-xs font-bold text-brand-forest">
+                              {assignment.pieceCount || totalCount} pieces • {assignment.serviceType?.name || assignment.workflowProfile?.name || 'Task Batch'}
+                            </span>
+                          </div>
+
+                          {/* Shift Action Bar */}
+                          {(isAlreadyShifted || completedCount < totalCount) && (
+                            <div className="pt-2 border-t border-border-subtle/50 flex items-center justify-between gap-2">
                               {isAlreadyShifted ? (
-                                <div className="flex items-center gap-1.5">
+                                <div className="flex items-center justify-between w-full gap-2">
                                   <span className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 font-bold text-[10px] border border-purple-200 flex items-center gap-1 shadow-sm">
                                     <Calendar className="w-3 h-3 text-purple-600" />
                                     <span>Shifted to {shiftedToDate || 'New Date'}</span>
@@ -2236,26 +2245,28 @@ export default function SupervisorPage() {
                                     type="button"
                                     disabled={isUndoingShiftId === assignment.id}
                                     onClick={() => handleUndoShift(assignment)}
-                                    className="touch-manipulation active:scale-95 px-2 py-1 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold text-[10px] border border-rose-200 flex items-center gap-1 transition-all shadow-sm disabled:opacity-50"
+                                    className="touch-manipulation active:scale-95 px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold text-[10px] border border-rose-200 flex items-center gap-1 transition-all shadow-sm disabled:opacity-50"
                                     title="Undo shift and restore this task"
                                   >
                                     <RotateCcw className={`w-3 h-3 text-rose-600 ${isUndoingShiftId === assignment.id ? 'animate-spin' : ''}`} />
-                                    <span>Undo</span>
+                                    <span>Undo Shift</span>
                                   </button>
                                 </div>
-                              ) : completedCount < totalCount ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenReschedule(assignment)}
-                                  className="touch-manipulation active:scale-95 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 font-bold text-[10px] border border-blue-200 hover:bg-blue-100 flex items-center gap-1 transition-all shadow-sm"
-                                  title="Shift task to another date (creates duplicate on target date & keeps history)"
-                                >
-                                  <Calendar className="w-3 h-3 text-blue-600" />
-                                  <span>Shift Date</span>
-                                </button>
-                              ) : null}
+                              ) : (
+                                <div className="flex items-center justify-end w-full">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenReschedule(assignment)}
+                                    className="touch-manipulation active:scale-95 px-3 py-1 rounded-lg bg-blue-50 text-blue-700 font-bold text-[10px] border border-blue-200 hover:bg-blue-100 flex items-center gap-1.5 transition-all shadow-sm"
+                                    title="Shift task to another date (creates duplicate on target date & keeps history)"
+                                  >
+                                    <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                                    <span>Shift Date</span>
+                                  </button>
+                                </div>
+                              )}
                             </div>
-                          </div>
+                          )}
 
                           {/* Customer Contact & Call/WhatsApp Actions */}
                           {cleanMobile && (
