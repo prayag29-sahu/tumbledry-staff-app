@@ -35,6 +35,7 @@ model Shop {
   taskUnits           TaskUnit[]
   attendanceSessions  AttendanceSession[]
   damageIncidents     DamageIncident[]
+  specialDamageOrders SpecialDamageOrder[]
   auditLogs           AuditLog[]
   appSettings         AppSetting[]
   customFieldDefs     CustomFieldDefinition[]
@@ -69,6 +70,7 @@ model Account {
 
   shopMemberships  ShopMembership[]
   refreshSessions  RefreshSession[]
+  specialDamageOrders SpecialDamageOrder[]
   auditLogsAsActor AuditLog[] @relation("AuditActor")
 
   @@map("accounts")
@@ -469,6 +471,37 @@ enum DamageStatus {
   UNDER_REVIEW
   CLOSED
   DISPUTED
+}
+
+// ─────────────────────────────────────────────
+// SPECIAL DAMAGE ORDERS
+// ─────────────────────────────────────────────
+model SpecialDamageOrder {
+  id                  String   @id @default(uuid())
+  shopId              String   @map("shop_id")
+  orderDate           String   @map("order_date") // YYYY-MM-DD
+  orderId             String   @map("order_id")
+  totalAmount         Float    @default(0) @map("total_amount")
+  serviceType         String   @map("service_type")
+  piecesCount         Int      @default(1) @map("pieces_count")
+  returnPiecesCount   Int      @default(0) @map("return_pieces_count")
+  returnReason        String?  @map("return_reason")
+  damageReason        String?  @map("damage_reason")
+  returnAmount        Float    @default(0) @map("return_amount")
+  finalBillingAmount  Float    @default(0) @map("final_billing_amount")
+  photos              String[] @default([]) @map("photos")
+  reportedByAccountId String   @map("reported_by_account_id")
+  status              String   @default("LOGGED") @map("status")
+  notes               String?
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  shop                Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  reportedByAccount   Account  @relation(fields: [reportedByAccountId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, orderDate])
+  @@index([shopId, orderId])
+  @@map("special_damage_orders")
 }
 
 // ─────────────────────────────────────────────

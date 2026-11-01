@@ -59,6 +59,7 @@ import { CatalogueRolesPanel, workflowLabel } from '../../components/owner/Catal
 import { CustomFieldsPanel } from '../../components/owner/CustomFieldsPanel';
 import { AuditLogPanel } from '../../components/owner/AuditLogPanel';
 import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
+import { SpecialDamageOrdersSection } from '../../components/SpecialDamageOrdersSection';
 
 /** Helper to extract address / location and remaining clean notes from assignment notes */
 function parseAssignmentNotes(notes?: string | null) {
@@ -394,7 +395,7 @@ function OwnerPageInner() {
 
   // Branch Operational Inspection State
   const [branchDate, setBranchDate] = useState<string>(() => localDateKey());
-  const [branchSubTab, setBranchSubTab] = useState<'workforce' | 'tasks' | 'attendance' | 'leaderboard'>('workforce');
+  const [branchSubTab, setBranchSubTab] = useState<'workforce' | 'tasks' | 'attendance' | 'damage' | 'leaderboard'>('workforce');
   const [branchDashboard, setBranchDashboard] = useState<BranchDashboardData | null>(null);
   const [isLoadingBranchDashboard, setIsLoadingBranchDashboard] = useState(false);
   const [branchTasks, setBranchTasks] = useState<BranchTaskAssignment[]>([]);
@@ -1660,6 +1661,18 @@ function OwnerPageInner() {
                 </button>
 
                 <button
+                  onClick={() => setBranchSubTab('damage')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
+                    branchSubTab === 'damage'
+                      ? 'bg-red-700 text-white shadow-sm'
+                      : 'text-content-muted hover:text-red-700'
+                  }`}
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>Damage Orders</span>
+                </button>
+
+                <button
                   onClick={() => setBranchSubTab('leaderboard')}
                   className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
                     branchSubTab === 'leaderboard'
@@ -2381,6 +2394,18 @@ function OwnerPageInner() {
                       )}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* ═════════════════════════════════════════════════════════════════
+                  SUB-TAB: SPECIAL DAMAGE ORDERS
+              ═════════════════════════════════════════════════════════════════ */}
+              {branchSubTab === 'damage' && selectedShopId && (
+                <div className="space-y-4">
+                  <SpecialDamageOrdersSection
+                    shopId={selectedShopId}
+                    mode="owner"
+                  />
                 </div>
               )}
 

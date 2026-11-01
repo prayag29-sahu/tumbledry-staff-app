@@ -58,6 +58,7 @@ import {
 import { DamageModal } from '../../components/DamageModal';
 import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
 import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
+import { SpecialDamageOrdersSection } from '../../components/SpecialDamageOrdersSection';
 
 function formatTime12h(timeStr: string | null | undefined): string {
   if (!timeStr) return '';
@@ -388,7 +389,7 @@ export default function SupervisorPage() {
   }, [user, isAuthLoading, router]);
 
   // Root Navigation View: 'dashboard' (Screen 10), 'staff_list' (Screen 2), 'attendance', 'reports', 'more' (Screen 5)
-  const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'reports' | 'more'>('dashboard');
+  const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'damage' | 'reports' | 'more'>('dashboard');
 
   // Drilldown Views: null | 'add_staff' (Screens 3&4) | 'staff_profile' (Screens 6-9) | 'supervisor_profile'
   const [activeDrilldown, setActiveDrilldown] = useState<'add_staff' | 'staff_profile' | 'supervisor_profile' | null>(null);
@@ -4089,6 +4090,19 @@ export default function SupervisorPage() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════════
+          MAIN SCREEN: DAMAGE & SPECIAL ORDERS (WHEN currentNav === 'damage')
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {!activeDrilldown && currentNav === 'damage' && (
+        <div className="p-4 space-y-4 animate-fade-in pb-24">
+          <SpecialDamageOrdersSection
+            shopId={activeShopId || user?.shopMemberships?.[0]?.shopId || ''}
+            mode="supervisor"
+            onShowToast={showTaskToast}
+          />
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
           MAIN SCREEN: BRANCH REPORTS & ANALYTICS (WHEN currentNav === 'reports')
       ══════════════════════════════════════════════════════════════════════════ */}
       {!activeDrilldown && currentNav === 'reports' && (
@@ -4349,6 +4363,21 @@ export default function SupervisorPage() {
           >
             <CalendarCheck2 className="w-5 h-5" />
             <span>Attendance</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveDrilldown(null);
+              setCurrentNav('damage');
+            }}
+            className={`flex flex-col items-center gap-1 py-1 px-2 transition-all ${
+              !activeDrilldown && currentNav === 'damage'
+                ? 'text-red-700 font-black'
+                : 'text-content-muted'
+            }`}
+          >
+            <AlertTriangle className="w-5 h-5" />
+            <span>Damage</span>
           </button>
 
           <button

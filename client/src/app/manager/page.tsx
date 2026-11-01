@@ -50,6 +50,7 @@ import { DamageModal } from '../../components/DamageModal';
 import { LiveCameraModal } from '../../components/LiveCameraModal';
 import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
 import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
+import { SpecialDamageOrdersSection } from '../../components/SpecialDamageOrdersSection';
 
 /** Human-understandable representation of system permissions */
 const HUMAN_CAPABILITIES: Record<string, { label: string; desc: string; icon: string }> = {
@@ -325,7 +326,7 @@ function ManagerPageInner() {
   }, [isAuthLoading, user, isManagerAllowed, activeRole, router]);
 
   // Navigation State (5 Main Screens via Bottom Nav)
-  const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'reports' | 'profile'>('dashboard');
+  const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'damage' | 'reports' | 'profile'>('dashboard');
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
 
   // Damage Incident Viewer
@@ -4039,6 +4040,19 @@ function ManagerPageInner() {
       )}
     </div>
   )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          MAIN SCREEN: DAMAGE & SPECIAL ORDERS (FROM BOTTOM NAV)
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {!activeDrilldown && currentNav === 'damage' && (
+        <div className="p-4 space-y-4 animate-fade-in">
+          <SpecialDamageOrdersSection
+            shopId={activeShopId || user?.shopMemberships?.[0]?.shopId || ''}
+            mode="manager"
+            onShowToast={showTaskToast}
+          />
+        </div>
+      )}
 
       {/* ══════════════════════════════════════════════════════════════════════════
           MAIN SCREEN 4: REPORTS OVERVIEW (FROM BOTTOM NAV)
