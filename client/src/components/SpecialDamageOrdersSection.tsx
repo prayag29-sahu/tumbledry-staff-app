@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   AlertTriangle,
   Plus,
@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Settings,
+  X,
 } from 'lucide-react';
 import { localDateKey, formatDisplayDate } from '../lib/dateUtils';
 import { apiRequest } from '../lib/api';
@@ -76,6 +77,7 @@ export function SpecialDamageOrdersSection({
   const currentMonthKey = localDateKey().slice(0, 7); // "YYYY-MM"
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [orders, setOrders] = useState<SpecialDamageOrderItem[]>([]);
   const [config, setConfig] = useState<DamageOrderFieldsConfig | null>(null);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
@@ -97,13 +99,27 @@ export function SpecialDamageOrdersSection({
   } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // Keep a stable ref to onShowToast so fetchOrders doesn't re-trigger when parent re-renders
+  const toastRef = useRef(onShowToast);
+  useEffect(() => {
+    toastRef.current = onShowToast;
+  }, [onShowToast]);
+
+  // Debounce search input by 300ms to avoid constant API hammering
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
+
   const fetchOrders = useCallback(async () => {
     if (!shopId) return;
     setIsLoading(true);
     try {
       const params = new URLSearchParams();
       if (selectedMonth) params.append('month', selectedMonth);
-      if (searchQuery.trim()) params.append('search', searchQuery.trim());
+      if (debouncedSearch) params.append('search', debouncedSearch);
 
       const data = await apiRequest<{
         orders: SpecialDamageOrderItem[];
@@ -120,12 +136,13 @@ export function SpecialDamageOrdersSection({
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error fetching orders';
-      if (onShowToast) onShowToast(msg, 'error');
+      toastRef.current?.(msg, 'error');
     } finally {
       setIsLoading(false);
     }
-  }, [shopId, selectedMonth, searchQuery, onShowToast]);
+  }, [shopId, selectedMonth, debouncedSearch]);
 
+  // Fetch when shopId, selectedMonth, or debouncedSearch changes
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
@@ -170,13 +187,11 @@ export function SpecialDamageOrdersSection({
         `/api/shops/${shopId}/special-damage-orders/${id}`,
         { method: 'DELETE' }
       );
-      if (onShowToast) {
-        onShowToast(`Order #${orderId} deleted successfully.`, 'success');
-      }
+      toastRef.current?.(`Order #${orderId} deleted successfully.`, 'success');
       fetchOrders();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error deleting damage order';
-      if (onShowToast) onShowToast(msg, 'error');
+      toastRef.current?.(msg, 'error');
     } finally {
       setDeletingId(null);
     }
@@ -185,21 +200,21 @@ export function SpecialDamageOrdersSection({
   return (
     <div className="space-y-4 animate-fade-in pb-16">
       {/* Top Header Card */}
-      <div className="bg-surface-card rounded-2xl sm:rounded-clay border border-border-subtle p-4 sm:p-5 shadow-clay-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+      <div className="bg-white rounded-2xl border border-border-subtle p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center shadow-sm flex-shrink-0">
-            <AlertTriangle className="w-6 h-6 stroke-[2.2]" />
+          <div className="w-10 h-10 rounded-xl bg-surface-cream text-brand-forest border border-border-subtle flex items-center justify-center flex-shrink-0 shadow-sm">
+            <AlertTriangle className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base sm:text-lg font-black text-brand-forest">
                 Damage & Special Orders
               </h2>
-              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-red-100 text-red-700">
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-surface-cream text-brand-forest border border-border-subtle">
                 {mode === 'owner' ? 'Branch' : mode === 'supervisor' ? 'Shop' : 'Direct'} • {orders.length} Records
               </span>
             </div>
-            <p className="text-xs text-content-muted">
+            <p className="text-xs text-content-muted mt-0.5">
               Customer returns, damaged garments, reason analysis & billing adjustments
             </p>
           </div>
@@ -209,128 +224,139 @@ export function SpecialDamageOrdersSection({
           {mode === 'owner' && (
             <button
               onClick={() => setIsConfigModalOpen(true)}
-              className="px-3 py-2.5 rounded-xl border border-border-subtle bg-white hover:bg-surface-cream text-content-primary font-bold text-xs shadow-sm flex items-center justify-center gap-1.5 transition-colors"
+              className="px-3 py-2 rounded-xl border border-border-subtle bg-white hover:bg-surface-cream text-content-primary font-bold text-xs shadow-sm flex items-center justify-center gap-1.5 transition-colors"
               title="Configure Field Labels, Visibility and Custom Fields"
             >
-              <Settings className="w-4 h-4 text-brand-forest" />
-              <span className="hidden sm:inline">Configure Fields</span>
+              <Settings className="w-3.5 h-3.5 text-brand-forest" />
+              <span className="hidden sm:inline">Fields</span>
             </button>
           )}
 
           <button
             onClick={() => fetchOrders()}
             disabled={isLoading}
-            className="p-2.5 rounded-xl border border-border-subtle hover:bg-surface-cream text-content-muted hover:text-brand-forest transition-colors shadow-sm"
+            className="p-2 rounded-xl border border-border-subtle hover:bg-surface-cream text-content-muted hover:text-brand-forest transition-colors shadow-sm"
             title="Refresh"
           >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
 
           <button
             onClick={() => setIsAddModalOpen(true)}
-            className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-brand-forest hover:bg-brand-forest/90 text-white font-black text-xs shadow-clay-sm flex items-center justify-center gap-2 transition-transform active:scale-95"
+            className="flex-1 sm:flex-initial px-3.5 py-2 rounded-xl bg-brand-forest hover:bg-brand-forest/90 text-brand-lime font-black text-xs shadow-sm flex items-center justify-center gap-1.5 transition-transform active:scale-95"
           >
             <Plus className="w-4 h-4 stroke-[3]" />
-            <span>+ Add Damage Order</span>
+            <span>Add Damage Order</span>
           </button>
         </div>
       </div>
 
       {/* Month Selector & Search Filter */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        {/* Month Selector Bar */}
-        <div className="flex items-center gap-1.5 bg-surface-card rounded-2xl border border-border-subtle p-1.5 shadow-sm">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+        {/* Sleek, Self-Contained Month Selector Bar (No Overflow!) */}
+        <div className="flex items-center justify-between sm:justify-start gap-1 bg-white rounded-xl border border-border-subtle p-1 shadow-sm">
           <button
             onClick={handlePrevMonth}
-            className="p-1.5 rounded-xl hover:bg-surface-cream text-content-muted hover:text-brand-forest transition-colors"
+            className="p-1.5 rounded-lg hover:bg-surface-cream text-content-muted hover:text-brand-forest transition-colors"
             title="Previous Month"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
 
-          <div className="flex items-center gap-1.5 px-2">
+          {/* Clickable Month Label with Transparent Native Month Input Overlay */}
+          <div className="relative flex items-center justify-center gap-1.5 px-3 py-1 rounded-lg hover:bg-surface-cream cursor-pointer transition-colors">
             <Calendar className="w-3.5 h-3.5 text-brand-forest" />
-            <span className="text-xs font-black text-brand-forest min-w-[120px] text-center">
+            <span className="text-xs font-black text-brand-forest select-none whitespace-nowrap">
               {formatMonthTitle(selectedMonth)}
             </span>
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => {
+                if (e.target.value) setSelectedMonth(e.target.value);
+              }}
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              title="Click to select month"
+            />
           </div>
 
           <button
             onClick={handleNextMonth}
-            className="p-1.5 rounded-xl hover:bg-surface-cream text-content-muted hover:text-brand-forest transition-colors"
+            className="p-1.5 rounded-lg hover:bg-surface-cream text-content-muted hover:text-brand-forest transition-colors"
             title="Next Month"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
-
-          <input
-            type="month"
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            className="ml-1 px-2 py-1 text-xs rounded-xl border border-border-subtle bg-white text-content-primary focus:outline-none focus:ring-1 focus:ring-brand-forest"
-          />
         </div>
 
         {/* Search input */}
-        <div className="relative flex-1 max-w-xs">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
+        <div className="relative flex-1 sm:max-w-xs">
+          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-content-muted pointer-events-none" />
           <input
             type="text"
             placeholder="Search Order ID, service..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 text-xs rounded-2xl border border-border-subtle bg-surface-card text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-2 focus:ring-brand-forest"
+            className="w-full pl-8 pr-7 py-1.5 text-xs rounded-xl border border-border-subtle bg-white text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-2 focus:ring-brand-forest"
           />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-content-muted hover:text-content-primary"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Monthly Summary Statistics Cards (4 Cards) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="p-3 sm:p-4 rounded-2xl bg-surface-card border border-border-subtle shadow-sm space-y-1">
-          <p className="text-[10px] font-black uppercase text-content-muted tracking-wider">
+      {/* Monthly Summary Statistics Cards (4 Clean Cards) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <div className="p-3 rounded-2xl bg-white border border-border-subtle shadow-sm space-y-1">
+          <p className="text-[10px] font-bold uppercase text-content-muted tracking-wider">
             Total Damage Orders
           </p>
-          <div className="flex items-baseline gap-2">
-            <span className="text-xl sm:text-2xl font-black text-brand-forest">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-xl font-black text-brand-forest">
               {summary.totalOrders}
             </span>
-            <span className="text-[11px] text-content-muted font-bold">orders</span>
+            <span className="text-[11px] text-content-muted font-medium">orders</span>
           </div>
         </div>
 
-        <div className="p-3 sm:p-4 rounded-2xl bg-surface-card border border-border-subtle shadow-sm space-y-1">
-          <p className="text-[10px] font-black uppercase text-red-600 tracking-wider">
+        <div className="p-3 rounded-2xl bg-white border border-border-subtle shadow-sm space-y-1">
+          <p className="text-[10px] font-bold uppercase text-content-muted tracking-wider">
             Return Articles
           </p>
-          <div className="flex items-baseline gap-2">
-            <span className="text-xl sm:text-2xl font-black text-red-600">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-xl font-black text-rose-600">
               {summary.totalReturnPieces}
             </span>
-            <span className="text-[11px] text-content-muted font-bold">
+            <span className="text-[11px] text-content-muted font-medium">
               / {summary.totalPieces} pcs
             </span>
           </div>
         </div>
 
-        <div className="p-3 sm:p-4 rounded-2xl bg-red-50/50 border border-red-200 shadow-sm space-y-1">
-          <p className="text-[10px] font-black uppercase text-red-700 tracking-wider flex items-center gap-1">
-            <RotateCcw className="w-3 h-3" />
-            {getFieldLabel('returnAmount', 'Return Amount')}
+        <div className="p-3 rounded-2xl bg-white border border-border-subtle shadow-sm space-y-1">
+          <p className="text-[10px] font-bold uppercase text-content-muted tracking-wider flex items-center gap-1">
+            <RotateCcw className="w-3 h-3 text-content-muted" />
+            {getFieldLabel('returnAmount', 'Return Loss')}
           </p>
           <div className="flex items-baseline gap-1">
-            <span className="text-lg sm:text-2xl font-black text-red-700">
+            <span className="text-xl font-black text-rose-700">
               ₹{summary.totalReturnAmountSum.toLocaleString('en-IN')}
             </span>
           </div>
         </div>
 
-        <div className="p-3 sm:p-4 rounded-2xl bg-emerald-50/50 border border-emerald-200 shadow-sm space-y-1">
-          <p className="text-[10px] font-black uppercase text-emerald-800 tracking-wider flex items-center gap-1">
-            <IndianRupee className="w-3 h-3" />
+        <div className="p-3 rounded-2xl bg-white border border-border-subtle shadow-sm space-y-1">
+          <p className="text-[10px] font-bold uppercase text-content-muted tracking-wider flex items-center gap-1">
+            <IndianRupee className="w-3 h-3 text-content-muted" />
             {getFieldLabel('finalBillingAmount', 'Final Billing')}
           </p>
           <div className="flex items-baseline gap-1">
-            <span className="text-lg sm:text-2xl font-black text-emerald-800">
+            <span className="text-xl font-black text-brand-forest">
               ₹{summary.totalFinalBillingSum.toLocaleString('en-IN')}
             </span>
           </div>
@@ -340,26 +366,26 @@ export function SpecialDamageOrdersSection({
       {/* Orders List */}
       <div className="space-y-3">
         {isLoading && orders.length === 0 ? (
-          <div className="p-10 text-center text-content-muted bg-surface-card rounded-2xl border border-border-subtle">
+          <div className="p-10 text-center text-content-muted bg-white rounded-2xl border border-border-subtle">
             <RefreshCw className="w-6 h-6 animate-spin mx-auto text-brand-forest mb-2" />
             <p className="text-xs font-bold">Loading damage orders...</p>
           </div>
         ) : orders.length === 0 ? (
-          <div className="p-10 text-center bg-surface-card rounded-2xl border border-dashed border-border-subtle space-y-3">
-            <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-6 h-6" />
+          <div className="p-8 text-center bg-white rounded-2xl border border-dashed border-border-subtle space-y-3">
+            <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-5 h-5" />
             </div>
             <div>
               <h3 className="text-sm font-black text-brand-forest">
                 No Damage Orders Recorded
               </h3>
-              <p className="text-xs text-content-muted max-w-sm mx-auto mt-1">
+              <p className="text-xs text-content-muted max-w-sm mx-auto mt-0.5">
                 No customer returns or damaged garments logged for {formatMonthTitle(selectedMonth)}.
               </p>
             </div>
             <button
               onClick={() => setIsAddModalOpen(true)}
-              className="px-4 py-2 rounded-xl bg-brand-forest text-white text-xs font-black shadow-sm inline-flex items-center gap-1.5"
+              className="px-3.5 py-1.5 rounded-xl bg-brand-forest text-brand-lime text-xs font-black shadow-sm inline-flex items-center gap-1.5"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Record Special Damage Order</span>
@@ -369,28 +395,28 @@ export function SpecialDamageOrdersSection({
           orders.map((ord) => (
             <div
               key={ord.id}
-              className="p-4 rounded-2xl bg-surface-card border border-border-subtle shadow-sm hover:border-brand-forest/30 transition-all space-y-3"
+              className="p-4 rounded-2xl bg-white border border-border-subtle shadow-sm hover:border-brand-forest/30 transition-all space-y-3 text-xs"
             >
               {/* Header row */}
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-black text-brand-forest tracking-wide">
+              <div className="flex items-center justify-between gap-2 pb-2 border-b border-border-subtle/50">
+                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                  <span className="px-2.5 py-0.5 rounded-lg font-mono text-xs font-black bg-blue-100 text-blue-900 border border-blue-200">
                     #{ord.orderId}
                   </span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface-cream text-content-muted border border-border-subtle">
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-surface-cream text-content-muted border border-border-subtle">
                     {formatDisplayDate(ord.orderDate)}
                   </span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200">
                     {ord.serviceType}
                   </span>
                   {ord.returnPiecesCount > 0 && (
-                    <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-red-100 text-red-700">
-                      {ord.returnPiecesCount} of {ord.piecesCount} pcs returned
+                    <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200">
+                      {ord.returnPiecesCount} of {ord.piecesCount} pcs return
                     </span>
                   )}
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 shrink-0">
                   <button
                     onClick={() => handleDeleteOrder(ord.id, ord.orderId)}
                     disabled={deletingId === ord.id}
@@ -403,28 +429,28 @@ export function SpecialDamageOrdersSection({
               </div>
 
               {/* Financial Metrics Strip */}
-              <div className="grid grid-cols-3 gap-2 p-2.5 rounded-xl bg-[#F8FAF8] border border-border-subtle text-xs">
+              <div className="grid grid-cols-3 gap-2 p-2.5 rounded-xl bg-surface-cream/50 border border-border-subtle text-xs">
                 <div>
                   <span className="text-[10px] text-content-muted font-bold block">
-                    {getFieldLabel('totalAmount', 'Total Amount')}
+                    {getFieldLabel('totalAmount', 'Total Order')}
                   </span>
                   <span className="font-bold text-content-primary">
                     ₹{ord.totalAmount.toLocaleString('en-IN')}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-red-600 font-bold block">
+                  <span className="text-[10px] text-rose-700 font-bold block">
                     {getFieldLabel('returnAmount', 'Return Loss')}
                   </span>
-                  <span className="font-bold text-red-600">
+                  <span className="font-bold text-rose-700">
                     ₹{ord.returnAmount.toLocaleString('en-IN')}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-emerald-700 font-bold block">
-                    {getFieldLabel('finalBillingAmount', 'Final Billing')}
+                  <span className="text-[10px] text-brand-forest font-bold block">
+                    {getFieldLabel('finalBillingAmount', 'Net Billing')}
                   </span>
-                  <span className="font-black text-emerald-800">
+                  <span className="font-black text-brand-forest">
                     ₹{ord.finalBillingAmount.toLocaleString('en-IN')}
                   </span>
                 </div>
@@ -432,11 +458,11 @@ export function SpecialDamageOrdersSection({
 
               {/* Reasons Block */}
               {(ord.returnReason || ord.damageReason) && (
-                <div className="space-y-1.5 text-xs pt-1">
+                <div className="space-y-1.5 text-xs">
                   {ord.returnReason && (
-                    <div className="p-2 rounded-xl bg-orange-50/60 border border-orange-200 text-orange-900">
-                      <span className="font-black text-[11px] uppercase tracking-wider block text-orange-800 mb-0.5 flex items-center gap-1">
-                        <RotateCcw className="w-3 h-3" />
+                    <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/70 text-amber-950">
+                      <span className="font-bold text-[10px] uppercase tracking-wider block text-amber-800 mb-0.5 flex items-center gap-1">
+                        <RotateCcw className="w-3 h-3 text-amber-700" />
                         {getFieldLabel('returnReason', 'Return Reason (Why)')}:
                       </span>
                       <p className="text-xs leading-relaxed">{ord.returnReason}</p>
@@ -444,9 +470,9 @@ export function SpecialDamageOrdersSection({
                   )}
 
                   {ord.damageReason && (
-                    <div className="p-2 rounded-xl bg-red-50/60 border border-red-200 text-red-900">
-                      <span className="font-black text-[11px] uppercase tracking-wider block text-red-800 mb-0.5 flex items-center gap-1">
-                        <AlertTriangle className="w-3 h-3" />
+                    <div className="p-2.5 rounded-xl bg-rose-50/70 border border-rose-200/70 text-rose-950">
+                      <span className="font-bold text-[10px] uppercase tracking-wider block text-rose-800 mb-0.5 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3 text-rose-600" />
                         {getFieldLabel('damageReason', 'Damage Reason (How)')}:
                       </span>
                       <p className="text-xs leading-relaxed">{ord.damageReason}</p>
@@ -457,7 +483,7 @@ export function SpecialDamageOrdersSection({
 
               {/* Dynamic Custom Fields Badges */}
               {ord.customFields && Object.keys(ord.customFields).length > 0 && (
-                <div className="flex flex-wrap gap-1.5 pt-1">
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
                   {Object.entries(ord.customFields).map(([k, val]) => {
                     if (val === undefined || val === null || val === '') return null;
                     const fieldDef = config?.customFields?.find((cf) => cf.key === k);
@@ -466,7 +492,7 @@ export function SpecialDamageOrdersSection({
                     return (
                       <span
                         key={k}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-surface-cream text-content-primary border border-border-subtle text-[11px]"
+                        className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-surface-cream text-content-primary border border-border-subtle text-[11px]"
                       >
                         <strong className="text-content-muted font-bold">{label}:</strong>
                         <span className="font-black text-brand-forest">{displayVal}</span>
@@ -478,14 +504,14 @@ export function SpecialDamageOrdersSection({
 
               {/* Photos Gallery */}
               {ord.photos && ord.photos.length > 0 && (
-                <div className="pt-1">
+                <div className="pt-0.5">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[11px] font-black text-content-muted flex items-center gap-1">
+                    <span className="text-[11px] font-bold text-content-muted flex items-center gap-1">
                       <ImageIcon className="w-3.5 h-3.5 text-brand-forest" />
-                      {getFieldLabel('photos', 'Damage Evidence Photos')} ({ord.photos.length})
+                      {getFieldLabel('photos', 'Proof Photos')} ({ord.photos.length})
                     </span>
                     <span className="text-[10px] text-content-muted">
-                      Click to view full photo
+                      Tap photo to enlarge
                     </span>
                   </div>
 
@@ -501,13 +527,13 @@ export function SpecialDamageOrdersSection({
                             orderDate: ord.orderDate,
                           })
                         }
-                        className="relative flex-shrink-0 w-16 h-16 rounded-xl overflow-hidden border border-border-subtle group hover:border-brand-forest shadow-sm transition-transform active:scale-95"
+                        className="relative flex-shrink-0 w-14 h-14 rounded-xl overflow-hidden border border-border-subtle hover:border-brand-forest shadow-sm transition-transform active:scale-95"
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={photoUrl}
                           alt={`Evidence ${photoIdx + 1}`}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          className="w-full h-full object-cover"
                         />
                         <span className="absolute bottom-0 right-0 bg-black/70 text-white text-[9px] font-bold px-1 rounded-tl">
                           #{photoIdx + 1}
@@ -519,9 +545,9 @@ export function SpecialDamageOrdersSection({
               )}
 
               {/* Logged by footer */}
-              <div className="flex items-center justify-between text-[10px] text-content-muted pt-2 border-t border-border-subtle">
+              <div className="flex items-center justify-between text-[10px] text-content-muted pt-2 border-t border-border-subtle/50">
                 <span>
-                  Logged by:{' '}
+                  By:{' '}
                   <strong className="text-brand-forest font-bold">
                     {ord.reportedByAccount?.staffMember?.fullName ||
                       ord.reportedByAccount?.username ||
@@ -544,7 +570,7 @@ export function SpecialDamageOrdersSection({
         shopId={shopId}
         config={config}
         onSuccess={() => {
-          if (onShowToast) onShowToast('Special damage order recorded successfully!', 'success');
+          toastRef.current?.('Special damage order recorded successfully!', 'success');
           fetchOrders();
         }}
       />
@@ -569,7 +595,7 @@ export function SpecialDamageOrdersSection({
         initialConfig={config}
         onSuccess={(updated) => {
           setConfig(updated);
-          if (onShowToast) onShowToast('Field configuration updated successfully!', 'success');
+          toastRef.current?.('Field configuration updated successfully!', 'success');
           fetchOrders();
         }}
       />

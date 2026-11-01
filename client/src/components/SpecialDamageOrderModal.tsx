@@ -266,17 +266,19 @@ export function SpecialDamageOrderModal({
         {/* Modal Header */}
         <div className="flex items-start justify-between pb-3 border-b border-border-subtle">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shadow-sm">
-              <AlertTriangle className="w-5 h-5 stroke-[2.2]" />
+            <div className="w-10 h-10 rounded-xl bg-surface-cream text-brand-forest border border-border-subtle flex items-center justify-center shadow-sm">
+              <AlertTriangle className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-black text-brand-forest flex items-center gap-2">
-                Special Damage Order
-                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-red-100 text-red-700">
+              <div className="flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-black text-brand-forest">
+                  Special Damage Order
+                </h2>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-surface-cream text-brand-forest border border-border-subtle">
                   Direct Entry
                 </span>
-              </h2>
-              <p className="text-xs text-content-muted">
+              </div>
+              <p className="text-xs text-content-muted mt-0.5">
                 Log customer return, garment damage details & billing adjustment
               </p>
             </div>
@@ -384,16 +386,21 @@ export function SpecialDamageOrderModal({
 
           {/* Row 3: Return Articles & Financials */}
           {showFinancials && (
-            <div className="p-3 rounded-2xl bg-[#F8FAF8] border border-border-subtle space-y-3">
-              <h3 className="text-xs font-black uppercase text-brand-forest tracking-wider flex items-center gap-1.5">
-                <RotateCcw className="w-3.5 h-3.5 text-brand-forest" />
-                Return & Financial Adjustments
-              </h3>
+            <div className="p-3.5 rounded-2xl bg-surface-cream/50 border border-border-subtle space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-black uppercase text-brand-forest tracking-wider flex items-center gap-1.5">
+                  <RotateCcw className="w-3.5 h-3.5 text-brand-forest" />
+                  Financial Adjustments
+                </h3>
+                <span className="text-[10px] text-content-muted font-medium">
+                  Net Billing = Total - Return Loss
+                </span>
+              </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 {isFieldVisible('returnPiecesCount') && (
                   <div>
-                    <label className="block text-[11px] font-bold text-content-muted mb-1">
+                    <label className="block text-[10px] font-bold text-content-muted mb-1">
                       {getFieldLabel('returnPiecesCount', 'Return Pieces')}
                     </label>
                     <input
@@ -411,14 +418,14 @@ export function SpecialDamageOrderModal({
 
                 {isFieldVisible('totalAmount') && (
                   <div>
-                    <label className="block text-[11px] font-bold text-content-muted mb-1">
-                      {getFieldLabel('totalAmount', 'Total Amount (₹)')}
+                    <label className="block text-[10px] font-bold text-content-muted mb-1">
+                      {getFieldLabel('totalAmount', 'Total Order (₹)')}
                     </label>
                     <input
                       type="number"
                       min="0"
                       step="any"
-                      placeholder="₹ 0.00"
+                      placeholder="0.00"
                       value={totalAmount}
                       onChange={(e) => handleTotalAmountChange(e.target.value)}
                       className="w-full px-2.5 py-1.5 text-xs font-bold rounded-xl border border-border-subtle bg-white text-content-primary focus:ring-2 focus:ring-brand-forest focus:outline-none"
@@ -428,34 +435,34 @@ export function SpecialDamageOrderModal({
 
                 {isFieldVisible('returnAmount') && (
                   <div>
-                    <label className="block text-[11px] font-bold text-red-600 mb-1">
-                      {getFieldLabel('returnAmount', 'Return Amount (₹)')}
+                    <label className="block text-[10px] font-bold text-rose-700 mb-1">
+                      {getFieldLabel('returnAmount', 'Return Loss (₹)')}
                     </label>
                     <input
                       type="number"
                       min="0"
                       step="any"
-                      placeholder="₹ 0.00"
+                      placeholder="0.00"
                       value={returnAmount}
                       onChange={(e) => handleReturnAmountChange(e.target.value)}
-                      className="w-full px-2.5 py-1.5 text-xs font-bold rounded-xl border border-red-200 bg-red-50/50 text-red-700 focus:ring-2 focus:ring-red-400 focus:outline-none"
+                      className="w-full px-2.5 py-1.5 text-xs font-bold rounded-xl border border-rose-200 bg-white text-rose-700 focus:ring-2 focus:ring-rose-400 focus:outline-none"
                     />
                   </div>
                 )}
 
                 {isFieldVisible('finalBillingAmount') && (
                   <div>
-                    <label className="block text-[11px] font-bold text-emerald-700 mb-1">
-                      {getFieldLabel('finalBillingAmount', 'Final Billing (₹)')}
+                    <label className="block text-[10px] font-bold text-brand-forest mb-1">
+                      {getFieldLabel('finalBillingAmount', 'Net Billing (₹)')}
                     </label>
                     <input
                       type="number"
                       min="0"
                       step="any"
-                      placeholder="₹ 0.00"
+                      placeholder="0.00"
                       value={finalBillingAmount}
                       onChange={(e) => setFinalBillingAmount(e.target.value)}
-                      className="w-full px-2.5 py-1.5 text-xs font-bold rounded-xl border border-emerald-300 bg-emerald-50/50 text-emerald-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                      className="w-full px-2.5 py-1.5 text-xs font-bold rounded-xl border border-border-subtle bg-white text-brand-forest focus:ring-2 focus:ring-brand-forest focus:outline-none"
                     />
                   </div>
                 )}
