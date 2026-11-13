@@ -41,6 +41,7 @@ import {
   PhoneCall,
   MessageSquare,
   RotateCcw,
+  FileSpreadsheet,
 } from 'lucide-react';
 import {
   DamageIncidentViewerModal,
@@ -51,6 +52,7 @@ import { LiveCameraModal } from '../../components/LiveCameraModal';
 import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
 import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
 import { SpecialDamageOrdersSection } from '../../components/SpecialDamageOrdersSection';
+import { PosSheetSection } from '../../components/pos-sheet/PosSheetSection';
 
 /** Human-understandable representation of system permissions */
 const HUMAN_CAPABILITIES: Record<string, { label: string; desc: string; icon: string }> = {
@@ -325,8 +327,8 @@ function ManagerPageInner() {
     }
   }, [isAuthLoading, user, isManagerAllowed, activeRole, router]);
 
-  // Navigation State (5 Main Screens via Bottom Nav)
-  const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'damage' | 'reports' | 'profile'>('dashboard');
+  // Navigation State (Main Screens via Bottom Nav & Quick Actions)
+  const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'damage' | 'pos_sheet' | 'reports' | 'profile'>('dashboard');
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
 
   // Damage Incident Viewer
@@ -3179,6 +3181,31 @@ function ManagerPageInner() {
               Task count = pieces × work steps (e.g. 10 shirts × Wash + Iron = 20). Completed = steps staff have ticked done.
             </p>
 
+            {/* Daily POS Excel Sheet Maintenance Quick Action */}
+            <div
+              onClick={() => {
+                setActiveDrilldown(null);
+                setCurrentNav('pos_sheet');
+              }}
+              className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-green-50 rounded-2xl border border-emerald-200/80 shadow-sm cursor-pointer hover:border-emerald-400 hover:shadow-md transition-all flex items-center justify-between group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-700 text-white flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black text-emerald-950">Daily POS Sheet Maintain</span>
+                    <span className="text-[9px] bg-emerald-600 text-white font-extrabold px-1.5 py-0.5 rounded-full">EXCEL UPLOAD</span>
+                  </div>
+                  <p className="text-[11px] text-emerald-800/80 font-medium">
+                    Upload & manage daily POS Excel export orders date-wise
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-emerald-700 group-hover:translate-x-0.5 transition-transform" />
+            </div>
+
             {/* Supervisor Directives & Tasks Assigned to Manager */}
             <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3.5">
               <div className="flex items-center justify-between">
@@ -4090,6 +4117,19 @@ function ManagerPageInner() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════════
+          MAIN SCREEN: POS DAILY EXCEL SHEET MAINTAIN
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {!activeDrilldown && currentNav === 'pos_sheet' && (
+        <div className="p-4 space-y-4 animate-fade-in pb-24">
+          <PosSheetSection
+            shopId={activeShopId || user?.shopMemberships?.[0]?.shopId || ''}
+            mode="manager"
+            onShowToast={showTaskToast}
+          />
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
           MAIN SCREEN 4: REPORTS OVERVIEW (FROM BOTTOM NAV)
       ══════════════════════════════════════════════════════════════════════════ */}
       {!activeDrilldown && currentNav === 'reports' && (
@@ -4262,7 +4302,7 @@ function ManagerPageInner() {
               setActiveDrilldown(null);
               setCurrentNav('damage');
             }}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-2 transition-all ${currentNav === 'damage' && !activeDrilldown
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-1.5 transition-all ${currentNav === 'damage' && !activeDrilldown
                 ? 'text-red-700 font-bold scale-105'
                 : 'text-content-muted hover:text-red-600 font-medium'
               }`}
@@ -4271,12 +4311,26 @@ function ManagerPageInner() {
             <span className="text-[10px]">Damage</span>
           </button>
 
-<button
+          <button
+            onClick={() => {
+              setActiveDrilldown(null);
+              setCurrentNav('pos_sheet');
+            }}
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-1.5 transition-all ${currentNav === 'pos_sheet' && !activeDrilldown
+                ? 'text-emerald-700 font-bold scale-105'
+                : 'text-content-muted hover:text-emerald-700 font-medium'
+              }`}
+          >
+            <FileSpreadsheet className="w-5 h-5 stroke-[2.2]" />
+            <span className="text-[10px]">Sheet</span>
+          </button>
+
+          <button
             onClick={() => {
               setActiveDrilldown(null);
               setCurrentNav('reports');
             }}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${currentNav === 'reports' && !activeDrilldown
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-1.5 transition-all ${currentNav === 'reports' && !activeDrilldown
                 ? 'text-brand-forest font-bold scale-105'
                 : 'text-content-muted hover:text-brand-forest font-medium'
               }`}

@@ -19,6 +19,7 @@ import { attendanceRouter } from './modules/attendance/attendance.router';
 import { damageRouter } from './modules/damage/damage.router';
 import { configRouter } from './modules/config/config.router';
 import { mediaRouter } from './modules/media/media.router';
+import { posSheetRouter } from './modules/pos-sheet/pos-sheet.router';
 
 const app = express();
 
@@ -34,7 +35,9 @@ app.use(helmet({
 // ─── CORS (exact allowlist only) ──────────────────────────────────────────────
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    // Mobile apps / server-to-server / curl have no Origin header
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       logger.warn('[CORS] Rejected origin', { origin });
@@ -113,6 +116,7 @@ app.use('/api', staffRouter);        // /api/shops/:shopId/staff
 app.use('/api', taskRouter);         // /api/shops/:shopId/staff/:staffId/tasks
 app.use('/api', attendanceRouter);   // /api/shops/:shopId/attendance
 app.use('/api', damageRouter);       // /api/shops/:shopId/damage
+app.use('/api', posSheetRouter);     // /api/shops/:shopId/pos-sheet
 app.use('/api/config', configRouter);
 
 // ─── 404 and error handling ───────────────────────────────────────────────────

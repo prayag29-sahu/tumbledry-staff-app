@@ -39,6 +39,8 @@ model Shop {
   auditLogs           AuditLog[]
   appSettings         AppSetting[]
   customFieldDefs     CustomFieldDefinition[]
+  posDailySheetBatches PosDailySheetBatch[]
+  posDailySheetEntries PosDailySheetEntry[]
 
   @@map("shops")
 }
@@ -72,6 +74,7 @@ model Account {
   refreshSessions  RefreshSession[]
   specialDamageOrders SpecialDamageOrder[]
   auditLogsAsActor AuditLog[] @relation("AuditActor")
+  posDailySheetBatchesUploaded PosDailySheetBatch[] @relation("UploadedBatches")
 
   @@map("accounts")
 }
@@ -594,4 +597,69 @@ model AppSetting {
 
   @@unique([shopId, key])
   @@map("app_settings")
+}
+
+
+// ─────────────────────────────────────────────
+// POS DAILY SHEET BATCHES (Excel Imports)
+// ─────────────────────────────────────────────
+model PosDailySheetBatch {
+  id                  String   @id @default(uuid())
+  shopId              String   @map("shop_id")
+  sheetDate           String   @map("sheet_date") // YYYY-MM-DD
+  fileName            String   @map("file_name")
+  fileSize            Int?     @map("file_size")
+  rowCount            Int      @default(0) @map("row_count")
+  totalPieces         Float?   @map("total_pieces")
+  totalGrossAmount    Float?   @map("total_gross_amount")
+  totalNetAmount      Float?   @map("total_net_amount")
+  totalPaid           Float?   @map("total_paid")
+  totalBalance        Float?   @map("total_balance")
+  uploadedByAccountId String   @map("uploaded_by_account_id")
+  status              String   @default("ACTIVE") @map("status") // ACTIVE, ARCHIVED, REPLACED
+  notes               String?
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  shop                Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  uploadedByAccount   Account  @relation("UploadedBatches", fields: [uploadedByAccountId], references: [id], onDelete: Cascade)
+  entries             PosDailySheetEntry[]
+
+  @@index([shopId, sheetDate])
+  @@map("pos_daily_sheet_batches")
+}
+
+// ─────────────────────────────────────────────
+// POS DAILY SHEET ENTRIES (Row Level Data)
+// ─────────────────────────────────────────────
+model PosDailySheetEntry {
+  id              String   @id @default(uuid())
+  batchId         String   @map("batch_id")
+  shopId          String   @map("shop_id")
+  entryDate       String   @map("entry_date") // YYYY-MM-DD
+  orderNo         String?  @map("order_no")
+  customerCode    String?  @map("customer_code")
+  customerName    String?  @map("customer_name")
+  phone           String?  @map("phone")
+  pieces          Float?   @map("pieces")
+  grossAmount     Float?   @map("gross_amount")
+  netAmount       Float?   @map("net_amount")
+  paid            Float?   @map("paid")
+  balance         Float?   @map("balance")
+  orderStatus     String?  @map("order_status")
+  dueDate         String?  @map("due_date")
+  bookedBy        String?  @map("booked_by")
+  primaryServices String?  @map("primary_services")
+  rowData         Json     @map("row_data") // Complete key-value map of all 42+ columns
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  batch           PosDailySheetBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  shop            Shop               @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, entryDate])
+  @@index([batchId])
+  @@index([shopId, orderNo])
+  @@index([shopId, phone])
+  @@map("pos_daily_sheet_entries")
 }

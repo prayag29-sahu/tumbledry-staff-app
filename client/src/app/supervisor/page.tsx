@@ -50,6 +50,7 @@ import {
   PhoneCall,
   MessageSquare,
   RotateCcw,
+  FileSpreadsheet,
 } from 'lucide-react';
 import {
   DamageIncidentViewerModal,
@@ -59,6 +60,7 @@ import { DamageModal } from '../../components/DamageModal';
 import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoViewerModal';
 import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
 import { SpecialDamageOrdersSection } from '../../components/SpecialDamageOrdersSection';
+import { PosSheetSection } from '../../components/pos-sheet/PosSheetSection';
 
 function formatTime12h(timeStr: string | null | undefined): string {
   if (!timeStr) return '';
@@ -388,8 +390,8 @@ export default function SupervisorPage() {
     }
   }, [user, isAuthLoading, router]);
 
-  // Root Navigation View: 'dashboard' (Screen 10), 'staff_list' (Screen 2), 'attendance', 'reports', 'more' (Screen 5)
-  const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'damage' | 'reports' | 'more'>('dashboard');
+  // Root Navigation View: 'dashboard' (Screen 10), 'staff_list' (Screen 2), 'attendance', 'pos_sheet', 'reports', 'more' (Screen 5)
+  const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'damage' | 'pos_sheet' | 'reports' | 'more'>('dashboard');
 
   // Drilldown Views: null | 'add_staff' (Screens 3&4) | 'staff_profile' (Screens 6-9) | 'supervisor_profile'
   const [activeDrilldown, setActiveDrilldown] = useState<'add_staff' | 'staff_profile' | 'supervisor_profile' | null>(null);
@@ -3426,6 +3428,31 @@ export default function SupervisorPage() {
             </div>
           </div>
 
+          {/* Daily POS Excel Sheet Maintenance Quick Action */}
+          <div
+            onClick={() => {
+              setActiveDrilldown(null);
+              setCurrentNav('pos_sheet');
+            }}
+            className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-green-50 rounded-2xl border border-emerald-200/80 shadow-sm cursor-pointer hover:border-emerald-400 hover:shadow-md transition-all flex items-center justify-between group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-700 text-white flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform">
+                <FileSpreadsheet className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black text-emerald-950">Daily POS Sheet Maintain</span>
+                  <span className="text-[9px] bg-emerald-600 text-white font-extrabold px-1.5 py-0.5 rounded-full">EXCEL & CONFIG</span>
+                </div>
+                <p className="text-[11px] text-emerald-800/80 font-medium">
+                  Review POS export orders, manage columns & manager visibility
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-emerald-700 group-hover:translate-x-0.5 transition-transform" />
+          </div>
+
           {/* Staff Performance List (Screen 10) */}
           <div className="bg-white p-4 rounded-2xl border border-border-subtle shadow-clay-sm space-y-3">
             <h3 className="text-xs font-black text-brand-forest">Staff Performance</h3>
@@ -4114,6 +4141,19 @@ export default function SupervisorPage() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════════
+          MAIN SCREEN: POS DAILY EXCEL SHEET MAINTAIN (WHEN currentNav === 'pos_sheet')
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {!activeDrilldown && currentNav === 'pos_sheet' && (
+        <div className="p-4 space-y-4 animate-fade-in pb-24">
+          <PosSheetSection
+            shopId={activeShopId || user?.shopMemberships?.[0]?.shopId || ''}
+            mode="supervisor"
+            onShowToast={showTaskToast}
+          />
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
           MAIN SCREEN: BRANCH REPORTS & ANALYTICS (WHEN currentNav === 'reports')
       ══════════════════════════════════════════════════════════════════════════ */}
       {!activeDrilldown && currentNav === 'reports' && (
@@ -4381,7 +4421,7 @@ export default function SupervisorPage() {
               setActiveDrilldown(null);
               setCurrentNav('damage');
             }}
-            className={`flex flex-col items-center gap-1 py-1 px-2 transition-all ${
+            className={`flex flex-col items-center gap-1 py-1 px-1.5 transition-all ${
               !activeDrilldown && currentNav === 'damage'
                 ? 'text-red-700 font-black'
                 : 'text-content-muted'
@@ -4394,9 +4434,24 @@ export default function SupervisorPage() {
           <button
             onClick={() => {
               setActiveDrilldown(null);
+              setCurrentNav('pos_sheet');
+            }}
+            className={`flex flex-col items-center gap-1 py-1 px-1.5 transition-all ${
+              !activeDrilldown && currentNav === 'pos_sheet'
+                ? 'text-emerald-700 font-black'
+                : 'text-content-muted hover:text-emerald-700'
+            }`}
+          >
+            <FileSpreadsheet className="w-5 h-5" />
+            <span>Sheet</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveDrilldown(null);
               setCurrentNav('reports');
             }}
-            className={`flex flex-col items-center gap-1 py-1 px-2.5 transition-all ${
+            className={`flex flex-col items-center gap-1 py-1 px-1.5 transition-all ${
               !activeDrilldown && currentNav === 'reports'
                 ? 'text-[#245431] font-black'
                 : 'text-content-muted'
