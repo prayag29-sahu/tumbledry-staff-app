@@ -608,7 +608,7 @@ export default function SupervisorPage() {
       );
       showTaskToast(res.message || `Task shifted to ${rescheduleDate} successfully!`, 'success');
       if (selectedStaff) {
-        fetchStaffDayTasks(selectedStaff.staffMember.id, staffTaskDate);
+        fetchStaffDayTasks(selectedStaff.staffMember.id, staffTaskDate, true);
       }
       fetchAllData(true);
       setRescheduleTarget(null);
@@ -636,7 +636,7 @@ export default function SupervisorPage() {
       );
       showTaskToast(res.message || 'Task shift undone successfully.', 'success');
       if (selectedStaff) {
-        fetchStaffDayTasks(selectedStaff.staffMember.id, staffTaskDate);
+        fetchStaffDayTasks(selectedStaff.staffMember.id, staffTaskDate, true);
       }
       fetchAllData(true);
     } catch (err) {
@@ -831,18 +831,18 @@ export default function SupervisorPage() {
   }, [fetchAllData]);
 
   // Fetch Staff Daily Tasks (Screen 7)
-  const fetchStaffDayTasks = useCallback(async (staffMemberId: string, date: string) => {
+  const fetchStaffDayTasks = useCallback(async (staffMemberId: string, date: string, silent = false) => {
     if (!activeShopId) return;
-    setIsLoadingDayTasks(true);
+    if (!silent) setIsLoadingDayTasks(true);
     try {
       const res = await apiRequest<StaffTaskDayResponse>(
         `/api/shops/${activeShopId}/staff/${staffMemberId}/tasks?date=${date}`
       );
       setStaffDayTasks(res);
     } catch {
-      setStaffDayTasks(null);
+      if (!silent) setStaffDayTasks(null);
     } finally {
-      setIsLoadingDayTasks(false);
+      if (!silent) setIsLoadingDayTasks(false);
     }
   }, [activeShopId]);
 
@@ -1202,8 +1202,8 @@ export default function SupervisorPage() {
         });
       }
 
-      fetchStaffDayTasks(selectedStaff.staffMember.id, staffTaskDate);
-      fetchAllData();
+      fetchStaffDayTasks(selectedStaff.staffMember.id, staffTaskDate, true);
+      fetchAllData(true);
       setTimeout(() => {
         setIsAssignTaskModalOpen(false);
       }, 1200);

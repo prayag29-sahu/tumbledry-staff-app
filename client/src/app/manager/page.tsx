@@ -463,7 +463,7 @@ function ManagerPageInner() {
       );
       showTaskToast(res.message || `Task shifted to ${rescheduleDate} successfully!`, 'success');
       if (selectedStaff) {
-        fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate);
+        fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate, true);
       }
       fetchData(true);
       setRescheduleTarget(null);
@@ -491,7 +491,7 @@ function ManagerPageInner() {
       );
       showTaskToast(res.message || 'Task shift undone successfully.', 'success');
       if (selectedStaff) {
-        fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate);
+        fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate, true);
       }
       fetchData(true);
     } catch (err) {
@@ -704,26 +704,42 @@ function ManagerPageInner() {
   }, [fetchData]);
 
   // Fetch individual staff member's tasks and monthly metrics
-  const fetchStaffDetails = useCallback(async (staffMemberId: string, date: string) => {
+  const fetchStaffDetails = useCallback(async (staffMemberId: string, date: string, silent = false) => {
     if (!activeShopId) return;
-    setIsLoadingStaffData(true);
+    if (!silent) setIsLoadingStaffData(true);
     try {
       const targetDate = new Date(date);
       const year = targetDate.getFullYear();
       const month = targetDate.getMonth() + 1;
 
-      const [dayTasksRes, monthRes] = await Promise.all([
-        apiRequest<{ assignments: StaffAssignment[] }>(`/api/shops/${activeShopId}/staff/${staffMemberId}/tasks?date=${date}`).catch(() => ({ assignments: [] })),
-        apiRequest<StaffTaskMonthlySummary>(`/api/shops/${activeShopId}/staff/${staffMemberId}/task-summary/monthly?year=${year}&month=${month}`).catch(() => null),
-      ]);
+      if (silent) {
+        // Fast lightweight revalidation (day tasks only, avoid heavy monthly aggregation)
+        const dayTasksRes = await apiRequest<{ assignments: StaffAssignment[] }>(
+          `/api/shops/${activeShopId}/staff/${staffMemberId}/tasks?date=${date}`
+        ).catch(() => ({ assignments: [] }));
+        if (dayTasksRes?.assignments) {
+          setStaffDayAssignments(dayTasksRes.assignments);
+        }
+      } else {
+        const [dayTasksRes, monthRes] = await Promise.all([
+          apiRequest<{ assignments: StaffAssignment[] }>(
+            `/api/shops/${activeShopId}/staff/${staffMemberId}/tasks?date=${date}`
+          ).catch(() => ({ assignments: [] })),
+          apiRequest<StaffTaskMonthlySummary>(
+            `/api/shops/${activeShopId}/staff/${staffMemberId}/task-summary/monthly?year=${year}&month=${month}`
+          ).catch(() => null),
+        ]);
 
-      setStaffDayAssignments(dayTasksRes.assignments || []);
-      setStaffMonthlySummary(monthRes);
+        setStaffDayAssignments(dayTasksRes?.assignments || []);
+        setStaffMonthlySummary(monthRes);
+      }
     } catch {
-      setStaffDayAssignments([]);
-      setStaffMonthlySummary(null);
+      if (!silent) {
+        setStaffDayAssignments([]);
+        setStaffMonthlySummary(null);
+      }
     } finally {
-      setIsLoadingStaffData(false);
+      if (!silent) setIsLoadingStaffData(false);
     }
   }, [activeShopId]);
 
@@ -1018,10 +1034,14 @@ function ManagerPageInner() {
           idempotencyKey,
         };
 
-        await apiRequest(`/api/shops/${activeShopId}/staff/${selectedStaff.staffMember.id}/tasks`, {
+        const newDirectiveRes = await apiRequest<StaffAssignment>(`/api/shops/${activeShopId}/staff/${selectedStaff.staffMember.id}/tasks`, {
           method: 'POST',
           body: JSON.stringify(payload),
         });
+
+        if (newDirectiveRes && newDirectiveRes.id && taskCreateDate === staffTaskDate) {
+          setStaffDayAssignments((prev) => [newDirectiveRes, ...prev.filter((a) => a.id !== newDirectiveRes.id)]);
+        }
 
         setTaskFeedback({ type: 'success', message: 'Directive assigned to staff successfully!' });
         setDirectiveTitle('');
@@ -1090,10 +1110,14 @@ function ManagerPageInner() {
           };
         }
 
-        await apiRequest(`/api/shops/${activeShopId}/staff/${selectedStaff.staffMember.id}/tasks`, {
+        const newTaskRes = await apiRequest<StaffAssignment>(`/api/shops/${activeShopId}/staff/${selectedStaff.staffMember.id}/tasks`, {
           method: 'POST',
           body: JSON.stringify(payload),
         });
+
+        if (newTaskRes && newTaskRes.id && taskCreateDate === staffTaskDate) {
+          setStaffDayAssignments((prev) => [newTaskRes, ...prev.filter((a) => a.id !== newTaskRes.id)]);
+        }
 
         setTaskFeedback({ type: 'success', message: 'Task assigned successfully!' });
         setTaskOrderId('');
@@ -1109,9 +1133,9 @@ function ManagerPageInner() {
         });
       }
 
-      // Refresh today's assignments for this staff
-      fetchStaffDetails(selectedStaff.staffMember.id, taskCreateDate);
-      fetchData();
+      // Seamless background revalidation (silent, zero screen reload lag)
+      fetchStaffDetails(selectedStaff.staffMember.id, taskCreateDate, true);
+      fetchData(true);
     } catch (err: unknown) {
       setTaskFeedback({
         type: 'error',
@@ -1295,19 +1319,19 @@ function ManagerPageInner() {
     return user?.staffMember?.id || myStaffRecord?.staffMember.id || myStaffRecord?.staffMemberId || '';
   }, [user, myStaffRecord]);
 
-  const fetchMyDirectives = useCallback(async (staffIdParam?: string) => {
+  const fetchMyDirectives = useCallback(async (staffIdParam?: string, silent = false) => {
     const targetId = staffIdParam || myStaffId;
     if (!activeShopId || !targetId) return;
-    setIsLoadingMyDirectives(true);
+    if (!silent) setIsLoadingMyDirectives(true);
     try {
       const res = await apiRequest<{ assignments: StaffAssignment[] }>(
         `/api/shops/${activeShopId}/staff/${targetId}/tasks?date=${selectedDate}`
       );
       setMyDirectives(res?.assignments || []);
     } catch {
-      setMyDirectives([]);
+      if (!silent) setMyDirectives([]);
     } finally {
-      setIsLoadingMyDirectives(false);
+      if (!silent) setIsLoadingMyDirectives(false);
     }
   }, [activeShopId, myStaffId, selectedDate]);
 
@@ -2379,11 +2403,11 @@ function ManagerPageInner() {
                                       await apiRequest(`/api/shops/${activeShopId}/task-units/${unit.id}/toggle`, {
                                         method: 'PATCH',
                                       });
-                                      if (selectedStaff) fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate);
+                                      if (selectedStaff) fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate, true);
                                       fetchData(true);
                                     } catch (err) {
                                       alert(err instanceof Error ? err.message : 'Failed to update task.');
-                                      if (selectedStaff) fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate);
+                                      if (selectedStaff) fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate, true);
                                     } finally {
                                       setCompletingDirectiveId(null);
                                     }
@@ -3291,11 +3315,11 @@ function ManagerPageInner() {
                                   await apiRequest(`/api/shops/${activeShopId}/task-units/${unit.id}/toggle`, {
                                     method: 'PATCH',
                                   });
-                                  await fetchMyDirectives();
+                                  fetchMyDirectives(undefined, true);
                                   fetchData(true);
                                 } catch (err) {
                                   alert(err instanceof Error ? err.message : 'Failed to update directive status.');
-                                  await fetchMyDirectives();
+                                  fetchMyDirectives(undefined, true);
                                 } finally {
                                   setCompletingMyDirectiveId(null);
                                 }
