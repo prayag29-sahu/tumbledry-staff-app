@@ -42,6 +42,7 @@ import {
   MessageSquare,
   RotateCcw,
   FileSpreadsheet,
+  Menu,
 } from 'lucide-react';
 import {
   DamageIncidentViewerModal,
@@ -330,6 +331,7 @@ function ManagerPageInner() {
   // Navigation State (Main Screens via Bottom Nav & Quick Actions)
   const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'damage' | 'pos_sheet' | 'reports' | 'profile'>('dashboard');
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Damage Incident Viewer
   const [viewingDamageIncident, setViewingDamageIncident] = useState<DamageIncidentRecord | null>(null);
@@ -1404,6 +1406,16 @@ function ManagerPageInner() {
   const pendingUnits = dashboardData?.todayTasks?.pending ?? 0;
   const hasAlerts = absentStaffList.length > 0 || pendingUnits > 0;
 
+  const navItems = useMemo(() => [
+    { key: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
+    { key: 'staff' as const, label: 'Staff Directory', icon: Users, badge: String(staffList.length) },
+    { key: 'attendance' as const, label: 'Floor Attendance', icon: CalendarCheck2 },
+    { key: 'damage' as const, label: 'Damage Orders', icon: AlertTriangle },
+    { key: 'pos_sheet' as const, label: 'Daily POS Sheet', icon: FileSpreadsheet, badge: 'EXCEL' },
+    { key: 'reports' as const, label: 'Operations Reports', icon: BarChart3 },
+    { key: 'profile' as const, label: 'My Profile', icon: User },
+  ], [staffList.length]);
+
   // Auth still resolving, redirecting an unauthorized user, or first data load
   if (!isMounted || isAuthLoading || !user || !isManagerAllowed || (isLoading && !dashboardData)) {
     return (
@@ -1414,7 +1426,7 @@ function ManagerPageInner() {
   }
 
   return (
-    <div className="max-w-md mx-auto min-h-screen pb-24 bg-[#F8F9FA] text-[#1E293B] antialiased">
+    <div className="min-h-screen bg-[#F8F9FA] text-[#1E293B] antialiased flex flex-col md:flex-row">
       {/* Global refresh indicator (date change / background refresh) */}
       {isRefreshing && (
         <div className="fixed top-0 left-0 right-0 z-50 h-1 overflow-hidden bg-brand-forest/10" role="progressbar" aria-label="Loading">
@@ -1422,20 +1434,153 @@ function ManagerPageInner() {
           <style>{`@keyframes managerLoadingBar { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }`}</style>
         </div>
       )}
-      {user?.isOwner && (
-        <div className="mx-4 mt-2 px-3.5 py-2.5 rounded-xl bg-brand-forest text-brand-lime text-xs font-bold flex items-center justify-between shadow-md">
-          <div className="flex items-center gap-2">
-            <span>👑</span>
-            <span>Logged in as Owner (Manager Terminal)</span>
+
+      {/* Mobile Drawer Overlay Backdrop */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm md:hidden animate-fade-in"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar Navigation (Permanent on Desktop md:, Slide-over Drawer on Mobile) */}
+      <aside
+        className={`fixed top-0 bottom-0 left-0 z-50 w-72 bg-white border-r border-border-subtle flex flex-col justify-between shadow-2xl md:shadow-none transition-transform duration-300 ease-in-out ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        }`}
+      >
+        {/* Sidebar Header */}
+        <div className="p-4 border-b border-border-subtle">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-brand-forest text-brand-lime font-black flex items-center justify-center text-lg shadow-sm">
+                T
+              </div>
+              <div>
+                <span className="text-xs font-black tracking-wider text-brand-forest block uppercase">
+                  TumbleDry
+                </span>
+                <span className="text-[11px] font-semibold text-content-muted truncate block max-w-[150px]">
+                  {activeShopName || 'Manager Portal'}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(false)}
+              className="p-1.5 rounded-lg text-content-muted hover:text-brand-forest hover:bg-surface-cream md:hidden"
+              aria-label="Close Sidebar"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
+
+          {/* Quick Manager Profile Snippet */}
+          <div className="mt-4 p-3 rounded-2xl bg-surface-cream/80 border border-border-subtle flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-lime to-[#6DA322] flex items-center justify-center font-black text-white text-sm shrink-0">
+              {user?.staffMember?.fullName?.charAt(0) || user?.username?.charAt(0).toUpperCase() || 'M'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-black text-brand-forest truncate">
+                {user?.staffMember?.fullName || 'Manager'}
+              </p>
+              <p className="text-[10px] text-content-muted font-semibold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                {managerDutyTiming || 'Duty: 09:30 AM - 08:30 PM'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Navigation Links */}
+        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+          <p className="px-3 text-[10px] font-black text-content-muted uppercase tracking-wider mb-2">
+            Main Menu
+          </p>
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = currentNav === item.key && !activeDrilldown;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => {
+                  setActiveDrilldown(null);
+                  setCurrentNav(item.key);
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                  isActive
+                    ? 'bg-brand-forest text-white shadow-clay-sm'
+                    : 'text-[#1E293B] hover:bg-surface-cream hover:text-brand-forest'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-brand-lime' : 'text-content-muted'}`} />
+                  <span>{item.label}</span>
+                </div>
+                {item.badge && (
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                      isActive
+                        ? 'bg-brand-lime text-brand-forest'
+                        : item.badge === 'EXCEL'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-surface-cream text-content-muted border border-border-subtle'
+                    }`}
+                  >
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+
+          {user?.isOwner && (
+            <div className="pt-3 mt-3 border-t border-border-subtle">
+              <button
+                type="button"
+                onClick={() => router.push('/owner')}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100 transition-colors"
+              >
+                <span>👑</span>
+                <span>Owner Console</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar Footer */}
+        <div className="p-3 border-t border-border-subtle space-y-2">
           <button
-            onClick={() => router.push('/owner')}
-            className="px-2.5 py-1 rounded-lg bg-brand-lime text-brand-forest font-extrabold hover:opacity-90 transition-all text-[11px]"
+            type="button"
+            onClick={() => logout()}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-red-600 hover:bg-red-50 transition-colors"
           >
-            Owner Console
+            <LogOut className="w-4 h-4" />
+            <span>Sign Out</span>
           </button>
         </div>
-      )}
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 md:pl-72 min-h-screen flex flex-col items-center w-full">
+        <div className="w-full max-w-md md:max-w-3xl lg:max-w-4xl px-0 md:px-6 pb-24 md:pb-12 min-h-screen">
+          {user?.isOwner && (
+            <div className="mx-4 mt-2 px-3.5 py-2.5 rounded-xl bg-brand-forest text-brand-lime text-xs font-bold flex items-center justify-between shadow-md">
+              <div className="flex items-center gap-2">
+                <span>👑</span>
+                <span>Logged in as Owner (Manager Terminal)</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => router.push('/owner')}
+                className="px-2.5 py-1 rounded-lg bg-brand-lime text-brand-forest font-extrabold hover:opacity-90 transition-all text-[11px]"
+              >
+                Owner Console
+              </button>
+            </div>
+          )}
 
 
       {/* ══════════════════════════════════════════════════════════════════════════
@@ -3096,6 +3241,15 @@ function ManagerPageInner() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => setIsSidebarOpen(true)}
+                className="md:hidden p-2 min-w-[38px] min-h-[38px] rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-cream active:scale-95 flex items-center justify-center transition-all touch-manipulation"
+                title="Navigation Menu"
+                aria-label="Navigation Menu"
+              >
+                <Menu className="w-4 h-4 text-brand-forest" />
+              </button>
+              <button
+                type="button"
                 onClick={() => fetchData(true)}
                 disabled={isRefreshing}
                 className="p-2 min-w-[38px] min-h-[38px] rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-cream active:scale-95 flex items-center justify-center transition-all touch-manipulation"
@@ -4289,17 +4443,18 @@ function ManagerPageInner() {
       {/* ══════════════════════════════════════════════════════════════════════════
           BOTTOM NAVIGATION BAR (5 TABS MATCHING MOCKUP COLLAGE)
       ══════════════════════════════════════════════════════════════════════════ */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-border-subtle shadow-[0_-4px_16px_rgba(0,0,0,0.04)] px-4 py-2">
-        <div className="max-w-md mx-auto flex items-center justify-around">
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-border-subtle px-3 py-2 md:hidden">
+        <div className="max-w-md mx-auto flex items-center justify-around text-[10px]">
           <button
             onClick={() => {
               setActiveDrilldown(null);
               setCurrentNav('dashboard');
             }}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${currentNav === 'dashboard' && !activeDrilldown
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${
+              currentNav === 'dashboard' && !activeDrilldown
                 ? 'text-brand-forest font-bold scale-105'
                 : 'text-content-muted hover:text-brand-forest font-medium'
-              }`}
+            }`}
           >
             <LayoutDashboard className="w-5 h-5 stroke-[2.2]" />
             <span className="text-[10px]">Dashboard</span>
@@ -4310,10 +4465,11 @@ function ManagerPageInner() {
               setActiveDrilldown(null);
               setCurrentNav('staff');
             }}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${currentNav === 'staff' || activeDrilldown
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${
+              currentNav === 'staff' || activeDrilldown
                 ? 'text-brand-forest font-bold scale-105'
                 : 'text-content-muted hover:text-brand-forest font-medium'
-              }`}
+            }`}
           >
             <Users className="w-5 h-5 stroke-[2.2]" />
             <span className="text-[10px]">Staff</span>
@@ -4324,72 +4480,46 @@ function ManagerPageInner() {
               setActiveDrilldown(null);
               setCurrentNav('attendance');
             }}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${currentNav === 'attendance' && !activeDrilldown
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${
+              currentNav === 'attendance' && !activeDrilldown
                 ? 'text-brand-forest font-bold scale-105'
                 : 'text-content-muted hover:text-brand-forest font-medium'
-              }`}
+            }`}
           >
             <CalendarCheck2 className="w-5 h-5 stroke-[2.2]" />
             <span className="text-[10px]">Attendance</span>
           </button>
 
-                    <button
+          <button
             onClick={() => {
               setActiveDrilldown(null);
               setCurrentNav('damage');
             }}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-1.5 transition-all ${currentNav === 'damage' && !activeDrilldown
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${
+              currentNav === 'damage' && !activeDrilldown
                 ? 'text-red-700 font-bold scale-105'
                 : 'text-content-muted hover:text-red-600 font-medium'
-              }`}
+            }`}
           >
             <AlertTriangle className="w-5 h-5 stroke-[2.2]" />
             <span className="text-[10px]">Damage</span>
           </button>
 
           <button
-            onClick={() => {
-              setActiveDrilldown(null);
-              setCurrentNav('pos_sheet');
-            }}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-1.5 transition-all ${currentNav === 'pos_sheet' && !activeDrilldown
+            onClick={() => setIsSidebarOpen(true)}
+            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${
+              ['pos_sheet', 'reports', 'profile'].includes(currentNav) && !activeDrilldown
                 ? 'text-emerald-700 font-bold scale-105'
-                : 'text-content-muted hover:text-emerald-700 font-medium'
-              }`}
-          >
-            <FileSpreadsheet className="w-5 h-5 stroke-[2.2]" />
-            <span className="text-[10px]">Sheet</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setActiveDrilldown(null);
-              setCurrentNav('reports');
-            }}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-1.5 transition-all ${currentNav === 'reports' && !activeDrilldown
-                ? 'text-brand-forest font-bold scale-105'
                 : 'text-content-muted hover:text-brand-forest font-medium'
-              }`}
+            }`}
           >
-            <BarChart3 className="w-5 h-5 stroke-[2.2]" />
-            <span className="text-[10px]">Reports</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setActiveDrilldown(null);
-              setCurrentNav('profile');
-            }}
-            className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 transition-all ${currentNav === 'profile' && !activeDrilldown
-                ? 'text-brand-forest font-bold scale-105'
-                : 'text-content-muted hover:text-brand-forest font-medium'
-              }`}
-          >
-            <User className="w-5 h-5 stroke-[2.2]" />
-            <span className="text-[10px]">Profile</span>
+            <Menu className="w-5 h-5 stroke-[2.2]" />
+            <span className="text-[10px]">Menu</span>
           </button>
         </div>
       </nav>
+        </div>
+      </main>
 
       {/* Reused Staff DamageModal for Task Creation */}
       <DamageModal
