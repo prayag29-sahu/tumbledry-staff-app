@@ -6,6 +6,7 @@ import {
   completeTaskUnit,
   toggleTaskUnit,
   getTaskSummary,
+  buildTaskSummaryFromAssignments,
   getMonthlyTaskSummary,
   rescheduleAssignment,
   undoAssignmentShift,
@@ -75,25 +76,13 @@ taskRouter.get(
         },
         taskUnits: {
           where: { status: { not: 'CANCELLED' } },
-          include: {
-            damageIncidents: {
-              select: {
-                id: true,
-                pieceNumber: true,
-                status: true,
-                notes: true,
-                photoPath: true,
-                reportedAt: true,
-              },
-            },
-          },
           orderBy: [{ pieceNumber: 'asc' }, { sequenceNumber: 'asc' }],
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    const summary = await getTaskSummary(staffMemberId, shopId, dbDate);
+    const summary = buildTaskSummaryFromAssignments(assignments);
 
     res.json({ assignments, summary, date: dateKey });
   }
@@ -138,18 +127,6 @@ taskRouter.get(
         },
         taskUnits: {
           where: { status: { not: 'CANCELLED' } },
-          include: {
-            damageIncidents: {
-              select: {
-                id: true,
-                pieceNumber: true,
-                status: true,
-                notes: true,
-                photoPath: true,
-                reportedAt: true,
-              },
-            },
-          },
           orderBy: [{ pieceNumber: 'asc' }, { sequenceNumber: 'asc' }],
         },
       },

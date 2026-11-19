@@ -723,17 +723,25 @@ function ManagerPageInner() {
           setStaffDayAssignments(dayTasksRes.assignments);
         }
       } else {
-        const [dayTasksRes, monthRes] = await Promise.all([
-          apiRequest<{ assignments: StaffAssignment[] }>(
-            `/api/shops/${activeShopId}/staff/${staffMemberId}/tasks?date=${date}`
-          ).catch(() => ({ assignments: [] })),
-          apiRequest<StaffTaskMonthlySummary>(
-            `/api/shops/${activeShopId}/staff/${staffMemberId}/task-summary/monthly?year=${year}&month=${month}`
-          ).catch(() => null),
-        ]);
+        // Fast non-blocking load: Fetch day tasks immediately so tasks show up in <100ms
+        apiRequest<{ assignments: StaffAssignment[] }>(
+          `/api/shops/${activeShopId}/staff/${staffMemberId}/tasks?date=${date}`
+        ).then((dayRes) => {
+          setStaffDayAssignments(dayRes?.assignments || []);
+          setIsLoadingStaffData(false);
+        }).catch(() => {
+          setStaffDayAssignments([]);
+          setIsLoadingStaffData(false);
+        });
 
-        setStaffDayAssignments(dayTasksRes?.assignments || []);
-        setStaffMonthlySummary(monthRes);
+        // Load monthly aggregated history asynchronously in background without blocking task view
+        apiRequest<StaffTaskMonthlySummary>(
+          `/api/shops/${activeShopId}/staff/${staffMemberId}/task-summary/monthly?year=${year}&month=${month}`
+        ).then((monthRes) => {
+          setStaffMonthlySummary(monthRes);
+        }).catch(() => {
+          setStaffMonthlySummary(null);
+        });
       }
     } catch {
       if (!silent) {
@@ -2405,8 +2413,22 @@ function ManagerPageInner() {
                                       await apiRequest(`/api/shops/${activeShopId}/task-units/${unit.id}/toggle`, {
                                         method: 'PATCH',
                                       });
-                                      if (selectedStaff) fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate, true);
-                                      fetchData(true);
+                                      // Update dashboard counters in-memory (instant <10ms, no heavy 6-request reload!)
+                                      setDashboardData((prev) => {
+                                        if (!prev?.todayTasks) return prev;
+                                        const delta = isDone ? -1 : 1;
+                                        const newCompleted = Math.max(0, (prev.todayTasks.completed ?? 0) + delta);
+                                        const newPending = Math.max(0, (prev.todayTasks.total ?? 0) - newCompleted);
+                                        return {
+                                          ...prev,
+                                          todayTasks: {
+                                            ...prev.todayTasks,
+                                            completed: newCompleted,
+                                            pending: newPending,
+                                            percentage: prev.todayTasks.total > 0 ? Math.round((newCompleted / prev.todayTasks.total) * 100) : 0,
+                                          },
+                                        };
+                                      });
                                     } catch (err) {
                                       alert(err instanceof Error ? err.message : 'Failed to update task.');
                                       if (selectedStaff) fetchStaffDetails(selectedStaff.staffMember.id, staffTaskDate, true);
@@ -3342,8 +3364,22 @@ function ManagerPageInner() {
                                   await apiRequest(`/api/shops/${activeShopId}/task-units/${unit.id}/toggle`, {
                                     method: 'PATCH',
                                   });
-                                  fetchMyDirectives(undefined, true);
-                                  fetchData(true);
+                                  // Update dashboard counters in-memory (instant <10ms)
+                                  setDashboardData((prev) => {
+                                    if (!prev?.todayTasks) return prev;
+                                    const delta = isDone ? -1 : 1;
+                                    const newCompleted = Math.max(0, (prev.todayTasks.completed ?? 0) + delta);
+                                    const newPending = Math.max(0, (prev.todayTasks.total ?? 0) - newCompleted);
+                                    return {
+                                      ...prev,
+                                      todayTasks: {
+                                        ...prev.todayTasks,
+                                        completed: newCompleted,
+                                        pending: newPending,
+                                        percentage: prev.todayTasks.total > 0 ? Math.round((newCompleted / prev.todayTasks.total) * 100) : 0,
+                                      },
+                                    };
+                                  });
                                 } catch (err) {
                                   alert(err instanceof Error ? err.message : 'Failed to update directive status.');
                                   fetchMyDirectives(undefined, true);

@@ -372,18 +372,20 @@ export async function completeTaskUnit(
     throw new AppError(400, 'TASK_DATE_MISMATCH', 'Tasks can only be marked as completed on their assigned date (today). Past or future tasks cannot be completed.');
   }
 
-  // Validate that staff attendance check-in has been marked for today
-  const attendanceToday = await prisma.attendanceSession.findFirst({
-    where: {
-      shopId: unit.shopId,
-      staffMemberId: unit.staffMemberId,
-      checkInAt: { gte: today.startOfDay, lte: today.endOfDay },
-    },
-    select: { id: true, checkInAt: true },
-  });
+  // Validate that staff attendance check-in has been marked for today (staff only, skip if privileged manager/supervisor/owner)
+  if (!isPrivileged) {
+    const attendanceToday = await prisma.attendanceSession.findFirst({
+      where: {
+        shopId: unit.shopId,
+        staffMemberId: unit.staffMemberId,
+        checkInAt: { gte: today.startOfDay, lte: today.endOfDay },
+      },
+      select: { id: true },
+    });
 
-  if (!attendanceToday || !attendanceToday.checkInAt) {
-    throw new AppError(403, 'ATTENDANCE_REQUIRED', 'Attendance check-in is required before tasks can be marked complete.');
+    if (!attendanceToday) {
+      throw new AppError(403, 'ATTENDANCE_REQUIRED', 'Attendance check-in is required before tasks can be marked complete.');
+    }
   }
 
   if (unit.status === 'COMPLETED') return; // idempotent
@@ -434,17 +436,19 @@ export async function toggleTaskUnit(
       throw new AppError(400, 'TASK_DATE_MISMATCH', 'Tasks can only be marked as completed on their assigned date (today). Past or future tasks cannot be completed.');
     }
 
-    const attendanceToday = await prisma.attendanceSession.findFirst({
-      where: {
-        shopId: unit.shopId,
-        staffMemberId: unit.staffMemberId,
-        checkInAt: { gte: today.startOfDay, lte: today.endOfDay },
-      },
-      select: { id: true, checkInAt: true },
-    });
+    if (!isPrivileged) {
+      const attendanceToday = await prisma.attendanceSession.findFirst({
+        where: {
+          shopId: unit.shopId,
+          staffMemberId: unit.staffMemberId,
+          checkInAt: { gte: today.startOfDay, lte: today.endOfDay },
+        },
+        select: { id: true },
+      });
 
-    if (!attendanceToday || !attendanceToday.checkInAt) {
-      throw new AppError(403, 'ATTENDANCE_REQUIRED', 'Attendance check-in is required before tasks can be marked complete.');
+      if (!attendanceToday) {
+        throw new AppError(403, 'ATTENDANCE_REQUIRED', 'Attendance check-in is required before tasks can be marked complete.');
+      }
     }
   }
 
@@ -456,6 +460,59 @@ export async function toggleTaskUnit(
       completedByAccountId: nextStatus === 'COMPLETED' ? completedByAccountId : null,
     },
   });
+}
+
+/**
+ * Fast in-memory calculation of task unit summary from already loaded assignments.
+ * Zero extra database round-trips!
+ */
+export function buildTaskSummaryFromAssignments(
+  assignments: Array<{
+    taskUnits?: Array<{
+      status: string;
+      activityCode?: string | null;
+      unitType?: string | null;
+    }>;
+  }>
+): TaskUnitSummary {
+  let totalCount = 0;
+  let completedCount = 0;
+  const breakdown = { wash: 0, dry: 0, iron: 0, fold: 0, pack: 0, delivery: 0, pickup: 0 };
+
+  for (const a of assignments) {
+    if (!a.taskUnits) continue;
+    for (const u of a.taskUnits) {
+      if (u.status === 'CANCELLED') continue;
+      totalCount++;
+      if (u.status === 'COMPLETED') {
+        completedCount++;
+      }
+      const code = (u.activityCode || '').toUpperCase();
+      if (code.includes('WASH')) breakdown.wash++;
+      else if (code.includes('DRY')) breakdown.dry++;
+      else if (code.includes('IRON')) breakdown.iron++;
+      else if (code.includes('FOLD')) breakdown.fold++;
+      else if (code.includes('PACK')) breakdown.pack++;
+      else if (u.unitType === 'PER_ORDER') breakdown.delivery++;
+      else if (u.unitType === 'COUNT_BASED') breakdown.pickup++;
+    }
+  }
+
+  const percentageComplete = totalCount > 0
+    ? Math.round((completedCount / totalCount) * 100)
+    : null;
+
+  return {
+    total: totalCount,
+    completed: completedCount,
+    pending: totalCount - completedCount,
+    percentageComplete,
+    totalUnits: totalCount,
+    completedUnits: completedCount,
+    pendingUnits: totalCount - completedCount,
+    percentage: percentageComplete,
+    breakdown,
+  };
 }
 
 /**

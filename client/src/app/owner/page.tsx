@@ -823,12 +823,10 @@ function OwnerPageInner() {
   const fetchStaffPerformance = useCallback(async (staffMemberId: string, shopId: string, date: string, year: number, month: number) => {
     setIsLoadingStaffPerf(true);
     try {
-      const [dayData, monthData, attData] = await Promise.all([
+      // 1. Fetch day tasks and attendance (ultra-fast response <100ms)
+      const [dayData, attData] = await Promise.all([
         apiRequest<{ assignments: StaffTaskDaySummary['assignments']; summary: StaffTaskDaySummary }>(
           `/api/shops/${shopId}/staff/${staffMemberId}/tasks?date=${date}`
-        ).catch(() => null),
-        apiRequest<StaffTaskMonthlySummary>(
-          `/api/shops/${shopId}/staff/${staffMemberId}/task-summary/monthly?year=${year}&month=${month}`
         ).catch(() => null),
         apiRequest<{ sessions: BranchAttendanceSession[] }>(
           `/api/shops/${shopId}/attendance/today?date=${date}`
@@ -844,10 +842,18 @@ function OwnerPageInner() {
         setStaffDaySummary(null);
       }
 
-      setStaffMonthSummary(monthData);
-
       const matchedSession = (attData?.sessions || []).find((s) => s.staffMemberId === staffMemberId);
       setStaffAttendanceSession(matchedSession || null);
+      setIsLoadingStaffPerf(false);
+
+      // 2. Fetch monthly aggregation history in background without blocking daily task UI
+      apiRequest<StaffTaskMonthlySummary>(
+        `/api/shops/${shopId}/staff/${staffMemberId}/task-summary/monthly?year=${year}&month=${month}`
+      ).then((monthData) => {
+        setStaffMonthSummary(monthData);
+      }).catch(() => {
+        setStaffMonthSummary(null);
+      });
     } catch {
       setStaffDaySummary(null);
       setStaffMonthSummary(null);

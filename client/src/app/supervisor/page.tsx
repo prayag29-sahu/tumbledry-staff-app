@@ -801,10 +801,10 @@ export default function SupervisorPage() {
     }
   }, [fetchAllData]);
 
-  // Refetch when nav tab or dates change (silent to avoid flickering)
+  // Refetch when selected date changes (silent to avoid flickering)
   useEffect(() => {
     fetchAllData(true);
-  }, [fetchAllData, currentNav, selectedDate]);
+  }, [fetchAllData, selectedDate]);
 
   // Auto-refresh when window receives focus or returns from background tab (throttled to 30s)
   useEffect(() => {

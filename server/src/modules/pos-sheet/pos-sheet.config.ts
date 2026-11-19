@@ -451,3 +451,4 @@ export function getDefaultPosSheetConfig(): PosSheetConfig {
     allowManagerDelete: false,
   };
 }
+
