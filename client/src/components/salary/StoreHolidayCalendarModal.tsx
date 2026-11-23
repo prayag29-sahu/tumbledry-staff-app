@@ -5,7 +5,6 @@ import {
   X,
   CheckCircle2,
   CalendarCheck,
-  Zap,
   Info,
   RotateCcw,
 } from 'lucide-react';
@@ -16,6 +15,16 @@ export interface MonthHolidayItem {
   name: string;
   type: 'WEEKLY_OFF' | 'STORE_HOLIDAY' | 'PAID_LEAVE';
 }
+
+const DAYS_OF_WEEK = [
+  { day: 0, name: 'Sunday', short: 'Sun' },
+  { day: 1, name: 'Monday', short: 'Mon' },
+  { day: 2, name: 'Tuesday', short: 'Tue' },
+  { day: 3, name: 'Wednesday', short: 'Wed', isStoreDefault: true },
+  { day: 4, name: 'Thursday', short: 'Thu' },
+  { day: 5, name: 'Friday', short: 'Fri' },
+  { day: 6, name: 'Saturday', short: 'Sat' },
+];
 
 interface StoreHolidayCalendarModalProps {
   isOpen: boolean;
@@ -37,7 +46,7 @@ export function StoreHolidayCalendarModal({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const [weeklyOffDay, setWeeklyOffDay] = useState<number>(0); // 0 = Sunday
+  const [weeklyOffDay, setWeeklyOffDay] = useState<number>(3); // 3 = Wednesday (Store Default)
   const [holidays, setHolidays] = useState<MonthHolidayItem[]>([]);
 
   // Month info
@@ -65,7 +74,7 @@ export function StoreHolidayCalendarModal({
         `/api/shops/${shopId}/salary/holidays?month=${month}`
       );
       if (res?.data) {
-        setWeeklyOffDay(res.data.weeklyOffDay ?? 0);
+        setWeeklyOffDay(res.data.weeklyOffDay ?? 3);
         setHolidays(res.data.holidays || []);
       }
     } catch (err: unknown) {
@@ -226,46 +235,76 @@ export function StoreHolidayCalendarModal({
             </div>
           </div>
 
-          {/* Quick Setup Presets */}
-          <div className="space-y-1.5">
-            <span className="text-[11px] font-bold text-brand-forest uppercase tracking-wider block">
-              Quick Setup Presets
-            </span>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => handleSetDayOfWeekAsOff(0)}
-                className={`py-2 px-2.5 rounded-xl border text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all ${
-                  weeklyOffDay === 0
-                    ? 'bg-brand-forest text-white border-brand-forest shadow-clay-sm'
-                    : 'bg-surface-cream text-brand-forest border-border-subtle hover:bg-emerald-50'
-                }`}
-              >
-                <Zap className="w-3.5 h-3.5 text-brand-lime" />
-                <span>All Sundays Off</span>
-              </button>
+          {/* Store Weekly Off Day Selector */}
+          <div className="p-3.5 rounded-2xl bg-surface-cream/80 border border-border-subtle space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-brand-forest uppercase tracking-wider">
+                Store Regular Weekly Off Day
+              </span>
+              <span className="text-[10px] text-content-muted font-semibold">
+                Owner &amp; Supervisor Configurable
+              </span>
+            </div>
 
-              <button
-                type="button"
-                onClick={() => handleSetDayOfWeekAsOff(1)}
-                className={`py-2 px-2.5 rounded-xl border text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all ${
-                  weeklyOffDay === 1
-                    ? 'bg-brand-forest text-white border-brand-forest shadow-clay-sm'
-                    : 'bg-surface-cream text-brand-forest border-border-subtle hover:bg-emerald-50'
-                }`}
-              >
-                <Zap className="w-3.5 h-3.5 text-brand-lime" />
-                <span>All Mondays Off</span>
-              </button>
+            {/* 7 Days selector pills */}
+            <div className="grid grid-cols-7 gap-1">
+              {DAYS_OF_WEEK.map((d) => {
+                const isSelected = weeklyOffDay === d.day;
+                return (
+                  <button
+                    key={d.day}
+                    type="button"
+                    onClick={() => handleSetDayOfWeekAsOff(d.day)}
+                    className={`py-2 px-1 rounded-xl text-center border transition-all ${
+                      isSelected
+                        ? 'bg-brand-forest text-white border-brand-forest shadow-clay-sm font-black'
+                        : 'bg-white border-border-subtle text-content-default hover:bg-emerald-50 font-semibold'
+                    }`}
+                  >
+                    <span className="text-xs block">{d.short}</span>
+                    <span
+                      className={`text-[9px] block leading-none mt-0.5 ${
+                        isSelected ? 'text-brand-lime font-bold' : 'text-content-muted'
+                      }`}
+                    >
+                      {d.day === 3 ? 'Store' : d.day === 0 ? 'Sun' : 'Day'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
 
-              <button
-                type="button"
-                onClick={handleClearAll}
-                className="py-2 px-2.5 rounded-xl border border-red-200 text-red-700 bg-red-50/60 hover:bg-red-100 text-[11px] font-bold flex items-center justify-center gap-1 transition-all"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Clear All</span>
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px]">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-content-muted">Regular Off:</span>
+                <span className="text-brand-forest font-black">
+                  Every {DAYS_OF_WEEK.find((d) => d.day === weeklyOffDay)?.name || 'Wednesday'}
+                </span>
+                {weeklyOffDay === 3 && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">
+                    Store Default (Wednesday)
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSetDayOfWeekAsOff(3)}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 hover:bg-emerald-100 text-[10px] font-bold border border-emerald-200 transition-colors"
+                  title="Reset to Wednesday (Store Default)"
+                >
+                  ⚡ Reset Wednesday
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearAll}
+                  className="px-2.5 py-1 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 text-[10px] font-bold border border-red-200 transition-colors flex items-center gap-1"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Clear All</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -294,14 +333,24 @@ export function StoreHolidayCalendarModal({
             </div>
 
             {/* Day of Week Headers */}
-            <div className="grid grid-cols-7 gap-1 text-center font-bold text-[10px] text-content-muted uppercase pb-1">
-              <span className="text-red-600">Sun</span>
-              <span>Mon</span>
-              <span>Tue</span>
-              <span>Wed</span>
-              <span>Thu</span>
-              <span>Fri</span>
-              <span>Sat</span>
+            <div className="grid grid-cols-7 gap-1 text-center font-bold text-[10px] uppercase pb-1">
+              {DAYS_OF_WEEK.map((d) => {
+                const isSelected = weeklyOffDay === d.day;
+                return (
+                  <span
+                    key={d.day}
+                    className={`py-1 rounded ${
+                      isSelected
+                        ? 'bg-emerald-100 text-emerald-900 font-black'
+                        : d.day === 0
+                        ? 'text-red-600'
+                        : 'text-content-muted'
+                    }`}
+                  >
+                    {d.short} {isSelected ? '★' : ''}
+                  </span>
+                );
+              })}
             </div>
 
             {/* Calendar Days */}

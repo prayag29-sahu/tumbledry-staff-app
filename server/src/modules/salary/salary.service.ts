@@ -183,7 +183,20 @@ export async function getShopMonthHolidays(shopId: string, monthStr: string): Pr
     return setting.value as unknown as MonthHolidayConfig;
   }
 
-  // Generate default Sundays as weekly off for this month
+  // Check if shop has a store-wide default weekly off day setting (Default: 3 = Wednesday)
+  const shopDefaultSetting = await prisma.appSetting.findUnique({
+    where: { shopId_key: { shopId, key: 'default_weekly_off_day' } },
+  });
+  const defaultOffDay =
+    typeof shopDefaultSetting?.value === 'number'
+      ? shopDefaultSetting.value
+      : typeof (shopDefaultSetting?.value as any)?.day === 'number'
+      ? (shopDefaultSetting?.value as any).day
+      : 3; // 3 = Wednesday (Store Default)
+
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  // Generate default weekly offs for this month based on store default day
   const [yStr, mStr] = monthStr.split('-');
   const y = parseInt(yStr, 10);
   const m = parseInt(mStr, 10) - 1;
@@ -192,11 +205,11 @@ export async function getShopMonthHolidays(shopId: string, monthStr: string): Pr
   const defaultHolidays: MonthHolidayItem[] = [];
   for (let day = 1; day <= daysInMonth; day++) {
     const d = new Date(y, m, day);
-    if (d.getDay() === 0) { // Sunday
+    if (d.getDay() === defaultOffDay) {
       const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       defaultHolidays.push({
         date: dateStr,
-        name: 'Weekly Off (Sunday)',
+        name: `Weekly Off (${dayNames[defaultOffDay]})`,
         type: 'WEEKLY_OFF',
       });
     }
@@ -204,7 +217,7 @@ export async function getShopMonthHolidays(shopId: string, monthStr: string): Pr
 
   return {
     month: monthStr,
-    weeklyOffDay: 0,
+    weeklyOffDay: defaultOffDay,
     holidays: defaultHolidays,
   };
 }
@@ -218,10 +231,11 @@ export async function updateShopMonthHolidays(
   data: { weeklyOffDay?: number; holidays: MonthHolidayItem[] },
   actorAccountId: string
 ): Promise<MonthHolidayConfig> {
+  const targetOffDay = data.weeklyOffDay !== undefined ? data.weeklyOffDay : 3;
   const settingKey = `holidays_${monthStr}`;
   const config: MonthHolidayConfig = {
     month: monthStr,
-    weeklyOffDay: data.weeklyOffDay !== undefined ? data.weeklyOffDay : 0,
+    weeklyOffDay: targetOffDay,
     holidays: data.holidays || [],
   };
 
@@ -229,6 +243,13 @@ export async function updateShopMonthHolidays(
     where: { shopId_key: { shopId, key: settingKey } },
     update: { value: config as any },
     create: { shopId, key: settingKey, value: config as any },
+  });
+
+  // Also update shop's store-wide default weekly off day preference
+  await prisma.appSetting.upsert({
+    where: { shopId_key: { shopId, key: 'default_weekly_off_day' } },
+    update: { value: targetOffDay as any },
+    create: { shopId, key: 'default_weekly_off_day', value: targetOffDay as any },
   });
 
   await logAudit({
