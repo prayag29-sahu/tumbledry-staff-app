@@ -18,11 +18,17 @@ import {
   CheckCircle2,
   Timer,
   ShieldCheck,
+  Printer,
+  Plus,
+  Sliders,
 } from 'lucide-react';
 import { resolveDutyTiming, formatTime12h, formatDisplayDate } from '../lib/dateUtils';
 import { LiveCameraModal } from './LiveCameraModal';
 import { AttendancePhotoViewerModal } from './AttendancePhotoViewerModal';
 import { StaffExtraDetails } from './owner/StaffExtraDetails';
+import { StaffPayslipModal } from './salary/StaffPayslipModal';
+import { RecordAdvanceModal } from './salary/RecordAdvanceModal';
+import { EditSalaryTermsModal } from './salary/EditSalaryTermsModal';
 
 
 export interface ProfileStaffDetails {
@@ -44,6 +50,9 @@ export interface ProfileMembershipDetails {
   monthlySalary?: number | string | null;
   incentiveAmount?: number | string | null;
   securityDeposit?: number | string | null;
+  salaryCycleDay?: number | null;
+  salaryPaymentDate?: number | null;
+  salaryNotes?: string | null;
   shiftStartTime?: string | null;
   shiftEndTime?: string | null;
   lateThreshold?: string | null;
@@ -92,7 +101,14 @@ export function StaffProfileCard({
   const router = useRouter();
   const { logout } = useAuth();
 
-  const [subtab, setSubtab] = useState<'attendance' | 'details'>('attendance');
+  const [subtab, setSubtab] = useState<'attendance' | 'details' | 'salary'>('attendance');
+  const [isPayslipModalOpen, setIsPayslipModalOpen] = useState(false);
+  const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
+  const [isEditTermsOpen, setIsEditTermsOpen] = useState(false);
+  const [salaryMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [isLiveCameraOpen, setIsLiveCameraOpen] = useState(false);
   const [cameraAction, setCameraAction] = useState<'check-in' | 'check-out'>('check-in');
   const [viewingPhoto, setViewingPhoto] = useState<{
@@ -293,6 +309,18 @@ export function StaffProfileCard({
         >
           Profile Details
         </button>
+        {membership?.shopId && membership?.staffMemberId && (
+          <button
+            type="button"
+            onClick={() => setSubtab('salary')}
+            className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all text-center ${subtab === 'salary'
+                ? 'bg-brand-forest text-white shadow-sm'
+                : 'text-content-muted hover:text-brand-forest'
+              }`}
+          >
+            Salary &amp; Slips
+          </button>
+        )}
       </div>
 
       {/* ── TAB 1: ATTENDANCE & LIVE STATUS ──────────────────── */}
@@ -610,6 +638,136 @@ export function StaffProfileCard({
             />
           )}
         </div>
+      )}
+
+      {/* ── TAB 3: SALARY & ADVANCES ─────────────────────────── */}
+      {subtab === 'salary' && membership?.shopId && membership?.staffMemberId && (
+        <div className="space-y-4 animate-fade-in">
+          {/* Salary Overview Card */}
+          <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border-subtle">
+              <div className="flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-brand-forest" />
+                <h3 className="text-xs font-black text-brand-forest uppercase tracking-wider">
+                  Compensation &amp; Salary Terms
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditTermsOpen(true)}
+                className="px-2.5 py-1 rounded-lg bg-surface-cream text-brand-forest text-xs font-bold border border-border-subtle hover:bg-surface-hover flex items-center gap-1"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Edit Terms</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200/60">
+                <span className="text-[10px] text-emerald-800 font-bold block uppercase">
+                  Monthly Base Salary
+                </span>
+                <span className="text-base font-black text-emerald-950 font-mono mt-0.5 block">
+                  {salaryLabel || '₹ 0.00'}
+                </span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/60">
+                <span className="text-[10px] text-amber-800 font-bold block uppercase">
+                  Fixed Incentive
+                </span>
+                <span className="text-base font-black text-amber-950 font-mono mt-0.5 block">
+                  {incentiveLabel || '₹ 0.00'}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/50">
+                <span className="text-content-muted text-[11px]">Joining Date</span>
+                <span className="font-bold text-brand-forest">{joiningLabel}</span>
+              </div>
+              <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/50">
+                <span className="text-content-muted text-[11px]">Salary Cycle</span>
+                <span className="font-bold text-brand-forest">
+                  {membership.salaryCycleDay || 1}st to End of Month
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-1.5 border-b border-border-subtle/50">
+                <span className="text-content-muted text-[11px]">Disbursement Date</span>
+                <span className="font-bold text-brand-forest">
+                  {membership.salaryPaymentDate || 7}th of every month
+                </span>
+              </div>
+              {membership.salaryNotes && (
+                <div className="p-2.5 rounded-xl bg-surface-cream text-[11px] text-content-muted">
+                  <span className="font-bold text-brand-forest block">Bank / Payment Notes:</span>
+                  <span className="font-mono mt-0.5 block">{membership.salaryNotes}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Actions: View Slip & Record Advance */}
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setIsPayslipModalOpen(true)}
+              className="p-3.5 rounded-2xl bg-brand-forest text-white text-xs font-black shadow-clay flex items-center justify-center gap-2 hover:bg-emerald-900 transition-all"
+            >
+              <Printer className="w-4 h-4" />
+              <span>View &amp; Print Slip</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsAdvanceModalOpen(true)}
+              className="p-3.5 rounded-2xl bg-gradient-to-r from-red-800 to-red-950 text-white text-xs font-black shadow-clay flex items-center justify-center gap-2 hover:opacity-95 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Record Advance</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Salary Modals ────────────────────────────────────── */}
+      {isPayslipModalOpen && membership?.shopId && membership?.staffMemberId && (
+        <StaffPayslipModal
+          isOpen={true}
+          onClose={() => setIsPayslipModalOpen(false)}
+          shopId={membership.shopId}
+          staffMemberId={membership.staffMemberId}
+          month={salaryMonth}
+        />
+      )}
+
+      {isAdvanceModalOpen && membership?.shopId && membership?.staffMemberId && (
+        <RecordAdvanceModal
+          isOpen={true}
+          onClose={() => setIsAdvanceModalOpen(false)}
+          shopId={membership.shopId}
+          defaultStaffMemberId={membership.staffMemberId}
+          defaultMonth={salaryMonth}
+        />
+      )}
+
+      {isEditTermsOpen && membership?.shopId && membership?.staffMemberId && (
+        <EditSalaryTermsModal
+          isOpen={true}
+          onClose={() => setIsEditTermsOpen(false)}
+          shopId={membership.shopId}
+          staffMemberId={membership.staffMemberId}
+          staffName={staff.fullName}
+          initialTerms={{
+            monthlySalary: typeof membership.monthlySalary === 'number' ? membership.monthlySalary : null,
+            incentiveAmount: typeof membership.incentiveAmount === 'number' ? membership.incentiveAmount : null,
+            joiningDate: membership.joiningDate,
+            salaryCycleDay: membership.salaryCycleDay,
+            salaryPaymentDate: membership.salaryPaymentDate,
+            salaryNotes: membership.salaryNotes,
+          }}
+        />
       )}
 
       {/* ── Modals: Live Camera & Photo Viewer ──────────────── */}

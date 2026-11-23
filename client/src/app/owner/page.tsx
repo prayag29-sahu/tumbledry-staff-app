@@ -43,6 +43,7 @@ import {
   Copy,
   CalendarCheck2,
   Layers,
+  CreditCard,
   AlertTriangle,
   Camera,
   Power,
@@ -62,6 +63,7 @@ import { AuditLogPanel } from '../../components/owner/AuditLogPanel';
 import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
 import { SpecialDamageOrdersSection } from '../../components/SpecialDamageOrdersSection';
 import { PosSheetSection } from '../../components/pos-sheet/PosSheetSection';
+import { SalaryManagementPanel } from '../../components/salary/SalaryManagementPanel';
 
 /** Helper to extract address / location and remaining clean notes from assignment notes */
 function parseAssignmentNotes(notes?: string | null) {
@@ -378,7 +380,7 @@ function OwnerPageInner() {
     if (!user) router.replace('/login');
     else if (!user.isOwner) router.replace('/');
   }, [authLoading, user, router]);
-  const [activeTab, setActiveTab] = useState<'overview' | 'custom-fields' | 'audit-logs' | 'config'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'salary' | 'custom-fields' | 'audit-logs' | 'config'>('overview');
 
   // Core Data
   const [shops, setShops] = useState<Shop[]>([]);
@@ -1118,7 +1120,19 @@ function OwnerPageInner() {
           }`}
         >
           <Building2 className="w-4 h-4" />
-          <span>Shops & Performance</span>
+          <span>Shops &amp; Performance</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('salary')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'salary'
+              ? 'bg-brand-forest text-white shadow-md'
+              : 'text-content-muted hover:text-brand-forest'
+          }`}
+        >
+          <CreditCard className="w-4 h-4" />
+          <span>Staff Salary &amp; Advances</span>
         </button>
 
         <button
@@ -3476,6 +3490,17 @@ function OwnerPageInner() {
             )}
           </div>
         </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          TAB: SALARY & ADVANCES (PAYROLL MANAGEMENT & PAYSLIPS)
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'salary' && (
+        <SalaryManagementPanel
+          shopId={selectedShopId || shops[0]?.id || ''}
+          shopName={shops.find((s) => s.id === selectedShopId)?.name}
+          isOwner={true}
+        />
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════════

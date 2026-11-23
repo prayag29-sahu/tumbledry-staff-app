@@ -41,6 +41,8 @@ model Shop {
   customFieldDefs     CustomFieldDefinition[]
   posDailySheetBatches PosDailySheetBatch[]
   posDailySheetEntries PosDailySheetEntry[]
+  staffAdvancesDeductions StaffAdvanceDeduction[]
+  staffSalaryPayments     StaffSalaryPayment[]
 
   @@map("shops")
 }
@@ -75,6 +77,8 @@ model Account {
   specialDamageOrders SpecialDamageOrder[]
   auditLogsAsActor AuditLog[] @relation("AuditActor")
   posDailySheetBatchesUploaded PosDailySheetBatch[] @relation("UploadedBatches")
+  recordedStaffAdvances        StaffAdvanceDeduction[]
+  generatedSalaryPayments      StaffSalaryPayment[]
 
   @@map("accounts")
 }
@@ -110,6 +114,8 @@ model StaffMember {
   attendanceSessions AttendanceSession[]
   damageIncidents  DamageIncident[]
   customFieldValues CustomFieldValue[]
+  advancesDeductions StaffAdvanceDeduction[]
+  salaryPayments    StaffSalaryPayment[]
 
   @@map("staff_members")
 }
@@ -139,6 +145,9 @@ model ShopMembership {
   securityDeposit      Decimal?  @map("security_deposit") @db.Decimal(10, 2)
   dutyTimingNotes      String?   @map("duty_timing_notes")
   incentiveAmount      Decimal?  @map("incentive_amount") @db.Decimal(10, 2)
+  salaryCycleDay       Int?      @default(1) @map("salary_cycle_day")
+  salaryPaymentDate    Int?      @default(7) @map("salary_payment_date")
+  salaryNotes          String?   @map("salary_notes")
   attendanceEnabled    Boolean   @default(true) @map("attendance_enabled")
   isActive             Boolean   @default(true) @map("is_active")
 
@@ -662,4 +671,76 @@ model PosDailySheetEntry {
   @@index([shopId, orderNo])
   @@index([shopId, phone])
   @@map("pos_daily_sheet_entries")
+}
+
+// ─────────────────────────────────────────────
+// STAFF ADVANCES & DEDUCTIONS
+// Tracks advances taken by staff, loans, penalties, and adjustments
+// ─────────────────────────────────────────────
+model StaffAdvanceDeduction {
+  id                  String   @id @default(uuid())
+  shopId              String   @map("shop_id")
+  staffMemberId       String   @map("staff_member_id")
+  type                String   @default("ADVANCE") @map("type") // ADVANCE, DEDUCTION, BONUS, PENALTY, LOAN
+  amount              Decimal  @db.Decimal(10, 2) @map("amount")
+  date                DateTime @map("date")
+  targetMonth         String?  @map("target_month") // YYYY-MM e.g. "2026-11" (optional explicit month linkage)
+  reason              String   @map("reason")
+  paymentMode         String   @default("CASH") @map("payment_mode") // CASH, UPI, BANK_TRANSFER
+  status              String   @default("APPLIED") @map("status") // APPLIED, RECOVERED, WAIVED
+  recordedByAccountId String   @map("recorded_by_account_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  shop        Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  staffMember StaffMember @relation(fields: [staffMemberId], references: [id], onDelete: Cascade)
+  recordedBy  Account     @relation(fields: [recordedByAccountId], references: [id])
+
+  @@index([shopId, staffMemberId, date])
+  @@index([shopId, targetMonth])
+  @@map("staff_advances_deductions")
+}
+
+// ─────────────────────────────────────────────
+// STAFF SALARY PAYMENTS & MONTHLY SLIPS
+// Monthly payroll calculation, salary slips, and payment records
+// ─────────────────────────────────────────────
+model StaffSalaryPayment {
+  id                  String    @id @default(uuid())
+  shopId              String    @map("shop_id")
+  staffMemberId       String    @map("staff_member_id")
+  month               String    @map("month") // YYYY-MM e.g. "2026-11"
+  periodStart         DateTime  @map("period_start")
+  periodEnd           DateTime  @map("period_end")
+  joiningDate         DateTime? @map("joining_date")
+  baseSalary          Decimal   @db.Decimal(10, 2) @map("base_salary")
+  totalDaysInMonth    Int       @default(30) @map("total_days_in_month")
+  eligibleDays        Int       @default(30) @map("eligible_days")
+  presentDays         Decimal   @default(0) @db.Decimal(5, 2) @map("present_days")
+  halfDays            Decimal   @default(0) @db.Decimal(5, 2) @map("half_days")
+  absentDays          Decimal   @default(0) @db.Decimal(5, 2) @map("absent_days")
+  paidDays            Decimal   @default(0) @db.Decimal(5, 2) @map("paid_days")
+  earnedSalary        Decimal   @db.Decimal(10, 2) @map("earned_salary")
+  incentiveAmount     Decimal   @default(0) @db.Decimal(10, 2) @map("incentive_amount")
+  bonusAmount         Decimal   @default(0) @db.Decimal(10, 2) @map("bonus_amount")
+  grossPayable        Decimal   @db.Decimal(10, 2) @map("gross_payable")
+  advanceDeducted     Decimal   @default(0) @db.Decimal(10, 2) @map("advance_deducted")
+  otherDeductions     Decimal   @default(0) @db.Decimal(10, 2) @map("other_deductions")
+  netPayable          Decimal   @db.Decimal(10, 2) @map("net_payable")
+  status              String    @default("DRAFT") @map("status") // DRAFT, GENERATED, PAID, ON_HOLD
+  paidDate            DateTime? @map("paid_date")
+  paymentMode         String?   @default("BANK_TRANSFER") @map("payment_mode") // CASH, UPI, BANK_TRANSFER
+  transactionRef      String?   @map("transaction_ref")
+  remarks             String?   @map("remarks")
+  generatedByAccountId String   @map("generated_by_account_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  shop        Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  staffMember StaffMember @relation(fields: [staffMemberId], references: [id], onDelete: Cascade)
+  generatedBy Account     @relation(fields: [generatedByAccountId], references: [id])
+
+  @@unique([shopId, staffMemberId, month])
+  @@index([shopId, month])
+  @@map("staff_salary_payments")
 }

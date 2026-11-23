@@ -20,6 +20,7 @@ import { damageRouter } from './modules/damage/damage.router';
 import { configRouter } from './modules/config/config.router';
 import { mediaRouter } from './modules/media/media.router';
 import { posSheetRouter } from './modules/pos-sheet/pos-sheet.router';
+import { salaryRouter } from './modules/salary/salary.router';
 
 const app = express();
 
@@ -117,6 +118,7 @@ app.use('/api', taskRouter);         // /api/shops/:shopId/staff/:staffId/tasks
 app.use('/api', attendanceRouter);   // /api/shops/:shopId/attendance
 app.use('/api', damageRouter);       // /api/shops/:shopId/damage
 app.use('/api', posSheetRouter);     // /api/shops/:shopId/pos-sheet
+app.use('/api', salaryRouter);       // /api/shops/:shopId/salary
 app.use('/api/config', configRouter);
 
 // ─── 404 and error handling ───────────────────────────────────────────────────

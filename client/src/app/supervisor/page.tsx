@@ -61,6 +61,7 @@ import { AttendancePhotoViewerModal } from '../../components/AttendancePhotoView
 import { StaffExtraDetails } from '../../components/owner/StaffExtraDetails';
 import { SpecialDamageOrdersSection } from '../../components/SpecialDamageOrdersSection';
 import { PosSheetSection } from '../../components/pos-sheet/PosSheetSection';
+import { SalaryManagementPanel } from '../../components/salary/SalaryManagementPanel';
 
 function formatTime12h(timeStr: string | null | undefined): string {
   if (!timeStr) return '';
@@ -391,7 +392,7 @@ export default function SupervisorPage() {
   }, [user, isAuthLoading, router]);
 
   // Root Navigation View: 'dashboard' (Screen 10), 'staff_list' (Screen 2), 'attendance', 'pos_sheet', 'reports', 'more' (Screen 5)
-  const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'damage' | 'pos_sheet' | 'reports' | 'more'>('dashboard');
+  const [currentNav, setCurrentNav] = useState<'dashboard' | 'staff' | 'attendance' | 'damage' | 'pos_sheet' | 'reports' | 'more' | 'salary'>('dashboard');
 
   // Drilldown Views: null | 'add_staff' (Screens 3&4) | 'staff_profile' (Screens 6-9) | 'supervisor_profile'
   const [activeDrilldown, setActiveDrilldown] = useState<'add_staff' | 'staff_profile' | 'supervisor_profile' | null>(null);
@@ -3637,6 +3638,30 @@ export default function SupervisorPage() {
       ══════════════════════════════════════════════════════════════════════════ */}
       {!activeDrilldown && currentNav === 'more' && (
         <div className="p-4 space-y-4 animate-fade-in pb-24">
+          {/* Quick Salary & Advances Access Card */}
+          <div
+            onClick={() => setCurrentNav('salary')}
+            className="cursor-pointer bg-gradient-to-r from-[#1c4527] to-[#2e6d3e] text-white p-4 rounded-2xl shadow-clay-sm flex items-center justify-between hover:opacity-95 transition-all"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center font-black text-white text-base shadow-sm">
+                <CreditCard className="w-5 h-5 text-brand-lime" />
+              </div>
+              <div>
+                <h3 className="text-xs font-black text-white flex items-center gap-1.5">
+                  Staff Salary &amp; Advances
+                  <span className="px-1.5 py-0.2 rounded-md bg-brand-lime text-brand-forest text-[9px] font-black uppercase">
+                    Payroll
+                  </span>
+                </h3>
+                <p className="text-[11px] text-white/80 font-medium">
+                  Track salary, record cash advances &amp; print monthly slips
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-white" />
+          </div>
+
           {/* Supervisor Profile Card Link */}
           <div
             onClick={() => setActiveDrilldown('supervisor_profile')}
@@ -4363,6 +4388,19 @@ export default function SupervisorPage() {
               {activeShopName || 'Branch'} | {presentTrackedStaff.length} Staff Present | {dashboardData?.todayTasks.completed ?? 0} Pieces Completed | 0 Incidents
             </p>
           </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          MAIN SCREEN: STAFF SALARY & PAYROLL (WHEN currentNav === 'salary')
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {!activeDrilldown && currentNav === 'salary' && (
+        <div className="p-4 space-y-4 animate-fade-in pb-24">
+          <SalaryManagementPanel
+            shopId={activeShopId || ''}
+            shopName={activeShopName || ''}
+            isOwner={user?.isOwner || false}
+          />
         </div>
       )}
 
