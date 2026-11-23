@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -13,6 +13,7 @@ import {
   CreditCard,
   Gift,
   ChevronLeft,
+  ChevronRight,
   LogOut,
   Camera,
   CheckCircle2,
@@ -21,8 +22,11 @@ import {
   Printer,
   Plus,
   Sliders,
+  RefreshCw,
+  Wallet,
 } from 'lucide-react';
 import { resolveDutyTiming, formatTime12h, formatDisplayDate } from '../lib/dateUtils';
+import { apiRequest } from '../lib/api';
 import { LiveCameraModal } from './LiveCameraModal';
 import { AttendancePhotoViewerModal } from './AttendancePhotoViewerModal';
 import { StaffExtraDetails } from './owner/StaffExtraDetails';
@@ -75,6 +79,31 @@ export interface ProfileAttendanceSession {
   statusReason?: string | null;
 }
 
+export interface StaffSalaryCalcData {
+  attendance: {
+    presentDays: number;
+    halfDays: number;
+    absentDays: number;
+    weeklyOffDays?: number;
+    paidDays: number;
+  };
+  cycleBounds: {
+    eligibleDays: number;
+  };
+  calculation: {
+    baseMonthlySalary: number;
+    earnedSalary: number;
+    fixedIncentive: number;
+    advanceDeducted: number;
+    totalDeductions: number;
+    netPayable: number;
+  };
+  savedPayment?: {
+    status: string;
+  } | null;
+  advancesList?: Array<{ id: string }>;
+}
+
 interface StaffProfileCardProps {
   title?: string;
   onBack?: () => void;
@@ -99,16 +128,64 @@ export function StaffProfileCard({
   hidePermissions = false,
 }: StaffProfileCardProps) {
   const router = useRouter();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
 
   const [subtab, setSubtab] = useState<'attendance' | 'details' | 'salary'>('attendance');
   const [isPayslipModalOpen, setIsPayslipModalOpen] = useState(false);
   const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
   const [isEditTermsOpen, setIsEditTermsOpen] = useState(false);
-  const [salaryMonth] = useState(() => {
+  const [salaryMonth, setSalaryMonth] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [salaryCalc, setSalaryCalc] = useState<StaffSalaryCalcData | null>(null);
+  const [isSalaryLoading, setIsSalaryLoading] = useState(false);
+
+  const isPrivileged = useMemo(() => {
+    if (!user) return false;
+    if (user.isOwner) return true;
+    const role = (user.shopMemberships?.[0]?.roleName || '').toLowerCase();
+    return role.includes('supervisor') || role.includes('manager') || role.includes('admin');
+  }, [user]);
+
+  const fetchMonthSalary = useCallback(async () => {
+    if (!membership?.shopId || !membership?.staffMemberId) return;
+    setIsSalaryLoading(true);
+    try {
+      const res = await apiRequest<{ data: StaffSalaryCalcData }>(
+        `/api/shops/${membership.shopId}/salary/staff/${membership.staffMemberId}/calculate?month=${salaryMonth}`
+      );
+      setSalaryCalc(res?.data || null);
+    } catch {
+      setSalaryCalc(null);
+    } finally {
+      setIsSalaryLoading(false);
+    }
+  }, [membership?.shopId, membership?.staffMemberId, salaryMonth]);
+
+  useEffect(() => {
+    if (subtab === 'salary') {
+      fetchMonthSalary();
+    }
+  }, [subtab, fetchMonthSalary]);
+
+  const handleShiftSalaryMonth = (offset: number) => {
+    const [y, m] = salaryMonth.split('-').map(Number);
+    const date = new Date(y, m - 1 + offset, 1);
+    const nextMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    setSalaryMonth(nextMonth);
+  };
+
+  const salaryMonthFormatted = useMemo(() => {
+    try {
+      return new Date(salaryMonth + '-01').toLocaleDateString('en-IN', {
+        month: 'long',
+        year: 'numeric',
+      });
+    } catch {
+      return salaryMonth;
+    }
+  }, [salaryMonth]);
   const [isLiveCameraOpen, setIsLiveCameraOpen] = useState(false);
   const [cameraAction, setCameraAction] = useState<'check-in' | 'check-out'>('check-in');
   const [viewingPhoto, setViewingPhoto] = useState<{
@@ -643,23 +720,120 @@ export function StaffProfileCard({
       {/* ── TAB 3: SALARY & ADVANCES ─────────────────────────── */}
       {subtab === 'salary' && membership?.shopId && membership?.staffMemberId && (
         <div className="space-y-4 animate-fade-in">
-          {/* Salary Overview Card */}
+          {/* Month Stepper Selector */}
+          <div className="bg-white p-3 rounded-2xl border border-border-subtle shadow-sm flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleShiftSalaryMonth(-1)}
+                className="p-1.5 rounded-xl text-brand-forest hover:bg-surface-cream transition-colors"
+                title="Previous Month"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <div className="flex items-center gap-2 px-2">
+                <Calendar className="w-4 h-4 text-brand-forest" />
+                <span className="text-xs font-black text-brand-forest min-w-[130px] text-center">
+                  {salaryMonthFormatted}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleShiftSalaryMonth(1)}
+                className="p-1.5 rounded-xl text-brand-forest hover:bg-surface-cream transition-colors"
+                title="Next Month"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={fetchMonthSalary}
+              disabled={isSalaryLoading}
+              className="p-1.5 rounded-xl text-brand-forest hover:bg-surface-cream active:scale-95 transition-all"
+              title="Refresh Month Salary"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSalaryLoading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
+          {/* Month Earned & Net Payable Card */}
+          {salaryCalc && (
+            <div className="bg-gradient-to-br from-emerald-900 via-brand-forest to-[#183922] p-5 rounded-3xl text-white shadow-clay space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                <span className="text-[11px] font-bold text-brand-lime uppercase tracking-wider flex items-center gap-1.5">
+                  <Wallet className="w-3.5 h-3.5" />
+                  <span>Net Payable ({salaryMonthFormatted})</span>
+                </span>
+                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                  salaryCalc.savedPayment?.status === 'PAID'
+                    ? 'bg-emerald-400 text-emerald-950 font-black'
+                    : 'bg-white/20 text-white'
+                }`}>
+                  {salaryCalc.savedPayment?.status === 'PAID' ? '● PAID' : '○ PENDING'}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-2xl sm:text-3xl font-black font-mono tracking-tight block">
+                  ₹ {salaryCalc.calculation.netPayable.toLocaleString('en-IN')}
+                </span>
+                <span className="text-[11px] text-emerald-200/90 mt-0.5 block">
+                  Earned: ₹{salaryCalc.calculation.earnedSalary.toLocaleString('en-IN')}
+                  {salaryCalc.calculation.fixedIncentive > 0 && ` + ₹${salaryCalc.calculation.fixedIncentive} Incentive`}
+                  {salaryCalc.calculation.advanceDeducted > 0 && ` - ₹${salaryCalc.calculation.advanceDeducted} Advance`}
+                </span>
+              </div>
+
+              {/* Attendance & Working Days Metrics */}
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/10 text-xs">
+                <div className="p-2.5 rounded-2xl bg-white/10 backdrop-blur-xs">
+                  <span className="text-[10px] text-emerald-200 uppercase font-bold block">
+                    Paid Working Days
+                  </span>
+                  <span className="font-mono font-bold text-white text-sm mt-0.5 block">
+                    {salaryCalc.attendance.paidDays} / {salaryCalc.cycleBounds.eligibleDays} Days
+                  </span>
+                  <span className="text-[10px] text-emerald-300 block">
+                    {salaryCalc.attendance.presentDays} Pres • {salaryCalc.attendance.weeklyOffDays || 0} Weekly Offs
+                  </span>
+                </div>
+
+                <div className="p-2.5 rounded-2xl bg-white/10 backdrop-blur-xs">
+                  <span className="text-[10px] text-emerald-200 uppercase font-bold block">
+                    Advances / Loan
+                  </span>
+                  <span className="font-mono font-bold text-rose-300 text-sm mt-0.5 block">
+                    - ₹ {salaryCalc.calculation.totalDeductions.toLocaleString('en-IN')}
+                  </span>
+                  <span className="text-[10px] text-emerald-300 block">
+                    {salaryCalc.advancesList?.length || 0} deduction entries
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Salary Terms & Policy Card */}
           <div className="bg-white p-5 rounded-2xl border border-border-subtle shadow-clay-sm space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-border-subtle">
               <div className="flex items-center gap-2">
                 <CreditCard className="w-4 h-4 text-brand-forest" />
                 <h3 className="text-xs font-black text-brand-forest uppercase tracking-wider">
-                  Compensation &amp; Salary Terms
+                  Compensation Terms &amp; Policy
                 </h3>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsEditTermsOpen(true)}
-                className="px-2.5 py-1 rounded-lg bg-surface-cream text-brand-forest text-xs font-bold border border-border-subtle hover:bg-surface-hover flex items-center gap-1"
-              >
-                <Sliders className="w-3.5 h-3.5" />
-                <span>Edit Terms</span>
-              </button>
+              {isPrivileged && (
+                <button
+                  type="button"
+                  onClick={() => setIsEditTermsOpen(true)}
+                  className="px-2.5 py-1 rounded-lg bg-surface-cream text-brand-forest text-xs font-bold border border-border-subtle hover:bg-surface-hover flex items-center gap-1"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>Edit Terms</span>
+                </button>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-xs">
@@ -708,25 +882,27 @@ export function StaffProfileCard({
             </div>
           </div>
 
-          {/* Actions: View Slip & Record Advance */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Action Buttons: View Slip & (if Privileged) Record Advance */}
+          <div className={`grid ${isPrivileged ? 'grid-cols-2' : 'grid-cols-1'} gap-3`}>
             <button
               type="button"
               onClick={() => setIsPayslipModalOpen(true)}
               className="p-3.5 rounded-2xl bg-brand-forest text-white text-xs font-black shadow-clay flex items-center justify-center gap-2 hover:bg-emerald-900 transition-all"
             >
               <Printer className="w-4 h-4" />
-              <span>View &amp; Print Slip</span>
+              <span>View &amp; Print Payslip</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setIsAdvanceModalOpen(true)}
-              className="p-3.5 rounded-2xl bg-gradient-to-r from-red-800 to-red-950 text-white text-xs font-black shadow-clay flex items-center justify-center gap-2 hover:opacity-95 transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Record Advance</span>
-            </button>
+            {isPrivileged && (
+              <button
+                type="button"
+                onClick={() => setIsAdvanceModalOpen(true)}
+                className="p-3.5 rounded-2xl bg-gradient-to-r from-red-800 to-red-950 text-white text-xs font-black shadow-clay flex items-center justify-center gap-2 hover:opacity-95 transition-all"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Record Advance</span>
+              </button>
+            )}
           </div>
         </div>
       )}

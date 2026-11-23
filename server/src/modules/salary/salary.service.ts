@@ -124,9 +124,21 @@ export async function updateSalarySettings(
 export async function canUserAccessSalary(
   auth: { isOwner: boolean; accountId: string; shopMemberships: Array<{ shopId: string; capabilities: string[] }> },
   shopId: string,
-  requiredLevel: 'view' | 'manage'
+  requiredLevel: 'view' | 'manage',
+  targetStaffMemberId?: string
 ): Promise<boolean> {
   if (auth.isOwner) return true;
+
+  // Allow staff member to view their OWN salary & slip
+  if (requiredLevel === 'view' && targetStaffMemberId) {
+    const account = await prisma.account.findUnique({
+      where: { id: auth.accountId },
+      select: { staffMemberId: true },
+    });
+    if (account?.staffMemberId && account.staffMemberId === targetStaffMemberId) {
+      return true;
+    }
+  }
 
   const membership = auth.shopMemberships.find((m) => m.shopId === shopId);
   if (!membership) return false;
@@ -144,6 +156,91 @@ export async function canUserAccessSalary(
     return settings.supervisorCanManageSalary;
   }
   return settings.supervisorCanViewSalary || settings.supervisorCanManageSalary;
+}
+
+export interface MonthHolidayItem {
+  date: string; // YYYY-MM-DD
+  name: string; // e.g. "Weekly Off (Sunday)"
+  type: 'WEEKLY_OFF' | 'STORE_HOLIDAY' | 'PAID_LEAVE';
+}
+
+export interface MonthHolidayConfig {
+  month: string;
+  weeklyOffDay: number; // 0 = Sunday, 1 = Monday, etc.
+  holidays: MonthHolidayItem[];
+}
+
+/**
+ * Get configured or auto-generated weekly offs and store holidays for a month
+ */
+export async function getShopMonthHolidays(shopId: string, monthStr: string): Promise<MonthHolidayConfig> {
+  const settingKey = `holidays_${monthStr}`;
+  const setting = await prisma.appSetting.findUnique({
+    where: { shopId_key: { shopId, key: settingKey } },
+  });
+
+  if (setting?.value && typeof setting.value === 'object' && Array.isArray((setting.value as any).holidays)) {
+    return setting.value as unknown as MonthHolidayConfig;
+  }
+
+  // Generate default Sundays as weekly off for this month
+  const [yStr, mStr] = monthStr.split('-');
+  const y = parseInt(yStr, 10);
+  const m = parseInt(mStr, 10) - 1;
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+
+  const defaultHolidays: MonthHolidayItem[] = [];
+  for (let day = 1; day <= daysInMonth; day++) {
+    const d = new Date(y, m, day);
+    if (d.getDay() === 0) { // Sunday
+      const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      defaultHolidays.push({
+        date: dateStr,
+        name: 'Weekly Off (Sunday)',
+        type: 'WEEKLY_OFF',
+      });
+    }
+  }
+
+  return {
+    month: monthStr,
+    weeklyOffDay: 0,
+    holidays: defaultHolidays,
+  };
+}
+
+/**
+ * Save store holidays and weekly offs for a month (Supervisor / Owner)
+ */
+export async function updateShopMonthHolidays(
+  shopId: string,
+  monthStr: string,
+  data: { weeklyOffDay?: number; holidays: MonthHolidayItem[] },
+  actorAccountId: string
+): Promise<MonthHolidayConfig> {
+  const settingKey = `holidays_${monthStr}`;
+  const config: MonthHolidayConfig = {
+    month: monthStr,
+    weeklyOffDay: data.weeklyOffDay !== undefined ? data.weeklyOffDay : 0,
+    holidays: data.holidays || [],
+  };
+
+  await prisma.appSetting.upsert({
+    where: { shopId_key: { shopId, key: settingKey } },
+    update: { value: config as any },
+    create: { shopId, key: settingKey, value: config as any },
+  });
+
+  await logAudit({
+    shopId,
+    actorAccountId,
+    action: 'HOLIDAYS_UPDATE',
+    entityType: 'Shop',
+    entityId: shopId,
+    metadata: { month: monthStr, holidaysCount: config.holidays.length },
+  });
+
+  return config;
 }
 
 /**
@@ -265,8 +362,30 @@ export async function calculateStaffMonthSalary(
     }
   }
 
-  const paidDays = presentDays + 0.5 * halfDays;
-  const absentDays = Math.max(0, eligibleDays - (presentDays + halfDays));
+  // 3.5. Fetch Store Month Calendar & Holidays (Weekly Offs, Festival Holidays)
+  const holidayConfig = await getShopMonthHolidays(shopId, monthStr);
+  const staffEligibleHolidays = holidayConfig.holidays.filter((h) => {
+    const hDate = new Date(h.date + 'T00:00:00');
+    return hDate >= effectiveWorkingStart && hDate <= periodEnd;
+  });
+
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  
+  // Weekly offs & holidays arrived up to current date (or all if past month)
+  const pastHolidaysCount = staffEligibleHolidays.filter(
+    (h) => h.date <= todayStr || monthStr < todayStr.slice(0, 7)
+  ).length;
+
+  const totalHolidaysInMonth = staffEligibleHolidays.length;
+  const scheduledWorkingDays = Math.max(1, eligibleDays - totalHolidaysInMonth);
+
+  // Paid Days: Present + Half Days + Paid Weekly Offs / Holidays passed
+  const paidDays = Math.min(
+    eligibleDays,
+    Math.round((presentDays + 0.5 * halfDays + pastHolidaysCount) * 100) / 100
+  );
+  const absentDays = Math.max(0, eligibleDays - (presentDays + halfDays + totalHolidaysInMonth));
 
   // 4. Calculate Earned Salary
   const perDayRate = totalDaysInMonth > 0 ? baseMonthlySalary / totalDaysInMonth : 0;
@@ -359,8 +478,15 @@ export async function calculateStaffMonthSalary(
       presentDays,
       halfDays,
       absentDays,
+      weeklyOffDays: pastHolidaysCount,
+      scheduledWorkingDays,
       paidDays,
       totalSessionsRecorded: attendanceSessions.length,
+    },
+    holidays: {
+      totalHolidaysInMonth,
+      pastHolidaysCount,
+      scheduledWorkingDays,
     },
     calculation: {
       baseMonthlySalary,

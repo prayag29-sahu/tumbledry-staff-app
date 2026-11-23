@@ -51,6 +51,8 @@ import {
   MessageSquare,
   RotateCcw,
   FileSpreadsheet,
+  Menu,
+  Wallet,
 } from 'lucide-react';
 import {
   DamageIncidentViewerModal,
@@ -396,6 +398,7 @@ export default function SupervisorPage() {
 
   // Drilldown Views: null | 'add_staff' (Screens 3&4) | 'staff_profile' (Screens 6-9) | 'supervisor_profile'
   const [activeDrilldown, setActiveDrilldown] = useState<'add_staff' | 'staff_profile' | 'supervisor_profile' | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const mySupervisorMembership = user?.shopMemberships?.find((m) => m.shopId === activeShopId);
   const [supervisorSession, setSupervisorSession] = useState<ProfileAttendanceSession | null>(null);
@@ -1287,22 +1290,197 @@ export default function SupervisorPage() {
     );
   }
 
+  const navItems: Array<{
+    key: 'dashboard' | 'staff' | 'attendance' | 'damage' | 'pos_sheet' | 'reports' | 'salary' | 'more';
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    badge?: string;
+  }> = [
+    { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { key: 'staff', label: 'Staff Directory', icon: Users },
+    { key: 'attendance', label: 'Floor Attendance', icon: CalendarCheck2 },
+    { key: 'damage', label: 'Damage Orders', icon: AlertTriangle },
+    { key: 'pos_sheet', label: 'Daily POS Sheet', icon: FileSpreadsheet, badge: 'EXCEL' },
+    { key: 'reports', label: 'Operations Reports', icon: BarChart3 },
+    { key: 'salary', label: 'Staff Salary & Advances', icon: Wallet, badge: 'SALARY' },
+    { key: 'more', label: 'Configuration & Roles', icon: SlidersHorizontal },
+  ];
+
   return (
-    <div className="max-w-md mx-auto min-h-screen pb-24 bg-[#F8F9FA] text-[#1E293B] antialiased">
-      {user?.isOwner && (
-        <div className="mx-4 mt-2 px-3.5 py-2.5 rounded-xl bg-brand-forest text-brand-lime text-xs font-bold flex items-center justify-between shadow-md">
-          <div className="flex items-center gap-2">
-            <span>👑</span>
-            <span>Logged in as Owner (Supervisor Terminal)</span>
+    <div className="min-h-screen bg-[#F8F9FA] text-[#1E293B] antialiased flex flex-col md:flex-row">
+      {/* Mobile Drawer Overlay Backdrop */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm md:hidden animate-fade-in"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar Navigation (Permanent on Desktop md:, Slide-over Drawer on Mobile) */}
+      <aside
+        className={`fixed top-0 bottom-0 left-0 z-50 w-72 bg-white border-r border-border-subtle flex flex-col justify-between shadow-2xl md:shadow-none transition-transform duration-300 ease-in-out ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        }`}
+      >
+        {/* Sidebar Header */}
+        <div className="p-4 border-b border-border-subtle">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-brand-forest text-brand-lime font-black flex items-center justify-center text-lg shadow-sm">
+                T
+              </div>
+              <div>
+                <span className="text-xs font-black tracking-wider text-brand-forest block uppercase">
+                  TumbleDry
+                </span>
+                <span className="text-[11px] font-semibold text-content-muted truncate block max-w-[150px]">
+                  {activeShopName || 'Supervisor Portal'}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(false)}
+              className="p-1.5 rounded-lg text-content-muted hover:text-brand-forest hover:bg-surface-cream md:hidden"
+              aria-label="Close Sidebar"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
-          <button
-            onClick={() => router.push('/owner')}
-            className="px-2.5 py-1 rounded-lg bg-brand-lime text-brand-forest font-extrabold hover:opacity-90 transition-all text-[11px]"
+
+          {/* Quick Supervisor Profile Snippet */}
+          <div
+            onClick={() => {
+              setActiveDrilldown('supervisor_profile');
+              setIsSidebarOpen(false);
+            }}
+            className="mt-4 p-3 rounded-2xl bg-surface-cream/80 border border-border-subtle flex items-center gap-3 cursor-pointer hover:bg-emerald-50/50 transition-colors"
           >
-            Owner Console
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-forest to-emerald-700 flex items-center justify-center font-black text-white text-sm shrink-0">
+              {user?.staffMember?.fullName?.charAt(0) || user?.username?.charAt(0).toUpperCase() || 'S'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-black text-brand-forest truncate">
+                {user?.staffMember?.fullName || 'Supervisor'}
+              </p>
+              <p className="text-[10px] text-content-muted font-semibold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                <span>Floor Operations</span>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Navigation Links */}
+        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+          <p className="px-3 text-[10px] font-black text-content-muted uppercase tracking-wider mb-2">
+            Operations Menu
+          </p>
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = currentNav === item.key && !activeDrilldown;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => {
+                  setActiveDrilldown(null);
+                  setCurrentNav(item.key);
+                  setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                  isActive
+                    ? 'bg-brand-forest text-white shadow-clay-sm'
+                    : 'text-[#1E293B] hover:bg-surface-cream hover:text-brand-forest'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-brand-lime' : 'text-content-muted'}`} />
+                  <span>{item.label}</span>
+                </div>
+                {item.badge && (
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                      isActive
+                        ? 'bg-brand-lime text-brand-forest'
+                        : item.badge === 'EXCEL'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : item.badge === 'SALARY'
+                        ? 'bg-amber-100 text-amber-900'
+                        : 'bg-surface-cream text-content-muted border border-border-subtle'
+                    }`}
+                  >
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+
+          <div className="pt-2 mt-2 border-t border-border-subtle space-y-1">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveDrilldown('supervisor_profile');
+                setIsSidebarOpen(false);
+              }}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                activeDrilldown === 'supervisor_profile'
+                  ? 'bg-brand-forest text-white shadow-clay-sm'
+                  : 'text-[#1E293B] hover:bg-surface-cream hover:text-brand-forest'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Users className="w-4 h-4 text-content-muted" />
+                <span>My Profile</span>
+              </div>
+            </button>
+          </div>
+
+          {user?.isOwner && (
+            <div className="pt-2 mt-2 border-t border-border-subtle">
+              <button
+                type="button"
+                onClick={() => router.push('/owner')}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-black bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100 transition-colors"
+              >
+                <span>👑</span>
+                <span>Owner Console</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar Footer */}
+        <div className="p-3 border-t border-border-subtle space-y-2">
+          <button
+            type="button"
+            onClick={() => logout()}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-red-600 hover:bg-red-50 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Sign Out</span>
           </button>
         </div>
-      )}
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 md:pl-72 min-h-screen flex flex-col items-center w-full">
+        <div className="w-full max-w-md md:max-w-3xl lg:max-w-4xl px-0 md:px-6 pb-24 md:pb-12 min-h-screen">
+          {user?.isOwner && (
+            <div className="mx-4 mt-2 px-3.5 py-2.5 rounded-xl bg-brand-forest text-brand-lime text-xs font-bold flex items-center justify-between shadow-md">
+              <div className="flex items-center gap-2">
+                <span>👑</span>
+                <span>Logged in as Owner (Supervisor Terminal)</span>
+              </div>
+              <button
+                onClick={() => router.push('/owner')}
+                className="px-2.5 py-1 rounded-lg bg-brand-lime text-brand-forest font-extrabold hover:opacity-90 transition-all text-[11px]"
+              >
+                Owner Console
+              </button>
+            </div>
+          )}
 
       {/* ══════════════════════════════════════════════════════════════════════════
           DRILLDOWN VIEW 1: ADD NEW STAFF WIZARD (SCREENS 3 & 4)
@@ -3318,22 +3496,32 @@ export default function SupervisorPage() {
         <div className="p-4 space-y-4 animate-fade-in">
           {/* Header matching Screen 10 */}
           <div className="flex items-center justify-between">
-            <div
-              onClick={() => setActiveDrilldown('supervisor_profile')}
-              className="flex items-center gap-2.5 cursor-pointer hover:opacity-85 transition-opacity"
-              title="View Supervisor Profile"
-            >
-              <div className="w-10 h-10 rounded-full bg-[#EAF5E9] text-brand-forest font-black flex items-center justify-center shadow-sm">
-                {user?.staffMember?.fullName?.charAt(0) || user?.username?.charAt(0).toUpperCase() || 'S'}
-              </div>
-              <div>
-                <h1 className="text-sm font-black text-brand-forest flex items-center gap-1.5">
-                  <span>Supervisor Dashboard</span>
-                  <span className="text-[10px] bg-brand-forest text-brand-lime px-1.5 py-0.5 rounded font-bold">Profile</span>
-                </h1>
-                <p className="text-xs text-content-muted font-semibold">
-                  {activeShopName || 'Branch'}
-                </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpen(true)}
+                className="md:hidden p-2 rounded-xl bg-white border border-border-subtle shadow-sm hover:bg-surface-cream active:scale-95 flex items-center justify-center transition-all"
+                title="Navigation Menu"
+              >
+                <Menu className="w-4 h-4 text-brand-forest" />
+              </button>
+              <div
+                onClick={() => setActiveDrilldown('supervisor_profile')}
+                className="flex items-center gap-2.5 cursor-pointer hover:opacity-85 transition-opacity"
+                title="View Supervisor Profile"
+              >
+                <div className="w-10 h-10 rounded-full bg-[#EAF5E9] text-brand-forest font-black flex items-center justify-center shadow-sm">
+                  {user?.staffMember?.fullName?.charAt(0) || user?.username?.charAt(0).toUpperCase() || 'S'}
+                </div>
+                <div>
+                  <h1 className="text-sm font-black text-brand-forest flex items-center gap-1.5">
+                    <span>Supervisor Dashboard</span>
+                    <span className="text-[10px] bg-brand-forest text-brand-lime px-1.5 py-0.5 rounded font-bold">Profile</span>
+                  </h1>
+                  <p className="text-xs text-content-muted font-semibold">
+                    {activeShopName || 'Branch'}
+                  </p>
+                </div>
               </div>
             </div>
             <button
@@ -4405,9 +4593,9 @@ export default function SupervisorPage() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════════
-          BOTTOM NAVIGATION BAR (MATCHING SCREENS 2 & 10)
+          BOTTOM NAVIGATION BAR (5 CLEAN ITEMS)
       ══════════════════════════════════════════════════════════════════════════ */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-border-subtle px-3 py-2">
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-border-subtle px-3 py-2 md:hidden">
         <div className="max-w-md mx-auto flex items-center justify-around text-[10px]">
           <button
             onClick={() => {
@@ -4470,48 +4658,15 @@ export default function SupervisorPage() {
           </button>
 
           <button
-            onClick={() => {
-              setActiveDrilldown(null);
-              setCurrentNav('pos_sheet');
-            }}
-            className={`flex flex-col items-center gap-1 py-1 px-1.5 transition-all ${
-              !activeDrilldown && currentNav === 'pos_sheet'
-                ? 'text-emerald-700 font-black'
-                : 'text-content-muted hover:text-emerald-700'
-            }`}
-          >
-            <FileSpreadsheet className="w-5 h-5" />
-            <span>Sheet</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setActiveDrilldown(null);
-              setCurrentNav('reports');
-            }}
-            className={`flex flex-col items-center gap-1 py-1 px-1.5 transition-all ${
-              !activeDrilldown && currentNav === 'reports'
+            onClick={() => setIsSidebarOpen(true)}
+            className={`flex flex-col items-center gap-1 py-1 px-2 transition-all ${
+              ['pos_sheet', 'reports', 'salary', 'more'].includes(currentNav) || activeDrilldown === 'supervisor_profile'
                 ? 'text-[#245431] font-black'
                 : 'text-content-muted'
             }`}
           >
-            <BarChart3 className="w-5 h-5" />
-            <span>Reports</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setActiveDrilldown(null);
-              setCurrentNav('more');
-            }}
-            className={`flex flex-col items-center gap-1 py-1 px-2.5 transition-all ${
-              !activeDrilldown && currentNav === 'more'
-                ? 'text-[#245431] font-black'
-                : 'text-content-muted'
-            }`}
-          >
-            <SlidersHorizontal className="w-5 h-5" />
-            <span>More</span>
+            <Menu className="w-5 h-5" />
+            <span>Menu</span>
           </button>
         </div>
       </nav>
@@ -4801,6 +4956,8 @@ export default function SupervisorPage() {
           <span>{taskFeedback.message}</span>
         </div>
       )}
+        </div>
+      </main>
     </div>
   );
 }

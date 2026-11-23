@@ -15,11 +15,13 @@ import {
   AlertTriangle,
   Trash2,
   Wallet,
+  CalendarCheck,
 } from 'lucide-react';
 import { StaffPayslipModal } from './StaffPayslipModal';
 import { RecordAdvanceModal } from './RecordAdvanceModal';
 import { EditSalaryTermsModal } from './EditSalaryTermsModal';
 import { SalarySettingsModal } from './SalarySettingsModal';
+import { StoreHolidayCalendarModal } from './StoreHolidayCalendarModal';
 
 interface SalarySummaryResponse {
   shopId: string;
@@ -73,6 +75,8 @@ interface SalarySummaryResponse {
       halfDays: number;
       absentDays: number;
       paidDays: number;
+      weeklyOffDays?: number;
+      scheduledWorkingDays?: number;
       totalSessionsRecorded: number;
     };
     calculation: {
@@ -166,6 +170,7 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
     };
   } | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isHolidayModalOpen, setIsHolidayModalOpen] = useState(false);
 
   // Fetch summary
   const fetchSummary = useCallback(async () => {
@@ -278,6 +283,19 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
 
           {/* Quick Actions */}
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => setIsHolidayModalOpen(true)}
+                className="px-3 py-2 rounded-xl bg-surface-cream text-brand-forest hover:bg-emerald-50 text-xs font-bold border border-border-subtle flex items-center gap-1.5 transition-all shadow-sm"
+                title="Manage Store Calendar & Weekly Offs"
+              >
+                <CalendarCheck className="w-4 h-4 text-brand-forest" />
+                <span className="hidden sm:inline">Store Calendar</span>
+                <span className="sm:hidden">Calendar</span>
+              </button>
+            )}
+
             {canManage && (
               <button
                 type="button"
@@ -544,7 +562,7 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
                       {item.attendance.paidDays} / {item.cycleBounds.eligibleDays} Days
                     </span>
                     <span className="text-[9px] text-content-muted block">
-                      {item.attendance.presentDays} Full • {item.attendance.halfDays} Half
+                      {item.attendance.presentDays} Pres • {item.attendance.weeklyOffDays || 0} Offs
                     </span>
                   </div>
 
@@ -799,6 +817,17 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
           shopId={shopId}
           initialSettings={summaryData.settings}
           onSuccess={fetchSummary}
+        />
+      )}
+
+      {/* 5. Store Holiday & Weekly Off Calendar Modal */}
+      {isHolidayModalOpen && (
+        <StoreHolidayCalendarModal
+          isOpen={true}
+          onClose={() => setIsHolidayModalOpen(false)}
+          shopId={shopId}
+          month={selectedMonth}
+          onSaved={fetchSummary}
         />
       )}
     </div>

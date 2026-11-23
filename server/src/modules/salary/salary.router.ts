@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { authenticate, AuthenticatedRequest } from '../../middleware/auth';
 import { AppError } from '../../middleware/errorHandler';
+import { prisma } from '../../db/prisma';
 import {
   canUserAccessSalary,
   getShopSalarySummary,
@@ -14,6 +15,8 @@ import {
   updateStaffSalaryTerms,
   getSalarySettings,
   updateSalarySettings,
+  getShopMonthHolidays,
+  updateShopMonthHolidays,
 } from './salary.service';
 
 export const salaryRouter = Router();
@@ -50,6 +53,38 @@ salaryRouter.get(
 );
 
 /**
+ * GET /api/shops/:shopId/salary/my-salary
+ * Direct endpoint for logged in staff member to view their own salary
+ */
+salaryRouter.get(
+  '/shops/:shopId/salary/my-salary',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const auth = (req as AuthenticatedRequest).auth;
+      const { shopId } = req.params as { shopId: string };
+      const { month } = req.query as { month?: string };
+
+      const account = await prisma.account.findUnique({
+        where: { id: auth.accountId },
+        select: { staffMemberId: true },
+      });
+
+      if (!account?.staffMemberId) {
+        return next(new AppError(404, 'NOT_FOUND', 'No staff member profile linked to this account.'));
+      }
+
+      const now = new Date();
+      const targetMonth = month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+      const calculation = await calculateStaffMonthSalary(shopId, account.staffMemberId, targetMonth);
+      res.json({ data: calculation });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
  * GET /api/shops/:shopId/salary/staff/:staffMemberId/slip
  * Query params: ?month=YYYY-MM
  */
@@ -61,7 +96,7 @@ salaryRouter.get(
       const { shopId, staffMemberId } = req.params as { shopId: string; staffMemberId: string };
       const { month } = req.query as { month?: string };
 
-      const canAccess = await canUserAccessSalary(auth, shopId, 'view');
+      const canAccess = await canUserAccessSalary(auth, shopId, 'view', staffMemberId);
       if (!canAccess) {
         return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
       }
@@ -89,7 +124,7 @@ salaryRouter.get(
       const { shopId, staffMemberId } = req.params as { shopId: string; staffMemberId: string };
       const { month } = req.query as { month?: string };
 
-      const canAccess = await canUserAccessSalary(auth, shopId, 'view');
+      const canAccess = await canUserAccessSalary(auth, shopId, 'view', staffMemberId);
       if (!canAccess) {
         return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
       }
@@ -344,6 +379,79 @@ salaryRouter.put(
 
       const updated = await updateSalarySettings(shopId, parsed.data, auth.accountId);
       res.json({ data: updated, message: 'Salary settings updated successfully.' });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /api/shops/:shopId/salary/holidays
+ * Query params: ?month=YYYY-MM
+ */
+salaryRouter.get(
+  '/shops/:shopId/salary/holidays',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const auth = (req as AuthenticatedRequest).auth;
+      const { shopId } = req.params as { shopId: string };
+      const { month } = req.query as { month?: string };
+
+      const canAccess = await canUserAccessSalary(auth, shopId, 'view');
+      if (!canAccess) {
+        return next(new AppError(403, 'FORBIDDEN', 'Access denied.'));
+      }
+
+      const now = new Date();
+      const targetMonth = month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+      const holidays = await getShopMonthHolidays(shopId, targetMonth);
+      res.json({ data: holidays });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+const UpdateHolidaysSchema = z.object({
+  weeklyOffDay: z.number().min(0).max(6).optional(),
+  holidays: z.array(
+    z.object({
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      name: z.string().min(1).max(100),
+      type: z.enum(['WEEKLY_OFF', 'STORE_HOLIDAY', 'PAID_LEAVE']),
+    })
+  ),
+});
+
+/**
+ * PUT /api/shops/:shopId/salary/holidays
+ * Query params: ?month=YYYY-MM
+ * Configure weekly offs and holidays for a month (Supervisor or Owner)
+ */
+salaryRouter.put(
+  '/shops/:shopId/salary/holidays',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const auth = (req as AuthenticatedRequest).auth;
+      const { shopId } = req.params as { shopId: string };
+      const { month } = req.query as { month?: string };
+
+      const canManage = await canUserAccessSalary(auth, shopId, 'manage');
+      if (!canManage) {
+        return next(new AppError(403, 'FORBIDDEN', 'Permission denied to configure store holidays.'));
+      }
+
+      const parsed = UpdateHolidaysSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return next(new AppError(400, 'VALIDATION_ERROR', parsed.error.issues[0]?.message || 'Invalid input.'));
+      }
+
+      const now = new Date();
+      const targetMonth = month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+      const updated = await updateShopMonthHolidays(shopId, targetMonth, parsed.data, auth.accountId);
+      res.json({ data: updated, message: 'Store holidays & weekly offs updated successfully.' });
     } catch (err) {
       next(err);
     }
