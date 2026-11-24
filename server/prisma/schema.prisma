@@ -150,6 +150,9 @@ model ShopMembership {
   salaryNotes          String?   @map("salary_notes")
   attendanceEnabled    Boolean   @default(true) @map("attendance_enabled")
   isActive             Boolean   @default(true) @map("is_active")
+  isTemporary          Boolean   @default(false) @map("is_temporary")
+  wageType             String?   @default("MONTHLY") @map("wage_type") // MONTHLY | DAILY
+  dailyWageRate        Decimal?  @map("daily_wage_rate") @db.Decimal(10, 2)
 
   // Attendance & Shift Schedule (Configured per staff member by Owner/Supervisor, IST timezone)
   shiftStartTime       String?   @map("shift_start_time")        // e.g. "09:00" Check-in / Shift Start (IST HH:mm)

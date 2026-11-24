@@ -17,6 +17,9 @@ interface Props {
     salaryCycleDay?: number | null;
     salaryPaymentDate?: number | null;
     salaryNotes?: string | null;
+    isTemporary?: boolean;
+    wageType?: string | null;
+    dailyWageRate?: number | null;
   };
   onSuccess?: () => void;
 }
@@ -30,6 +33,12 @@ export function EditSalaryTermsModal({
   initialTerms,
   onSuccess,
 }: Props) {
+  const [wageType, setWageType] = useState<'MONTHLY' | 'DAILY'>(
+    initialTerms.wageType === 'DAILY' ? 'DAILY' : 'MONTHLY'
+  );
+  const [dailyWageRate, setDailyWageRate] = useState<string>(
+    initialTerms.dailyWageRate ? String(initialTerms.dailyWageRate) : ''
+  );
   const [monthlySalary, setMonthlySalary] = useState<string>(
     initialTerms.monthlySalary ? String(initialTerms.monthlySalary) : ''
   );
@@ -57,7 +66,9 @@ export function EditSalaryTermsModal({
       await apiRequest(`/api/shops/${shopId}/staff/${staffMemberId}/salary-terms`, {
         method: 'PATCH',
         body: JSON.stringify({
-          monthlySalary: monthlySalary ? parseFloat(monthlySalary) : 0,
+          wageType,
+          dailyWageRate: wageType === 'DAILY' && dailyWageRate ? parseFloat(dailyWageRate) : null,
+          monthlySalary: wageType === 'MONTHLY' && monthlySalary ? parseFloat(monthlySalary) : (wageType === 'DAILY' ? 0 : 0),
           incentiveAmount: incentiveAmount ? parseFloat(incentiveAmount) : 0,
           joiningDate: joiningDate ? joiningDate : null,
           salaryCycleDay,
@@ -80,16 +91,16 @@ export function EditSalaryTermsModal({
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 animate-fade-in">
       <div className="bg-white rounded-3xl w-full max-w-md border border-border-subtle shadow-clay p-5 sm:p-6 space-y-4">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border-subtle pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-brand-forest flex items-center justify-center font-black">
+        <div className="flex items-center justify-between border-b border-border-subtle pb-3 gap-2">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-brand-forest flex items-center justify-center font-black shrink-0 shadow-sm">
               <Settings className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="text-base font-black text-brand-forest">
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-base font-black text-brand-forest truncate">
                 Staff Salary &amp; Terms
               </h3>
-              <p className="text-[11px] text-content-muted">
+              <p className="text-[10px] sm:text-[11px] text-content-muted truncate">
                 Configure pay scale, joining date &amp; payout cycle
               </p>
             </div>
@@ -97,9 +108,10 @@ export function EditSalaryTermsModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl text-content-muted hover:text-brand-forest hover:bg-surface-cream transition-colors"
+            className="w-10 h-10 rounded-2xl bg-surface-cream text-brand-forest border border-border-subtle flex items-center justify-center hover:bg-surface-hover hover:scale-105 active:scale-95 transition-all shadow-xs shrink-0"
+            aria-label="Close modal"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5 stroke-[2.5]" />
           </button>
         </div>
 
@@ -132,23 +144,66 @@ export function EditSalaryTermsModal({
             </p>
           </div>
 
-          {/* Monthly Base Salary & Incentive */}
+          {/* Wage Type Toggle */}
+          <div>
+            <label className="block text-[11px] font-bold text-brand-forest mb-1">
+              Wage Structure
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setWageType('MONTHLY')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
+                  wageType === 'MONTHLY'
+                    ? 'bg-brand-forest text-white border-brand-forest shadow-sm'
+                    : 'bg-surface-cream text-content-muted border-border-subtle hover:text-brand-forest'
+                }`}
+              >
+                Fixed Monthly Salary
+              </button>
+              <button
+                type="button"
+                onClick={() => setWageType('DAILY')}
+                className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
+                  wageType === 'DAILY'
+                    ? 'bg-brand-forest text-white border-brand-forest shadow-sm'
+                    : 'bg-surface-cream text-content-muted border-border-subtle hover:text-brand-forest'
+                }`}
+              >
+                Daily Wage Rate (₹/day)
+              </button>
+            </div>
+          </div>
+
+          {/* Salary or Daily Wage & Incentive */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-bold text-brand-forest mb-1">
-                Base Monthly Salary (₹) *
+                {wageType === 'DAILY' ? 'Daily Wage Rate (₹/day) *' : 'Base Monthly Salary (₹) *'}
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-2.5 font-bold text-content-muted">₹</span>
-                <input
-                  type="number"
-                  placeholder="15000"
-                  step="any"
-                  value={monthlySalary}
-                  onChange={(e) => setMonthlySalary(e.target.value)}
-                  required
-                  className="w-full pl-7 pr-3 py-2.5 rounded-xl border border-border-subtle bg-surface-cream font-mono font-black text-brand-forest focus:ring-1 focus:ring-brand-forest"
-                />
+                {wageType === 'DAILY' ? (
+                  <input
+                    type="number"
+                    placeholder="500"
+                    step="any"
+                    value={dailyWageRate}
+                    onChange={(e) => setDailyWageRate(e.target.value)}
+                    required
+                    className="w-full pl-7 pr-3 py-2.5 rounded-xl border border-border-subtle bg-surface-cream font-mono font-black text-brand-forest focus:ring-1 focus:ring-brand-forest"
+                  />
+                ) : (
+                  <input
+                    type="number"
+                    placeholder="15000"
+                    step="any"
+                    value={monthlySalary}
+                    onChange={(e) => setMonthlySalary(e.target.value)}
+                    required
+                    className="w-full pl-7 pr-3 py-2.5 rounded-xl border border-border-subtle bg-surface-cream font-mono font-black text-brand-forest focus:ring-1 focus:ring-brand-forest"
+                  />
+                )}
               </div>
             </div>
 

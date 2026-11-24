@@ -317,7 +317,7 @@ export async function calculateStaffMonthSalary(
   const cycleDay = membership.salaryCycleDay || 1;
   const { periodStart, periodEnd, totalDaysInMonth } = getMonthCycleBounds(monthStr, cycleDay);
 
-  const baseMonthlySalary = Number(membership.monthlySalary || 0);
+  let baseMonthlySalary = Number(membership.monthlySalary || 0);
   const fixedIncentive = Number(membership.incentiveAmount || 0);
   const joiningDate = membership.joiningDate ? new Date(membership.joiningDate) : null;
 
@@ -392,35 +392,80 @@ export async function calculateStaffMonthSalary(
 
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  
-  // Weekly offs & holidays arrived up to current date (or all if past month)
-  const pastHolidaysCount = staffEligibleHolidays.filter(
-    (h) => h.date <= todayStr || monthStr < todayStr.slice(0, 7)
-  ).length;
+  const isCurrentMonth = monthStr === todayStr.slice(0, 7);
+  const isPastMonth = monthStr < todayStr.slice(0, 7);
+  const isFutureMonth = monthStr > todayStr.slice(0, 7);
 
   const totalHolidaysInMonth = staffEligibleHolidays.length;
   const scheduledWorkingDays = Math.max(1, eligibleDays - totalHolidaysInMonth);
 
-  // Paid Days: Present + Half Days + Paid Weekly Offs / Holidays passed
+  // Weekly offs & holidays passed up to today
+  const pastHolidaysCount = staffEligibleHolidays.filter(
+    (h) => h.date <= todayStr || isPastMonth
+  ).length;
+
+  // Calculate actual elapsed working days up to today (avoiding future unelapsed days being treated as absent!)
+  let absentDays = 0;
+
+  if (isFutureMonth) {
+    absentDays = 0;
+  } else if (isPastMonth) {
+    // Whole month is completed
+    absentDays = Math.max(0, scheduledWorkingDays - (presentDays + halfDays));
+  } else if (isCurrentMonth) {
+    // Current month in progress:
+    // Only count scheduled working days up to today
+    const effectiveStartDay = effectiveWorkingStart.getMonth() === now.getMonth() ? effectiveWorkingStart.getDate() : 1;
+    const currentDay = Math.min(now.getDate(), totalDaysInMonth);
+
+    // Check if staff has already checked in today
+    const hasCheckInToday = attendanceSessions.some((s) => {
+      const sDate = s.checkInAt ? new Date(s.checkInAt).toISOString().slice(0, 10) : '';
+      return sDate === todayStr;
+    });
+
+    const todayIsHoliday = staffEligibleHolidays.some((h) => h.date === todayStr);
+    const completedWorkingDaysBeforeToday = Math.max(
+      0,
+      (currentDay - 1 - effectiveStartDay + 1) - staffEligibleHolidays.filter((h) => h.date < todayStr).length
+    );
+
+    const workingDaysExpectedSoFar = completedWorkingDaysBeforeToday + (hasCheckInToday && !todayIsHoliday ? 1 : 0);
+    absentDays = Math.max(0, workingDaysExpectedSoFar - (presentDays + halfDays));
+  }
+
+  // Paid Days: Present + Half Days + Scheduled Weekly Offs (Paid)
   const paidDays = Math.min(
     eligibleDays,
-    Math.round((presentDays + 0.5 * halfDays + pastHolidaysCount) * 100) / 100
+    Math.round((presentDays + 0.5 * halfDays + totalHolidaysInMonth) * 100) / 100
   );
-  const absentDays = Math.max(0, eligibleDays - (presentDays + halfDays + totalHolidaysInMonth));
 
-  // 4. Calculate Earned Salary
-  const perDayRate = totalDaysInMonth > 0 ? baseMonthlySalary / totalDaysInMonth : 0;
+  // 4. Calculate Base Salary & Daily Rate
+  const isTemporary = (membership as any).isTemporary === true;
+  const wageType = (membership as any).wageType || 'MONTHLY';
+  const dailyWageRate = (membership as any).dailyWageRate ? Number((membership as any).dailyWageRate) : null;
+
+  baseMonthlySalary = Number(membership.monthlySalary || 0);
+  let perDayRate = 0;
   let earnedSalary = 0;
 
-  if (eligibleDays === 0 || baseMonthlySalary === 0) {
-    earnedSalary = 0;
-  } else if (attendanceSessions.length > 0 || membership.attendanceEnabled) {
-    // Attendance-linked: paid days * per-day rate (capped at eligible days)
-    const effectivePaidDays = Math.min(paidDays, eligibleDays);
-    earnedSalary = Math.round(perDayRate * effectivePaidDays);
+  if (isTemporary && wageType === 'DAILY' && dailyWageRate != null) {
+    // Daily wage worker: paid directly per day worked
+    perDayRate = dailyWageRate;
+    baseMonthlySalary = Math.round(dailyWageRate * scheduledWorkingDays);
+    earnedSalary = Math.round(dailyWageRate * (presentDays + 0.5 * halfDays));
   } else {
-    // If attendance not strictly enforced, calculate by eligible days in month
-    earnedSalary = Math.round(perDayRate * eligibleDays);
+    // Salaried staff: salary based on scheduled working days target
+    perDayRate = scheduledWorkingDays > 0 ? baseMonthlySalary / scheduledWorkingDays : 0;
+    
+    let effectiveBaseSalary = baseMonthlySalary;
+    if (isMidMonthJoined && totalDaysInMonth > 0) {
+      effectiveBaseSalary = Math.round((baseMonthlySalary * eligibleDays) / totalDaysInMonth);
+    }
+
+    // Absent deduction: only deduct for real absent days!
+    const absentDeduction = Math.round((absentDays * perDayRate) + (0.5 * halfDays * perDayRate));
+    earnedSalary = Math.max(0, effectiveBaseSalary - absentDeduction);
   }
 
   // 5. Query Advances & Deductions for this staff in target period
@@ -485,6 +530,9 @@ export async function calculateStaffMonthSalary(
       salaryPaymentDate: membership.salaryPaymentDate || 7,
       salaryNotes: membership.salaryNotes,
       attendanceEnabled: membership.attendanceEnabled,
+      isTemporary,
+      wageType,
+      dailyWageRate,
     },
     month: monthStr,
     cycleBounds: {
@@ -499,10 +547,13 @@ export async function calculateStaffMonthSalary(
       presentDays,
       halfDays,
       absentDays,
-      weeklyOffDays: pastHolidaysCount,
+      weeklyOffDays: totalHolidaysInMonth,
       scheduledWorkingDays,
       paidDays,
       totalSessionsRecorded: attendanceSessions.length,
+      isTemporary,
+      wageType,
+      dailyWageRate,
     },
     holidays: {
       totalHolidaysInMonth,
@@ -938,6 +989,8 @@ export async function updateStaffSalaryTerms(
     salaryCycleDay?: number;
     salaryPaymentDate?: number;
     salaryNotes?: string;
+    wageType?: string;
+    dailyWageRate?: number | null;
   },
   actorAccountId: string
 ) {
@@ -961,6 +1014,8 @@ export async function updateStaffSalaryTerms(
     updateData.salaryPaymentDate = Math.max(1, Math.min(28, Number(payload.salaryPaymentDate)));
   }
   if (payload.salaryNotes !== undefined) updateData.salaryNotes = payload.salaryNotes;
+  if (payload.wageType !== undefined) updateData.wageType = payload.wageType;
+  if (payload.dailyWageRate !== undefined) updateData.dailyWageRate = payload.dailyWageRate;
 
   const updated = await prisma.shopMembership.update({
     where: { shopId_staffMemberId: { shopId, staffMemberId } },
@@ -977,4 +1032,92 @@ export async function updateStaffSalaryTerms(
   });
 
   return updated;
+}
+
+/**
+ * Creates a Temporary Staff member (no login account, used for salary and expense management)
+ */
+export async function createTemporaryStaff(
+  shopId: string,
+  data: {
+    fullName: string;
+    mobile?: string;
+    address?: string;
+    roleDescription?: string;
+    wageType: 'MONTHLY' | 'DAILY';
+    amount: number;
+    joiningDate?: string;
+    notes?: string;
+  },
+  actorAccountId: string
+) {
+  // 1. Create StaffMember profile
+  const staff = await prisma.staffMember.create({
+    data: {
+      fullName: data.fullName.trim(),
+      mobile: data.mobile?.trim() || null,
+      address: data.address?.trim() || null,
+    },
+  });
+
+  // 2. Find or create Position Category
+  const posName = data.roleDescription?.trim() || 'Temporary Staff';
+  let positionCategory = await prisma.positionCategory.findFirst({
+    where: {
+      name: { equals: posName, mode: 'insensitive' },
+      OR: [{ shopId }, { shopId: null }],
+    },
+  });
+  if (!positionCategory) {
+    positionCategory = await prisma.positionCategory.create({
+      data: { name: posName, shopId },
+    });
+  }
+
+  // 3. Resolve default permission profile
+  const profile =
+    (await prisma.permissionProfile.findFirst({ where: { id: 'sys-washerman' } })) ||
+    (await prisma.permissionProfile.findFirst());
+
+  if (!profile) {
+    throw new AppError(500, 'SERVER_ERROR', 'No permission profile available.');
+  }
+
+  // 4. Create ShopMembership with isTemporary: true and NO account
+  const membership = await prisma.shopMembership.create({
+    data: {
+      shopId,
+      staffMemberId: staff.id,
+      accountId: null, // No login access
+      permissionProfileId: profile.id,
+      positionCategoryId: positionCategory.id,
+      isTemporary: true,
+      wageType: data.wageType,
+      monthlySalary: data.wageType === 'MONTHLY' ? data.amount : null,
+      dailyWageRate: data.wageType === 'DAILY' ? data.amount : null,
+      joiningDate: data.joiningDate ? new Date(data.joiningDate) : new Date(),
+      salaryNotes: data.notes?.trim() || null,
+      attendanceEnabled: false,
+    },
+    include: {
+      staffMember: true,
+      positionCategory: true,
+    },
+  });
+
+  await logAudit({
+    shopId,
+    actorAccountId,
+    action: 'STAFF_CREATE_TEMPORARY',
+    entityType: 'StaffMember',
+    entityId: staff.id,
+    metadata: {
+      fullName: data.fullName,
+      wageType: data.wageType,
+      amount: data.amount,
+      roleDescription: posName,
+    },
+  });
+
+  return membership;
 }

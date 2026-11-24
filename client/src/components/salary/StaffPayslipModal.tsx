@@ -235,9 +235,10 @@ export function StaffPayslipModal({
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-xl text-content-muted hover:text-brand-forest hover:bg-white transition-colors"
+              className="w-9 h-9 rounded-xl bg-surface-cream text-brand-forest border border-border-subtle flex items-center justify-center hover:bg-surface-hover hover:scale-105 active:scale-95 transition-all shadow-xs shrink-0"
+              aria-label="Close modal"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4 stroke-[2.5]" />
             </button>
           </div>
         </div>

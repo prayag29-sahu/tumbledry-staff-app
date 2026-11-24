@@ -17,6 +17,7 @@ import {
   updateSalarySettings,
   getShopMonthHolidays,
   updateShopMonthHolidays,
+  createTemporaryStaff,
 } from './salary.service';
 
 export const salaryRouter = Router();
@@ -289,6 +290,8 @@ const UpdateSalaryTermsSchema = z.object({
   salaryCycleDay: z.number().min(1).max(28).optional(),
   salaryPaymentDate: z.number().min(1).max(28).optional(),
   salaryNotes: z.string().max(300).optional(),
+  wageType: z.enum(['MONTHLY', 'DAILY']).optional(),
+  dailyWageRate: z.number().min(0).nullable().optional(),
 });
 
 /**
@@ -452,6 +455,60 @@ salaryRouter.put(
 
       const updated = await updateShopMonthHolidays(shopId, targetMonth, parsed.data, auth.accountId);
       res.json({ data: updated, message: 'Store holidays & weekly offs updated successfully.' });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+const CreateTemporaryStaffSchema = z.object({
+  fullName: z.string().min(1).max(100),
+  mobile: z.string().max(20).optional().nullable(),
+  address: z.string().max(300).optional().nullable(),
+  roleDescription: z.string().max(100).optional().nullable(),
+  wageType: z.enum(['MONTHLY', 'DAILY']),
+  amount: z.number().positive(),
+  joiningDate: z.string().optional().nullable(),
+  notes: z.string().max(300).optional().nullable(),
+});
+
+/**
+ * POST /api/shops/:shopId/salary/temporary-staff
+ * Add a temporary staff member (for wages, expense & salary tracking without app login)
+ */
+salaryRouter.post(
+  '/shops/:shopId/salary/temporary-staff',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const auth = (req as AuthenticatedRequest).auth;
+      const { shopId } = req.params as { shopId: string };
+
+      const canManage = await canUserAccessSalary(auth, shopId, 'manage');
+      if (!canManage) {
+        return next(new AppError(403, 'FORBIDDEN', 'Permission denied to add temporary staff.'));
+      }
+
+      const parsed = CreateTemporaryStaffSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return next(new AppError(400, 'VALIDATION_ERROR', parsed.error.issues[0]?.message || 'Invalid input.'));
+      }
+
+      const result = await createTemporaryStaff(
+        shopId,
+        {
+          fullName: parsed.data.fullName,
+          mobile: parsed.data.mobile || undefined,
+          address: parsed.data.address || undefined,
+          roleDescription: parsed.data.roleDescription || undefined,
+          wageType: parsed.data.wageType,
+          amount: parsed.data.amount,
+          joiningDate: parsed.data.joiningDate || undefined,
+          notes: parsed.data.notes || undefined,
+        },
+        auth.accountId
+      );
+
+      res.status(201).json({ data: result, message: 'Temporary staff added successfully.' });
     } catch (err) {
       next(err);
     }

@@ -77,16 +77,16 @@ export function SalarySettingsModal({
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 animate-fade-in">
       <div className="bg-white rounded-3xl w-full max-w-md border border-border-subtle shadow-clay p-5 sm:p-6 space-y-4">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border-subtle pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-900 flex items-center justify-center font-black">
+        <div className="flex items-center justify-between border-b border-border-subtle pb-3 gap-2">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-900 flex items-center justify-center font-black shrink-0 shadow-sm">
               <Sliders className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="text-base font-black text-brand-forest">
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-base font-black text-brand-forest truncate">
                 Salary Access &amp; Permissions
               </h3>
-              <p className="text-[11px] text-content-muted">
+              <p className="text-[10px] sm:text-[11px] text-content-muted truncate">
                 Control who can view, record advances &amp; process pay
               </p>
             </div>
@@ -94,9 +94,10 @@ export function SalarySettingsModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl text-content-muted hover:text-brand-forest hover:bg-surface-cream transition-colors"
+            className="w-10 h-10 rounded-2xl bg-surface-cream text-brand-forest border border-border-subtle flex items-center justify-center hover:bg-surface-hover hover:scale-105 active:scale-95 transition-all shadow-xs shrink-0"
+            aria-label="Close modal"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5 stroke-[2.5]" />
           </button>
         </div>
 

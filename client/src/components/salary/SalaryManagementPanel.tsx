@@ -16,12 +16,14 @@ import {
   Trash2,
   Wallet,
   CalendarCheck,
+  UserPlus,
 } from 'lucide-react';
 import { StaffPayslipModal } from './StaffPayslipModal';
 import { RecordAdvanceModal } from './RecordAdvanceModal';
 import { EditSalaryTermsModal } from './EditSalaryTermsModal';
 import { SalarySettingsModal } from './SalarySettingsModal';
 import { StoreHolidayCalendarModal } from './StoreHolidayCalendarModal';
+import { AddTemporaryStaffModal } from './AddTemporaryStaffModal';
 
 interface SalarySummaryResponse {
   shopId: string;
@@ -60,6 +62,9 @@ interface SalarySummaryResponse {
       salaryPaymentDate: number;
       salaryNotes: string | null;
       attendanceEnabled: boolean;
+      isTemporary?: boolean;
+      wageType?: string | null;
+      dailyWageRate?: number | null;
     };
     month: string;
     cycleBounds: {
@@ -75,8 +80,6 @@ interface SalarySummaryResponse {
       halfDays: number;
       absentDays: number;
       paidDays: number;
-      weeklyOffDays?: number;
-      scheduledWorkingDays?: number;
       totalSessionsRecorded: number;
     };
     calculation: {
@@ -157,6 +160,8 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
   const [payslipModalStaffId, setPayslipModalStaffId] = useState<string | null>(null);
   const [advanceModalStaffId, setAdvanceModalStaffId] = useState<string | null>(null);
   const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
+  const [isAddTemporaryOpen, setIsAddTemporaryOpen] = useState(false);
+  const [staffTypeFilter, setStaffTypeFilter] = useState<'ALL' | 'PERMANENT' | 'TEMPORARY'>('ALL');
   const [editTermsStaff, setEditTermsStaff] = useState<{
     id: string;
     name: string;
@@ -167,6 +172,9 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
       salaryCycleDay?: number | null;
       salaryPaymentDate?: number | null;
       salaryNotes?: string | null;
+      isTemporary?: boolean;
+      wageType?: string | null;
+      dailyWageRate?: number | null;
     };
   } | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -249,6 +257,23 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
     }));
   }, [summaryData]);
 
+  const staffCounts = useMemo(() => {
+    if (!summaryData?.staffList) return { total: 0, permanent: 0, temporary: 0 };
+    const total = summaryData.staffList.length;
+    const temporary = summaryData.staffList.filter((s) => s.membership.isTemporary).length;
+    const permanent = total - temporary;
+    return { total, permanent, temporary };
+  }, [summaryData]);
+
+  const filteredStaffList = useMemo(() => {
+    if (!summaryData?.staffList) return [];
+    return summaryData.staffList.filter((s) => {
+      if (staffTypeFilter === 'PERMANENT') return !s.membership.isTemporary;
+      if (staffTypeFilter === 'TEMPORARY') return !!s.membership.isTemporary;
+      return true;
+    });
+  }, [summaryData, staffTypeFilter]);
+
   const handleDeleteAdvance = async (id: string) => {
     if (!confirm('Are you sure you want to remove this advance/deduction entry?')) return;
     try {
@@ -282,7 +307,20 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
           </div>
 
           {/* Quick Actions */}
-          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => setIsAddTemporaryOpen(true)}
+                className="px-3 py-2 rounded-xl bg-purple-50 text-purple-900 hover:bg-purple-100 text-xs font-bold border border-purple-200 flex items-center gap-1.5 transition-all shadow-sm"
+                title="Add Temporary Staff (Daily Wage / Expense tracking)"
+              >
+                <UserPlus className="w-4 h-4 text-purple-700" />
+                <span className="hidden sm:inline">+ Temporary Staff</span>
+                <span className="sm:hidden">+ Temp</span>
+              </button>
+            )}
+
             {canManage && (
               <button
                 type="button"
@@ -448,11 +486,10 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
         <button
           type="button"
           onClick={() => setActiveTab('payroll')}
-          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all text-center flex items-center justify-center gap-2 ${
-            activeTab === 'payroll'
-              ? 'bg-brand-forest text-white shadow-sm'
-              : 'text-content-muted hover:text-brand-forest'
-          }`}
+          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all text-center flex items-center justify-center gap-2 ${activeTab === 'payroll'
+            ? 'bg-brand-forest text-white shadow-sm'
+            : 'text-content-muted hover:text-brand-forest'
+            }`}
         >
           <CreditCard className="w-3.5 h-3.5" />
           <span>Staff Payroll ({summaryData?.staffList.length || 0})</span>
@@ -460,11 +497,10 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
         <button
           type="button"
           onClick={() => setActiveTab('advances_ledger')}
-          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all text-center flex items-center justify-center gap-2 ${
-            activeTab === 'advances_ledger'
-              ? 'bg-brand-forest text-white shadow-sm'
-              : 'text-content-muted hover:text-brand-forest'
-          }`}
+          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all text-center flex items-center justify-center gap-2 ${activeTab === 'advances_ledger'
+            ? 'bg-brand-forest text-white shadow-sm'
+            : 'text-content-muted hover:text-brand-forest'
+            }`}
         >
           <Wallet className="w-3.5 h-3.5" />
           <span>Advances &amp; Deductions Ledger</span>
@@ -474,6 +510,43 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
       {/* ── TAB 1: STAFF PAYROLL LIST ──────────────────────────── */}
       {activeTab === 'payroll' && (
         <div className="space-y-3">
+          {/* Sub-filter: All / Permanent / Temporary */}
+          <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-bold pb-1">
+            <button
+              type="button"
+              onClick={() => setStaffTypeFilter('ALL')}
+              className={`px-3 py-1.5 rounded-xl transition-all ${
+                staffTypeFilter === 'ALL'
+                  ? 'bg-brand-forest text-white font-black shadow-xs'
+                  : 'bg-white text-content-muted border border-border-subtle hover:text-brand-forest'
+              }`}
+            >
+              All Staff ({staffCounts.total})
+            </button>
+            <button
+              type="button"
+              onClick={() => setStaffTypeFilter('PERMANENT')}
+              className={`px-3 py-1.5 rounded-xl transition-all ${
+                staffTypeFilter === 'PERMANENT'
+                  ? 'bg-brand-forest text-white font-black shadow-xs'
+                  : 'bg-white text-content-muted border border-border-subtle hover:text-brand-forest'
+              }`}
+            >
+              Permanent ({staffCounts.permanent})
+            </button>
+            <button
+              type="button"
+              onClick={() => setStaffTypeFilter('TEMPORARY')}
+              className={`px-3 py-1.5 rounded-xl transition-all ${
+                staffTypeFilter === 'TEMPORARY'
+                  ? 'bg-purple-900 text-white font-black shadow-xs'
+                  : 'bg-purple-50 text-purple-900 border border-purple-200 hover:bg-purple-100'
+              }`}
+            >
+              Temporary / Daily ({staffCounts.temporary})
+            </button>
+          </div>
+
           {isLoading && !summaryData && (
             <div className="p-12 bg-white rounded-3xl border border-border-subtle flex flex-col items-center justify-center gap-3">
               <div className="w-8 h-8 rounded-full border-2 border-brand-forest border-t-transparent animate-spin" />
@@ -488,7 +561,7 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
             </div>
           )}
 
-          {summaryData?.staffList.map((item) => {
+          {filteredStaffList.map((item) => {
             const isPaid = item.savedPayment?.status === 'PAID';
             return (
               <div
@@ -502,13 +575,18 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
                       {item.staffMember.fullName.charAt(0)}
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-sm font-black text-brand-forest">
                           {item.staffMember.fullName}
                         </h3>
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-surface-cream text-content-muted border border-border-subtle">
                           {item.staffMember.designation}
                         </span>
+                        {item.membership.isTemporary && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-purple-100 text-purple-900 border border-purple-200">
+                            ⚡ Temp {item.membership.wageType === 'DAILY' ? '• Daily Wage' : ''}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 text-[11px] text-content-muted font-medium mt-0.5">
                         {item.staffMember.mobile && <span>{item.staffMember.mobile}</span>}
@@ -529,11 +607,10 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
                       </span>
                     )}
                     <span
-                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                        isPaid
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                          : 'bg-amber-100 text-amber-900 border border-amber-300'
-                      }`}
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${isPaid
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-amber-100 text-amber-900 border border-amber-300'
+                        }`}
                     >
                       {isPaid ? '● PAID' : '○ PENDING'}
                     </span>
@@ -544,13 +621,17 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
                   <div className="p-2.5 rounded-2xl bg-surface-cream border border-border-subtle">
                     <span className="text-[10px] text-content-muted font-bold block uppercase">
-                      Base Salary
+                      {item.membership.wageType === 'DAILY' ? 'Daily Wage Rate' : 'Base Salary'}
                     </span>
                     <span className="font-mono font-bold text-brand-forest mt-0.5 block">
-                      ₹ {item.calculation.baseMonthlySalary.toLocaleString('en-IN')}
+                      ₹ {item.membership.wageType === 'DAILY' && item.membership.dailyWageRate != null
+                        ? item.membership.dailyWageRate.toLocaleString('en-IN')
+                        : item.calculation.baseMonthlySalary.toLocaleString('en-IN')}
                     </span>
                     <span className="text-[9px] text-content-muted block">
-                      ₹ {item.calculation.perDayRate}/day
+                      {item.membership.wageType === 'DAILY'
+                        ? 'Per day worked'
+                        : `₹ ${item.calculation.perDayRate}/day`}
                     </span>
                   </div>
 
@@ -559,11 +640,23 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
                       Attendance Days
                     </span>
                     <span className="font-mono font-bold text-[#1E293B] mt-0.5 block">
-                      {item.attendance.paidDays} / {item.cycleBounds.eligibleDays} Days
+                      {item.attendance.presentDays} / {item.attendance.scheduledWorkingDays ?? (item.cycleBounds.eligibleDays - (item.attendance.weeklyOffDays || 0))} Working Days
                     </span>
-                    <span className="text-[9px] text-content-muted block">
-                      {item.attendance.presentDays} Pres • {item.attendance.weeklyOffDays || 0} Offs
-                    </span>
+                    <div className="flex items-center gap-1 text-[9px] font-bold mt-0.5 flex-wrap">
+                      <span className="text-emerald-700">{item.attendance.presentDays} Pres</span>
+                      <span className="text-content-muted">•</span>
+                      <span className={item.attendance.absentDays > 0 ? "text-red-600 font-black" : "text-content-muted"}>
+                        {item.attendance.absentDays} Abs
+                      </span>
+                      <span className="text-content-muted">•</span>
+                      <span className="text-blue-700">{item.attendance.weeklyOffDays || 0} Offs</span>
+                      {item.attendance.halfDays > 0 && (
+                        <>
+                          <span className="text-content-muted">•</span>
+                          <span className="text-amber-700">{item.attendance.halfDays} Half</span>
+                        </>
+                      )}
+                    </div>
                   </div>
 
                   <div className="p-2.5 rounded-2xl bg-emerald-50 border border-emerald-200">
@@ -666,9 +759,19 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
             );
           })}
 
-          {summaryData?.staffList.length === 0 && (
-            <div className="p-8 text-center bg-white rounded-3xl border border-border-subtle text-xs text-content-muted font-bold">
-              No staff members found matching your search.
+          {filteredStaffList.length === 0 && (
+            <div className="p-8 text-center bg-white rounded-3xl border border-border-subtle text-xs text-content-muted font-bold space-y-2">
+              <p>No {staffTypeFilter !== 'ALL' ? staffTypeFilter.toLowerCase() : ''} staff members found matching your search.</p>
+              {staffTypeFilter === 'TEMPORARY' && canManage && (
+                <button
+                  type="button"
+                  onClick={() => setIsAddTemporaryOpen(true)}
+                  className="px-4 py-2 rounded-xl bg-purple-50 text-purple-900 border border-purple-200 text-xs font-bold inline-flex items-center gap-1.5"
+                >
+                  <UserPlus className="w-4 h-4 text-purple-700" />
+                  <span>Create First Temporary Staff</span>
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -694,11 +797,10 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
                   key={t}
                   type="button"
                   onClick={() => setLedgerTypeFilter(t)}
-                  className={`px-2.5 py-1 rounded-xl text-[11px] transition-all ${
-                    ledgerTypeFilter === t
-                      ? 'bg-brand-forest text-white font-black'
-                      : 'bg-surface-cream text-content-muted hover:text-brand-forest'
-                  }`}
+                  className={`px-2.5 py-1 rounded-xl text-[11px] transition-all ${ledgerTypeFilter === t
+                    ? 'bg-brand-forest text-white font-black'
+                    : 'bg-surface-cream text-content-muted hover:text-brand-forest'
+                    }`}
                 >
                   {t}
                 </button>
@@ -718,13 +820,12 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
                     <div className="flex items-center gap-2">
                       <span className="font-extrabold text-brand-forest">{adv.staffName}</span>
                       <span
-                        className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
-                          adv.type === 'ADVANCE'
-                            ? 'bg-red-100 text-red-800'
-                            : adv.type === 'BONUS'
+                        className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${adv.type === 'ADVANCE'
+                          ? 'bg-red-100 text-red-800'
+                          : adv.type === 'BONUS'
                             ? 'bg-emerald-100 text-emerald-800'
                             : 'bg-amber-100 text-amber-900'
-                        }`}
+                          }`}
                       >
                         {adv.type}
                       </span>
@@ -828,6 +929,16 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
           shopId={shopId}
           month={selectedMonth}
           onSaved={fetchSummary}
+        />
+      )}
+
+      {/* 6. Add Temporary Staff Modal */}
+      {isAddTemporaryOpen && (
+        <AddTemporaryStaffModal
+          isOpen={true}
+          onClose={() => setIsAddTemporaryOpen(false)}
+          shopId={shopId}
+          onSuccess={fetchSummary}
         />
       )}
     </div>
