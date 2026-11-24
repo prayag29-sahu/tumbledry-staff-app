@@ -517,33 +517,30 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
             <button
               type="button"
               onClick={() => setStaffTypeFilter('ALL')}
-              className={`px-3 py-1.5 rounded-xl transition-all ${
-                staffTypeFilter === 'ALL'
-                  ? 'bg-brand-forest text-white font-black shadow-xs'
-                  : 'bg-white text-content-muted border border-border-subtle hover:text-brand-forest'
-              }`}
+              className={`px-3 py-1.5 rounded-xl transition-all ${staffTypeFilter === 'ALL'
+                ? 'bg-brand-forest text-white font-black shadow-xs'
+                : 'bg-white text-content-muted border border-border-subtle hover:text-brand-forest'
+                }`}
             >
               All Staff ({staffCounts.total})
             </button>
             <button
               type="button"
               onClick={() => setStaffTypeFilter('PERMANENT')}
-              className={`px-3 py-1.5 rounded-xl transition-all ${
-                staffTypeFilter === 'PERMANENT'
-                  ? 'bg-brand-forest text-white font-black shadow-xs'
-                  : 'bg-white text-content-muted border border-border-subtle hover:text-brand-forest'
-              }`}
+              className={`px-3 py-1.5 rounded-xl transition-all ${staffTypeFilter === 'PERMANENT'
+                ? 'bg-brand-forest text-white font-black shadow-xs'
+                : 'bg-white text-content-muted border border-border-subtle hover:text-brand-forest'
+                }`}
             >
               Permanent ({staffCounts.permanent})
             </button>
             <button
               type="button"
               onClick={() => setStaffTypeFilter('TEMPORARY')}
-              className={`px-3 py-1.5 rounded-xl transition-all ${
-                staffTypeFilter === 'TEMPORARY'
-                  ? 'bg-purple-900 text-white font-black shadow-xs'
-                  : 'bg-purple-50 text-purple-900 border border-purple-200 hover:bg-purple-100'
-              }`}
+              className={`px-3 py-1.5 rounded-xl transition-all ${staffTypeFilter === 'TEMPORARY'
+                ? 'bg-purple-900 text-white font-black shadow-xs'
+                : 'bg-purple-50 text-purple-900 border border-purple-200 hover:bg-purple-100'
+                }`}
             >
               Temporary / Daily ({staffCounts.temporary})
             </button>
