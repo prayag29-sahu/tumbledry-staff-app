@@ -513,25 +513,25 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
 
       {/* ── TAB 1: STAFF PAYROLL LIST ──────────────────────────── */}
       {activeTab === 'payroll' && (
-        <div className="space-y-3">
-          {/* Sub-filter: All / Permanent / Temporary */}
-          <div className="flex items-center justify-between gap-2 overflow-x-auto text-xs font-bold pb-1 flex-wrap">
-            <div className="flex items-center gap-1.5">
+        <div className="space-y-2.5">
+          {/* Sub-filter: All / Permanent / Temporary + Add Temp Staff */}
+          <div className="flex items-center justify-between gap-1.5 overflow-x-auto no-scrollbar text-xs font-bold pb-0.5">
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => setStaffTypeFilter('ALL')}
-                className={`px-3 py-1.5 rounded-xl transition-all ${
+                className={`px-2.5 py-1.5 rounded-xl transition-all whitespace-nowrap text-xs ${
                   staffTypeFilter === 'ALL'
                     ? 'bg-brand-forest text-white font-black shadow-xs'
                     : 'bg-white text-content-muted border border-border-subtle hover:text-brand-forest'
                 }`}
               >
-                All Staff ({staffCounts.total})
+                All ({staffCounts.total})
               </button>
               <button
                 type="button"
                 onClick={() => setStaffTypeFilter('PERMANENT')}
-                className={`px-3 py-1.5 rounded-xl transition-all ${
+                className={`px-2.5 py-1.5 rounded-xl transition-all whitespace-nowrap text-xs ${
                   staffTypeFilter === 'PERMANENT'
                     ? 'bg-brand-forest text-white font-black shadow-xs'
                     : 'bg-white text-content-muted border border-border-subtle hover:text-brand-forest'
@@ -542,13 +542,13 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
               <button
                 type="button"
                 onClick={() => setStaffTypeFilter('TEMPORARY')}
-                className={`px-3 py-1.5 rounded-xl transition-all ${
+                className={`px-2.5 py-1.5 rounded-xl transition-all whitespace-nowrap text-xs ${
                   staffTypeFilter === 'TEMPORARY'
                     ? 'bg-purple-900 text-white font-black shadow-xs'
                     : 'bg-purple-50 text-purple-900 border border-purple-200 hover:bg-purple-100'
                 }`}
               >
-                Temporary / Daily ({staffCounts.temporary})
+                Temporary ({staffCounts.temporary})
               </button>
             </div>
 
@@ -556,10 +556,10 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
               <button
                 type="button"
                 onClick={() => setIsAddTemporaryOpen(true)}
-                className="px-3 py-1.5 rounded-xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-black flex items-center gap-1.5 shadow-sm transition-all shrink-0"
+                className="px-2.5 py-1.5 rounded-xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-black flex items-center gap-1 shadow-xs transition-all shrink-0 whitespace-nowrap ml-auto"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                <span>+ Temporary Staff</span>
+                <span>+ Temp Staff</span>
               </button>
             )}
           </div>
@@ -583,207 +583,174 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
             return (
               <div
                 key={item.staffMember.id}
-                className="p-4 sm:p-5 rounded-3xl bg-white border border-border-subtle shadow-sm hover:border-brand-forest/40 transition-all space-y-3.5"
+                className="p-3 sm:p-4 rounded-2xl bg-white border border-border-subtle shadow-xs hover:border-brand-forest/30 transition-all space-y-2.5"
               >
-                {/* Staff Header */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-border-subtle pb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-lime to-[#6DA322] flex items-center justify-center font-black text-white text-base shrink-0 shadow-sm">
+                {/* Staff Header with Net Payable on Right */}
+                <div className="flex items-start justify-between gap-2 border-b border-border-subtle/70 pb-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-lime to-[#6DA322] flex items-center justify-center font-black text-white text-sm shrink-0 shadow-xs">
                       {item.staffMember.fullName.charAt(0)}
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-sm font-black text-brand-forest">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <h3 className="text-sm font-black text-brand-forest truncate">
                           {item.staffMember.fullName}
                         </h3>
-                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-surface-cream text-content-muted border border-border-subtle">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-surface-cream text-content-muted border border-border-subtle">
                           {item.staffMember.designation}
                         </span>
                         {item.membership.isTemporary && (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-purple-100 text-purple-900 border border-purple-200">
-                            ⚡ Temp {item.membership.wageType === 'DAILY' ? '• Daily Wage' : ''}
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-purple-100 text-purple-900 border border-purple-200">
+                            ⚡ Temp {item.membership.wageType === 'DAILY' ? '• Daily' : ''}
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-3 text-[11px] text-content-muted font-medium mt-0.5">
+                      <div className="flex items-center gap-2 text-[10px] text-content-muted font-medium mt-0.5 flex-wrap">
                         {item.staffMember.mobile && <span>{item.staffMember.mobile}</span>}
-                        {item.membership.joiningDate && (
-                          <span>
-                            Joined: {new Date(item.membership.joiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        {item.cycleBounds.isMidMonthJoined && (
+                          <span className="text-blue-700 font-bold">
+                            Joined Mid-Month ({item.cycleBounds.eligibleDays}d)
                           </span>
                         )}
                       </div>
                     </div>
                   </div>
 
-                  {/* Status Badge */}
-                  <div className="flex items-center gap-2">
-                    {item.cycleBounds.isMidMonthJoined && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                        Joined Mid-Month ({item.cycleBounds.eligibleDays} days)
-                      </span>
-                    )}
+                  {/* Net Payable & Status Badge */}
+                  <div className="text-right shrink-0">
+                    <div className="text-[9px] font-bold uppercase text-content-muted tracking-wider">Net Payable</div>
+                    <div className="text-base font-black font-mono text-brand-forest leading-tight">
+                      ₹ {item.calculation.netPayable.toLocaleString('en-IN')}
+                    </div>
                     <span
-                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${isPaid
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                        : 'bg-amber-100 text-amber-900 border border-amber-300'
-                        }`}
+                      className={`inline-block mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                        isPaid
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-amber-100 text-amber-900 border border-amber-300'
+                      }`}
                     >
                       {isPaid ? '● PAID' : '○ PENDING'}
                     </span>
                   </div>
                 </div>
 
-                {/* Calculation Numbers Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
-                  <div className="p-2.5 rounded-2xl bg-surface-cream border border-border-subtle">
-                    <span className="text-[10px] text-content-muted font-bold block uppercase">
-                      {item.membership.wageType === 'DAILY' ? 'Daily Wage Rate' : 'Base Salary'}
-                    </span>
-                    <span className="font-mono font-bold text-brand-forest mt-0.5 block">
-                      ₹ {item.membership.wageType === 'DAILY' && item.membership.dailyWageRate != null
-                        ? item.membership.dailyWageRate.toLocaleString('en-IN')
-                        : item.calculation.baseMonthlySalary.toLocaleString('en-IN')}
-                    </span>
-                    <span className="text-[9px] text-content-muted block">
+                {/* Compact 3-Column Numbers Grid */}
+                <div className="grid grid-cols-3 gap-1.5 sm:gap-2 text-xs">
+                  {/* 1. Base Salary */}
+                  <div className="p-2 rounded-xl bg-surface-cream border border-border-subtle flex flex-col justify-between">
+                    <div>
+                      <span className="text-[9px] text-content-muted font-bold block uppercase leading-none">
+                        {item.membership.wageType === 'DAILY' ? 'Daily Wage' : 'Base Salary'}
+                      </span>
+                      <span className="font-mono font-bold text-brand-forest mt-1 block text-xs truncate">
+                        ₹ {item.membership.wageType === 'DAILY' && item.membership.dailyWageRate != null
+                          ? item.membership.dailyWageRate.toLocaleString('en-IN')
+                          : item.calculation.baseMonthlySalary.toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                    <span className="text-[9px] text-content-muted block mt-0.5 truncate">
                       {item.membership.wageType === 'DAILY'
                         ? 'Per day worked'
                         : `₹ ${item.calculation.perDayRate}/day`}
                     </span>
                   </div>
 
+                  {/* 2. Attendance & Badges (Clickable) */}
                   <div
                     onClick={() => setSelectedBreakdownStaff(item as unknown as StaffBreakdownData)}
-                    className="p-2.5 rounded-2xl bg-surface-cream border border-border-subtle cursor-pointer hover:border-brand-forest/60 hover:bg-emerald-50/40 transition-all flex flex-col justify-between group"
-                    title="Click to view detailed monthly attendance & salary breakdown"
+                    className="p-2 rounded-xl bg-surface-cream border border-border-subtle cursor-pointer hover:border-brand-forest/60 hover:bg-emerald-50/50 transition-all flex flex-col justify-between group"
+                    title="Click to view detailed attendance breakdown"
                   >
                     <div>
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-content-muted font-bold block uppercase">
+                        <span className="text-[9px] text-content-muted font-bold block uppercase leading-none">
                           Attendance
                         </span>
-                        <span className="text-[9px] text-brand-forest font-bold group-hover:underline">
-                          Breakdown ↗
-                        </span>
+                        <span className="text-[8px] text-brand-forest font-bold group-hover:underline">↗</span>
                       </div>
-                      <span className="font-mono font-bold text-[#1E293B] mt-0.5 block text-xs">
-                        {item.attendance.paidDays} / {item.cycleBounds.totalDaysInMonth} Days
+                      <span className="font-mono font-bold text-[#1E293B] mt-1 block text-xs truncate">
+                        {item.attendance.paidDays}/{item.cycleBounds.totalDaysInMonth} <span className="text-[9px] font-normal text-content-muted">Days</span>
                       </span>
                     </div>
 
-                    {/* Prominent, vibrant color badges */}
-                    <div className="flex items-center gap-1 text-[9px] font-bold mt-1.5 flex-wrap">
-                      <span className="px-1.5 py-0.5 rounded-md font-black bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-0.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block"></span>
-                        {item.attendance.presentDays} P
+                    {/* Color Badges: P, A, Off */}
+                    <div className="flex items-center gap-1 mt-1 flex-wrap">
+                      <span className="px-1 py-0.5 rounded font-black bg-emerald-100 text-emerald-800 text-[9px] leading-none">
+                        {item.attendance.presentDays}P
                       </span>
-
-                      <span className={`px-1.5 py-0.5 rounded-md font-black flex items-center gap-0.5 ${
+                      <span className={`px-1 py-0.5 rounded font-black text-[9px] leading-none ${
                         item.attendance.absentDays > 0
-                          ? 'bg-rose-100 text-rose-800 border border-rose-300 ring-1 ring-rose-400'
-                          : 'bg-slate-100 text-slate-500 border border-slate-200'
+                          ? 'bg-rose-100 text-rose-800 font-black'
+                          : 'bg-slate-100 text-slate-500'
                       }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full inline-block ${
-                          item.attendance.absentDays > 0 ? 'bg-rose-600' : 'bg-slate-400'
-                        }`}></span>
-                        {item.attendance.absentDays} A
+                        {item.attendance.absentDays}A
                       </span>
-
-                      <span className="px-1.5 py-0.5 rounded-md font-bold bg-sky-50 text-sky-700 border border-sky-200">
-                        {item.attendance.weeklyOffDays || 0} Off
+                      <span className="px-1 py-0.5 rounded font-bold bg-sky-50 text-sky-700 text-[9px] leading-none">
+                        {item.attendance.weeklyOffDays || 0}Off
                       </span>
-
                       {item.attendance.halfDays > 0 && (
-                        <span className="px-1.5 py-0.5 rounded-md font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                          {item.attendance.halfDays} H
+                        <span className="px-1 py-0.5 rounded font-bold bg-amber-100 text-amber-800 text-[9px] leading-none">
+                          {item.attendance.halfDays}H
                         </span>
                       )}
                     </div>
-
-                    {item.attendance.absentDays > 0 && (
-                      <span className="text-[9px] text-rose-700 font-bold block mt-0.5">
-                        -₹{Math.round(item.attendance.absentDays * item.calculation.perDayRate)} absent cut
-                      </span>
-                    )}
                   </div>
 
-                  <div className="p-2.5 rounded-2xl bg-emerald-50 border border-emerald-200">
-                    <span className="text-[10px] text-emerald-800 font-bold block uppercase">
-                      Earned Salary
-                    </span>
-                    <span className="font-mono font-black text-emerald-950 mt-0.5 block">
-                      ₹ {item.calculation.earnedSalary.toLocaleString('en-IN')}
-                    </span>
-                    {item.attendance.absentDays > 0 ? (
-                      <span className="text-[9px] text-rose-700 font-semibold block">
-                        ({item.attendance.absentDays}d absent deducted)
+                  {/* 3. Earned Salary & Deductions */}
+                  <div className="p-2 rounded-xl bg-emerald-50/70 border border-emerald-200/80 flex flex-col justify-between">
+                    <div>
+                      <span className="text-[9px] text-emerald-800 font-bold block uppercase leading-none">
+                        Earned Pay
                       </span>
-                    ) : item.calculation.fixedIncentive > 0 ? (
-                      <span className="text-[9px] text-emerald-700 block">
-                        +₹{item.calculation.fixedIncentive} inc.
+                      <span className="font-mono font-black text-emerald-950 mt-1 block text-xs truncate">
+                        ₹ {item.calculation.earnedSalary.toLocaleString('en-IN')}
                       </span>
-                    ) : (
-                      <span className="text-[9px] text-emerald-700 block">Full attendance</span>
-                    )}
-                  </div>
-
-                  <div className="p-2.5 rounded-2xl bg-red-50 border border-red-200">
-                    <span className="text-[10px] text-red-800 font-bold block uppercase">
-                      Advances Deducted
-                    </span>
-                    <span className="font-mono font-black text-red-900 mt-0.5 block">
-                      - ₹ {item.calculation.advanceDeducted.toLocaleString('en-IN')}
-                    </span>
-                    <span className="text-[9px] text-red-700 block">
-                      {item.advancesList.length} advance transactions
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 rounded-2xl bg-brand-forest text-white col-span-2 sm:col-span-1">
-                    <span className="text-[10px] text-brand-lime font-black block uppercase tracking-wider">
-                      Net Payable
-                    </span>
-                    <span className="font-mono font-black text-sm text-white mt-0.5 block">
-                      ₹ {item.calculation.netPayable.toLocaleString('en-IN')}
-                    </span>
-                    {isPaid && item.savedPayment?.paidDate && (
-                      <span className="text-[9px] text-white/80 block">
-                        Paid on {new Date(item.savedPayment.paidDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                      </span>
-                    )}
+                    </div>
+                    <div className="mt-0.5 text-[9px] leading-tight truncate">
+                      {item.calculation.advanceDeducted > 0 ? (
+                        <span className="text-red-700 font-bold">
+                          -₹{item.calculation.advanceDeducted.toLocaleString('en-IN')} Adv
+                        </span>
+                      ) : item.attendance.absentDays > 0 ? (
+                        <span className="text-rose-600 font-medium">
+                          -{item.attendance.absentDays}d absent
+                        </span>
+                      ) : (
+                        <span className="text-emerald-700 font-medium">
+                          Full month
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 {/* Card Actions Footer */}
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-                  <div className="text-[11px] text-content-muted">
-                    {item.membership.salaryNotes && (
-                      <span className="truncate max-w-xs block font-mono text-[10px]">
-                        Bank: {item.membership.salaryNotes}
-                      </span>
-                    )}
+                <div className="flex items-center justify-between gap-1.5 pt-1 border-t border-border-subtle/50">
+                  <div className="text-[10px] text-content-muted truncate max-w-[90px] sm:max-w-xs font-mono">
+                    {item.membership.salaryNotes ? `Bank: ${item.membership.salaryNotes}` : ''}
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-auto">
                     {/* View Monthly Breakdown Button */}
                     <button
                       type="button"
                       onClick={() => setSelectedBreakdownStaff(item as unknown as StaffBreakdownData)}
-                      className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-300 hover:bg-emerald-100 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs"
+                      className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-900 border border-emerald-300 hover:bg-emerald-100 text-[11px] font-bold flex items-center gap-1 transition-colors whitespace-nowrap"
                       title="View complete date-wise attendance & salary statement"
                     >
-                      <Calendar className="w-3.5 h-3.5 text-emerald-700" />
-                      <span>Monthly Breakdown</span>
+                      <Calendar className="w-3 h-3 text-emerald-700" />
+                      <span>Breakdown</span>
                     </button>
 
                     {/* View / Print Payslip */}
                     <button
                       type="button"
                       onClick={() => setPayslipModalStaffId(item.staffMember.id)}
-                      className="px-3 py-1.5 rounded-xl bg-surface-cream text-brand-forest text-xs font-bold border border-border-subtle hover:bg-surface-hover flex items-center gap-1.5 transition-colors"
+                      className="px-2 py-1 rounded-lg bg-surface-cream text-brand-forest text-[11px] font-bold border border-border-subtle hover:bg-surface-hover flex items-center gap-1 transition-colors whitespace-nowrap"
+                      title="View and print salary slip"
                     >
-                      <Printer className="w-3.5 h-3.5" />
-                      <span>View &amp; Print Slip</span>
+                      <Printer className="w-3 h-3" />
+                      <span>Slip</span>
                     </button>
 
                     {/* Record Advance for this staff */}
@@ -794,9 +761,10 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
                           setAdvanceModalStaffId(item.staffMember.id);
                           setIsAdvanceModalOpen(true);
                         }}
-                        className="px-3 py-1.5 rounded-xl bg-red-50 text-red-800 text-xs font-bold border border-red-200 hover:bg-red-100 flex items-center gap-1 transition-colors"
+                        className="px-2 py-1 rounded-lg bg-red-50 text-red-800 text-[11px] font-bold border border-red-200 hover:bg-red-100 flex items-center gap-1 transition-colors whitespace-nowrap"
+                        title="Record advance or deduction"
                       >
-                        <Plus className="w-3.5 h-3.5" />
+                        <Plus className="w-3 h-3" />
                         <span>Advance</span>
                       </button>
                     )}
@@ -812,8 +780,8 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
                             membership: item.membership,
                           })
                         }
-                        className="p-1.5 rounded-xl bg-surface-cream text-content-muted hover:text-brand-forest border border-border-subtle"
-                        title="Edit Salary &amp; Terms"
+                        className="p-1 rounded-lg bg-surface-cream text-content-muted hover:text-brand-forest border border-border-subtle"
+                        title="Edit Salary & Terms"
                       >
                         <Sliders className="w-3.5 h-3.5" />
                       </button>
