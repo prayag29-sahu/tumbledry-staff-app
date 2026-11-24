@@ -1098,7 +1098,7 @@ export async function createTemporaryStaff(
       joiningDate: data.joiningDate ? new Date(data.joiningDate) : new Date(),
       salaryNotes: data.notes?.trim() || null,
       attendanceEnabled: false,
-    },
+    } as any,
     include: {
       staffMember: true,
       positionCategory: true,

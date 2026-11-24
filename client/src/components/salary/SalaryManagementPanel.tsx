@@ -80,6 +80,8 @@ interface SalarySummaryResponse {
       halfDays: number;
       absentDays: number;
       paidDays: number;
+      weeklyOffDays?: number;
+      scheduledWorkingDays?: number;
       totalSessionsRecorded: number;
     };
     calculation: {

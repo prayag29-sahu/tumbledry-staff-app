@@ -5031,15 +5031,13 @@ export default function SupervisorPage() {
               <span>{taskFeedback.message}</span>
             </div>
           )}
-        </div>
-      )}
 
-      {/* Mobile Hardware Back Exit Confirmation Modal */}
-      <ExitConfirmModal
-        isOpen={isExitModalOpen}
-        onCancel={() => setIsExitModalOpen(false)}
-        onConfirmExit={handleConfirmExit}
-      />
+          {/* Mobile Hardware Back Exit Confirmation Modal */}
+          <ExitConfirmModal
+            isOpen={isExitModalOpen}
+            onCancel={() => setIsExitModalOpen(false)}
+            onConfirmExit={handleConfirmExit}
+          />
         </div>
       </main>
     </div>

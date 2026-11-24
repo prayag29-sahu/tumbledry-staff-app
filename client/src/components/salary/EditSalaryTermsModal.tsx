@@ -153,22 +153,20 @@ export function EditSalaryTermsModal({
               <button
                 type="button"
                 onClick={() => setWageType('MONTHLY')}
-                className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
-                  wageType === 'MONTHLY'
+                className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${wageType === 'MONTHLY'
                     ? 'bg-brand-forest text-white border-brand-forest shadow-sm'
                     : 'bg-surface-cream text-content-muted border-border-subtle hover:text-brand-forest'
-                }`}
+                  }`}
               >
                 Fixed Monthly Salary
               </button>
               <button
                 type="button"
                 onClick={() => setWageType('DAILY')}
-                className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
-                  wageType === 'DAILY'
+                className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${wageType === 'DAILY'
                     ? 'bg-brand-forest text-white border-brand-forest shadow-sm'
                     : 'bg-surface-cream text-content-muted border-border-subtle hover:text-brand-forest'
-                }`}
+                  }`}
               >
                 Daily Wage Rate (₹/day)
               </button>
