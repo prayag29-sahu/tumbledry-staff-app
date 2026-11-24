@@ -513,6 +513,107 @@ export async function calculateStaffMonthSalary(
     },
   });
 
+  // Helper to format IST time
+  const formatIST = (date: Date | null | undefined): string | null => {
+    if (!date) return null;
+    return new Intl.DateTimeFormat('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    }).format(date);
+  };
+
+  // 8. Generate Daily Breakdown for all days in the month
+  const dailyBreakdown: Array<{
+    date: string;
+    dayNumber: number;
+    dayName: string;
+    status: 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'WEEKLY_OFF' | 'HOLIDAY' | 'FUTURE' | 'NOT_EMPLOYED';
+    statusLabel: string;
+    holidayName?: string;
+    checkInTime?: string | null;
+    checkOutTime?: string | null;
+    durationMinutes?: number | null;
+    transactions: Array<{
+      id: string;
+      type: string;
+      amount: number;
+      reason: string;
+      paymentMode: string;
+    }>;
+  }> = [];
+
+  for (let d = 1; d <= totalDaysInMonth; d++) {
+    const dateStr = `${monthStr}-${String(d).padStart(2, '0')}`;
+    const dayDate = new Date(`${dateStr}T00:00:00`);
+    const dayName = dayDate.toLocaleDateString('en-IN', { weekday: 'short' });
+
+    // Find holiday / weekly off
+    const holiday = staffEligibleHolidays.find((h) => h.date === dateStr);
+
+    // Find attendance session
+    const session = attendanceSessions.find((s) => {
+      const sDate = s.checkInAt ? new Date(s.checkInAt).toISOString().slice(0, 10) : '';
+      return sDate === dateStr;
+    });
+
+    // Find transactions on this date
+    const dayTransactions = advancesRecords
+      .filter((a) => {
+        const aDate = a.date ? new Date(a.date).toISOString().slice(0, 10) : '';
+        return aDate === dateStr;
+      })
+      .map((a) => ({
+        id: a.id,
+        type: a.type,
+        amount: Number(a.amount || 0),
+        reason: a.reason,
+        paymentMode: a.paymentMode,
+      }));
+
+    let status: 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'WEEKLY_OFF' | 'HOLIDAY' | 'FUTURE' | 'NOT_EMPLOYED';
+    let statusLabel = '';
+
+    if (dayDate < effectiveWorkingStart) {
+      status = 'NOT_EMPLOYED';
+      statusLabel = 'Not Joined Yet';
+    } else if (isFutureMonth || (isCurrentMonth && dateStr > todayStr)) {
+      status = 'FUTURE';
+      statusLabel = 'Upcoming';
+    } else if (holiday) {
+      status = holiday.type === 'STORE_HOLIDAY' ? 'HOLIDAY' : 'WEEKLY_OFF';
+      statusLabel = holiday.name || (status === 'WEEKLY_OFF' ? 'Weekly Off' : 'Holiday');
+    } else if (session) {
+      if (session.attendanceType === 'HALF_DAY' || (session.durationMinutes && session.durationMinutes < 240)) {
+        status = 'HALF_DAY';
+        statusLabel = 'Half Day';
+      } else {
+        status = 'PRESENT';
+        statusLabel = session.attendanceType === 'LATE' ? 'Present (Late)' : 'Present';
+      }
+    } else if (isCurrentMonth && dateStr === todayStr && !holiday) {
+      status = 'ABSENT';
+      statusLabel = 'Not Marked Today';
+    } else {
+      status = 'ABSENT';
+      statusLabel = 'Absent';
+    }
+
+    dailyBreakdown.push({
+      date: dateStr,
+      dayNumber: d,
+      dayName,
+      status,
+      statusLabel,
+      holidayName: holiday?.name,
+      checkInTime: formatIST(session?.checkInAt),
+      checkOutTime: formatIST(session?.checkOutAt),
+      durationMinutes: session?.durationMinutes,
+      transactions: dayTransactions,
+    });
+  }
+
   return {
     staffMember: {
       id: membership.staffMember.id,
@@ -594,6 +695,7 @@ export async function calculateStaffMonthSalary(
           generatedBy: savedPayment.generatedBy?.username,
         }
       : null,
+    dailyBreakdown,
   };
 }
 

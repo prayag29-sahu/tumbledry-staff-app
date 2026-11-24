@@ -24,6 +24,7 @@ import { EditSalaryTermsModal } from './EditSalaryTermsModal';
 import { SalarySettingsModal } from './SalarySettingsModal';
 import { StoreHolidayCalendarModal } from './StoreHolidayCalendarModal';
 import { AddTemporaryStaffModal } from './AddTemporaryStaffModal';
+import { StaffMonthlyBreakdownModal, StaffBreakdownData, DailyBreakdownItem } from './StaffMonthlyBreakdownModal';
 
 interface SalarySummaryResponse {
   shopId: string;
@@ -115,6 +116,7 @@ interface SalarySummaryResponse {
       generatedAt: string;
       generatedBy?: string;
     } | null;
+    dailyBreakdown?: DailyBreakdownItem[];
   }>;
 }
 
@@ -163,6 +165,7 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
   const [advanceModalStaffId, setAdvanceModalStaffId] = useState<string | null>(null);
   const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
   const [isAddTemporaryOpen, setIsAddTemporaryOpen] = useState(false);
+  const [selectedBreakdownStaff, setSelectedBreakdownStaff] = useState<StaffBreakdownData | null>(null);
   const [staffTypeFilter, setStaffTypeFilter] = useState<'ALL' | 'PERMANENT' | 'TEMPORARY'>('ALL');
   const [editTermsStaff, setEditTermsStaff] = useState<{
     id: string;
@@ -314,12 +317,11 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
               <button
                 type="button"
                 onClick={() => setIsAddTemporaryOpen(true)}
-                className="px-3 py-2 rounded-xl bg-purple-50 text-purple-900 hover:bg-purple-100 text-xs font-bold border border-purple-200 flex items-center gap-1.5 transition-all shadow-sm"
+                className="px-3 py-2 rounded-xl bg-purple-100 hover:bg-purple-200 text-purple-950 text-xs font-black border border-purple-300 flex items-center gap-1.5 transition-all shadow-xs"
                 title="Add Temporary Staff (Daily Wage / Expense tracking)"
               >
-                <UserPlus className="w-4 h-4 text-purple-700" />
-                <span className="hidden sm:inline">+ Temporary Staff</span>
-                <span className="sm:hidden">+ Temp</span>
+                <UserPlus className="w-4 h-4 text-purple-800" />
+                <span>+ Temporary Staff</span>
               </button>
             )}
 
@@ -513,37 +515,53 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
       {activeTab === 'payroll' && (
         <div className="space-y-3">
           {/* Sub-filter: All / Permanent / Temporary */}
-          <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-bold pb-1">
-            <button
-              type="button"
-              onClick={() => setStaffTypeFilter('ALL')}
-              className={`px-3 py-1.5 rounded-xl transition-all ${staffTypeFilter === 'ALL'
-                ? 'bg-brand-forest text-white font-black shadow-xs'
-                : 'bg-white text-content-muted border border-border-subtle hover:text-brand-forest'
+          <div className="flex items-center justify-between gap-2 overflow-x-auto text-xs font-bold pb-1 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setStaffTypeFilter('ALL')}
+                className={`px-3 py-1.5 rounded-xl transition-all ${
+                  staffTypeFilter === 'ALL'
+                    ? 'bg-brand-forest text-white font-black shadow-xs'
+                    : 'bg-white text-content-muted border border-border-subtle hover:text-brand-forest'
                 }`}
-            >
-              All Staff ({staffCounts.total})
-            </button>
-            <button
-              type="button"
-              onClick={() => setStaffTypeFilter('PERMANENT')}
-              className={`px-3 py-1.5 rounded-xl transition-all ${staffTypeFilter === 'PERMANENT'
-                ? 'bg-brand-forest text-white font-black shadow-xs'
-                : 'bg-white text-content-muted border border-border-subtle hover:text-brand-forest'
+              >
+                All Staff ({staffCounts.total})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStaffTypeFilter('PERMANENT')}
+                className={`px-3 py-1.5 rounded-xl transition-all ${
+                  staffTypeFilter === 'PERMANENT'
+                    ? 'bg-brand-forest text-white font-black shadow-xs'
+                    : 'bg-white text-content-muted border border-border-subtle hover:text-brand-forest'
                 }`}
-            >
-              Permanent ({staffCounts.permanent})
-            </button>
-            <button
-              type="button"
-              onClick={() => setStaffTypeFilter('TEMPORARY')}
-              className={`px-3 py-1.5 rounded-xl transition-all ${staffTypeFilter === 'TEMPORARY'
-                ? 'bg-purple-900 text-white font-black shadow-xs'
-                : 'bg-purple-50 text-purple-900 border border-purple-200 hover:bg-purple-100'
+              >
+                Permanent ({staffCounts.permanent})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStaffTypeFilter('TEMPORARY')}
+                className={`px-3 py-1.5 rounded-xl transition-all ${
+                  staffTypeFilter === 'TEMPORARY'
+                    ? 'bg-purple-900 text-white font-black shadow-xs'
+                    : 'bg-purple-50 text-purple-900 border border-purple-200 hover:bg-purple-100'
                 }`}
-            >
-              Temporary / Daily ({staffCounts.temporary})
-            </button>
+              >
+                Temporary / Daily ({staffCounts.temporary})
+              </button>
+            </div>
+
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => setIsAddTemporaryOpen(true)}
+                className="px-3 py-1.5 rounded-xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-black flex items-center gap-1.5 shadow-sm transition-all shrink-0"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>+ Temporary Staff</span>
+              </button>
+            )}
           </div>
 
           {isLoading && !summaryData && (
@@ -634,28 +652,59 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
                     </span>
                   </div>
 
-                  <div className="p-2.5 rounded-2xl bg-surface-cream border border-border-subtle">
-                    <span className="text-[10px] text-content-muted font-bold block uppercase">
-                      Attendance Days
-                    </span>
-                    <span className="font-mono font-bold text-[#1E293B] mt-0.5 block">
-                      {item.attendance.presentDays} / {item.attendance.scheduledWorkingDays ?? (item.cycleBounds.eligibleDays - (item.attendance.weeklyOffDays || 0))} Working Days
-                    </span>
-                    <div className="flex items-center gap-1 text-[9px] font-bold mt-0.5 flex-wrap">
-                      <span className="text-emerald-700">{item.attendance.presentDays} Pres</span>
-                      <span className="text-content-muted">•</span>
-                      <span className={item.attendance.absentDays > 0 ? "text-red-600 font-black" : "text-content-muted"}>
-                        {item.attendance.absentDays} Abs
+                  <div
+                    onClick={() => setSelectedBreakdownStaff(item as unknown as StaffBreakdownData)}
+                    className="p-2.5 rounded-2xl bg-surface-cream border border-border-subtle cursor-pointer hover:border-brand-forest/60 hover:bg-emerald-50/40 transition-all flex flex-col justify-between group"
+                    title="Click to view detailed monthly attendance & salary breakdown"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-content-muted font-bold block uppercase">
+                          Attendance
+                        </span>
+                        <span className="text-[9px] text-brand-forest font-bold group-hover:underline">
+                          Breakdown ↗
+                        </span>
+                      </div>
+                      <span className="font-mono font-bold text-[#1E293B] mt-0.5 block text-xs">
+                        {item.attendance.paidDays} / {item.cycleBounds.totalDaysInMonth} Days
                       </span>
-                      <span className="text-content-muted">•</span>
-                      <span className="text-blue-700">{item.attendance.weeklyOffDays || 0} Offs</span>
+                    </div>
+
+                    {/* Prominent, vibrant color badges */}
+                    <div className="flex items-center gap-1 text-[9px] font-bold mt-1.5 flex-wrap">
+                      <span className="px-1.5 py-0.5 rounded-md font-black bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-0.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block"></span>
+                        {item.attendance.presentDays} P
+                      </span>
+
+                      <span className={`px-1.5 py-0.5 rounded-md font-black flex items-center gap-0.5 ${
+                        item.attendance.absentDays > 0
+                          ? 'bg-rose-100 text-rose-800 border border-rose-300 ring-1 ring-rose-400'
+                          : 'bg-slate-100 text-slate-500 border border-slate-200'
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full inline-block ${
+                          item.attendance.absentDays > 0 ? 'bg-rose-600' : 'bg-slate-400'
+                        }`}></span>
+                        {item.attendance.absentDays} A
+                      </span>
+
+                      <span className="px-1.5 py-0.5 rounded-md font-bold bg-sky-50 text-sky-700 border border-sky-200">
+                        {item.attendance.weeklyOffDays || 0} Off
+                      </span>
+
                       {item.attendance.halfDays > 0 && (
-                        <>
-                          <span className="text-content-muted">•</span>
-                          <span className="text-amber-700">{item.attendance.halfDays} Half</span>
-                        </>
+                        <span className="px-1.5 py-0.5 rounded-md font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                          {item.attendance.halfDays} H
+                        </span>
                       )}
                     </div>
+
+                    {item.attendance.absentDays > 0 && (
+                      <span className="text-[9px] text-rose-700 font-bold block mt-0.5">
+                        -₹{Math.round(item.attendance.absentDays * item.calculation.perDayRate)} absent cut
+                      </span>
+                    )}
                   </div>
 
                   <div className="p-2.5 rounded-2xl bg-emerald-50 border border-emerald-200">
@@ -665,10 +714,16 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
                     <span className="font-mono font-black text-emerald-950 mt-0.5 block">
                       ₹ {item.calculation.earnedSalary.toLocaleString('en-IN')}
                     </span>
-                    {item.calculation.fixedIncentive > 0 && (
+                    {item.attendance.absentDays > 0 ? (
+                      <span className="text-[9px] text-rose-700 font-semibold block">
+                        ({item.attendance.absentDays}d absent deducted)
+                      </span>
+                    ) : item.calculation.fixedIncentive > 0 ? (
                       <span className="text-[9px] text-emerald-700 block">
                         +₹{item.calculation.fixedIncentive} inc.
                       </span>
+                    ) : (
+                      <span className="text-[9px] text-emerald-700 block">Full attendance</span>
                     )}
                   </div>
 
@@ -710,6 +765,17 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {/* View Monthly Breakdown Button */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBreakdownStaff(item as unknown as StaffBreakdownData)}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-300 hover:bg-emerald-100 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs"
+                      title="View complete date-wise attendance & salary statement"
+                    >
+                      <Calendar className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>Monthly Breakdown</span>
+                    </button>
+
                     {/* View / Print Payslip */}
                     <button
                       type="button"
@@ -938,6 +1004,21 @@ export function SalaryManagementPanel({ shopId, shopName, isOwner = false }: Pro
           onClose={() => setIsAddTemporaryOpen(false)}
           shopId={shopId}
           onSuccess={fetchSummary}
+        />
+      )}
+
+      {/* 7. Detailed Monthly Attendance & Salary Breakdown Modal */}
+      {selectedBreakdownStaff && (
+        <StaffMonthlyBreakdownModal
+          isOpen={true}
+          onClose={() => setSelectedBreakdownStaff(null)}
+          staffData={selectedBreakdownStaff}
+          month={selectedMonth}
+          onOpenPayslip={(id) => setPayslipModalStaffId(id)}
+          onOpenAdvance={(id) => {
+            setAdvanceModalStaffId(id);
+            setIsAdvanceModalOpen(true);
+          }}
         />
       )}
     </div>
